@@ -1138,7 +1138,9 @@ def test_shared_pnl_keeps_each_book_apart_with_its_trade_count(monkeypatch):
     monkeypatch.setattr(server.repo, "realized_pnl", lambda cur, uid, mode: sums[mode])
     monkeypatch.setattr(server.repo, "closed_trade_counts", lambda cur, uid: {"paper": 12, "demo": 40})
     snap = server._post_snapshot(None, 1, "pnl", 0)
-    assert snap == {"kind": "pnl", "paper_pnl": 120.5, "live_pnl": -0.6, "paper_trades": 12, "live_trades": 0}
+    # Each book on its own figure, demo too (a demo-only share read "no trades yet" twice, walked 2026-10-31): never added together.
+    assert snap == {"kind": "pnl", "paper_pnl": 120.5, "demo_pnl": 999.0, "live_pnl": -0.6, "paper_trades": 12, "demo_trades": 40,
+                    "live_trades": 0}
 
 
 def test_shared_strategy_and_deployment_say_over_what_span(monkeypatch):
