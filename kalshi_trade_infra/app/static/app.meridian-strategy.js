@@ -11,7 +11,7 @@ window.TauPage('strategy', (T) => {
     gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4,
-    tone, tradePrice, usd, when, whyFailedHtml
+    tone, tradePrice, usd, when, whyFailedHtml, errText
   } = T;
 
   // ---------- strategy research paper (RESEARCH_PIPELINE_DESIGN.md §D) ----------
@@ -1037,7 +1037,7 @@ window.TauPage('strategy', (T) => {
             root.querySelector('#gates').innerHTML = gatesHtml(r.gates);
             paintFigs(root.querySelector('#figs'), { ...r });
             wi.querySelector('#wflash').innerHTML = (fee === 1 && slip === 0 && stake === s.stake) ? '' : notice(r.passed ? 'Still passes every gate under these conditions.' : 'Would fail at least one gate under these conditions.', r.passed ? 'good' : 'bad');
-          } catch (e) { wi.querySelector('#wflash').innerHTML = notice(e.message, 'bad'); }
+          } catch (e) { wi.querySelector('#wflash').innerHTML = notice(errText(e), 'bad'); }
           root.querySelector('#sheet-results').style.opacity = '';
         }, 250);
       };

@@ -412,7 +412,7 @@ def test_funds_paper_history_pages_older_entries_and_refuses_a_bad_id():
     for bad in (None, "", "abc", "12x", "0", "-4", "1.5"):
         with pytest.raises(server.ApiError) as e:
             page(bad)
-        assert e.value.status == 400 and str(e.value) == "Bad entry id."
+        assert e.value.status == 400 and str(e.value) == "Tau couldn’t load older entries. Reload the page and try again."
 
 
 def test_funds_reads_the_demo_balance_and_a_new_key_is_never_shown_an_old_balance(monkeypatch):
@@ -1385,7 +1385,9 @@ def test_explore_market_errors_never_show_the_raw_exception(monkeypatch, capsys)
     monkeypatch.setattr(common, "api_get", missing)
     with pytest.raises(server.ApiError) as err:
         server.explore_market(c)
-    assert err.value.status == 404 and "no market KXNBAGAME-26OCT25TORMIN-MIN" in str(err.value)
+    # The market page's own words (core.js MKT_GONE), never the raw code from the link.
+    assert err.value.status == 404 and str(err.value).startswith("Kalshi has no market at this link.")
+    assert "KXNBAGAME" not in str(err.value)
 
 
 def test_explore_market_shows_the_market_when_only_its_history_failed(monkeypatch, capsys):

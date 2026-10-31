@@ -1072,6 +1072,6 @@ def autopilot_model(ctx: Ctx):
     per-run). Validated against the catalog; empty/unknown clears back to the catalog default."""
     key = (ctx.body.get("model") or "").strip() or None
     if key is not None and catalog.get(key) is None:
-        raise ApiError(400, "Unknown model.")
+        raise ApiError(400, "Pick a model from the list, or leave it on the default.")  # as a research session's says
     repo.set_autopilot_model(ctx.cur, ctx.uid, key)
     return {"ok": True, "model": key or catalog.DEFAULT_KEY}

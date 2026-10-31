@@ -136,9 +136,9 @@ def funds_ledger(ctx: Ctx):
     try:
         before = int(ctx.query.get("before"))
     except (TypeError, ValueError):
-        raise ApiError(400, "Bad entry id.")
-    if before <= 0:
-        raise ApiError(400, "Bad entry id.")
+        before = 0
+    if before <= 0:  # it said "Bad entry id."
+        raise ApiError(400, "Tau couldn’t load older entries. Reload the page and try again.")
     rows = list(repo.ledger_rows_before(ctx.cur, ctx.uid, before, repo.LEDGER_LISTED + 1))
     return {"ledger": rows[:repo.LEDGER_LISTED], "more": len(rows) > repo.LEDGER_LISTED}
 

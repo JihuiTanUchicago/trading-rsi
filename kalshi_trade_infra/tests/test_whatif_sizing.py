@@ -76,4 +76,4 @@ def test_a_real_data_failure_still_says_the_data_is_unavailable(world, monkeypat
     monkeypatch.setattr(backtest, "dataset", lambda market: (_ for _ in ()).throw(RuntimeError("db gone")))
     with pytest.raises(ApiError) as e:
         _what_if({})
-    assert e.value.status == 503 and str(e.value) == "Backtest data is not available right now."
+    assert e.value.status == 503 and str(e.value) == "The backtest data didn’t load just now. Try again in a moment."

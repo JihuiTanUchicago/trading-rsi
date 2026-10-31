@@ -69,6 +69,7 @@ import {a11yCases} from './a11y_frontend_cases.mjs';
 import {trackRecordTrustCases} from './track_record_trust_frontend_cases.mjs';
 import {slippageEstimateCases} from './slippage_estimate_frontend_cases.mjs';
 import {newUserCases} from './new_user_frontend_cases.mjs';
+import {errorWordsCases} from './error_words_frontend_cases.mjs';
 import {sessionStateCases} from './session_state_frontend_cases.mjs';
 import {firstSessionCases} from './first_session_frontend_cases.mjs';
 import {checkinCadenceCases} from './checkin_cadence_frontend_cases.mjs';
@@ -6389,6 +6390,7 @@ sessionStateCases({name: 'Tau', frontend, detailStrategy, strategyFrontend, dash
 firstSessionCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn,
   storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 checkinCadenceCases({name: 'Tau', frontend, detailStrategy, strategyFrontend, dashboard: emptyDashboard});
+errorWordsCases({name: 'Tau', frontend, strategyFrontend, detailStrategy});
 
 test('Tau: the composer’s hint fits its one line at 390px, with a curly apostrophe, and the picker takes its own row', async () => {
   // Walk 2026-10-27 at 390px: "Share an idea, a strategy, or how it's going…" wrapped in the one-line box (cut

@@ -60,6 +60,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 MAX_BODY = 8 * 1024 * 1024  # allows a base64 image in a community post
 # Routes with a smaller body cap, checked from Content-Length before the body is read.
 BODY_LIMITS = {"/api/client-errors": client_errors.MAX_BODY}
+# The words the dispatcher itself answers with, before any route runs. Each says what to do: a bare "Not found",
+# "Missing request header." or "Malformed JSON." (walk 2026-10-31) named the request's plumbing, and a page still
+# open from before a deploy (calling an address that has since moved) left its reader nowhere to go.
+NOT_FOUND = "Tau couldn’t find that. Reload the page and try again."
+BAD_REQUEST = "Tau couldn’t read that request. Reload the page and try again."
+TOO_LARGE = "That’s too much to send at once. Make it smaller and try again."
 
 CSP = (
     "default-src 'self'; script-src 'self' https://js.stripe.com https://pay.google.com; style-src 'self'; style-src-attr 'unsafe-inline'; "
@@ -847,7 +853,7 @@ class Handler(BaseHTTPRequestHandler):
         """Rolling latency/error stats for the on-box watchdog. Loopback only: through CloudFront the
         peer is an edge address, so the public internet always gets the 404."""
         if self.client_address[0] not in ("127.0.0.1", "::1"):
-            return self._send_json(404, {"error": "Not found"}, [])
+            return self._send_json(404, {"error": NOT_FOUND}, [])
         try:
             window = max(60.0, min(86400.0, float(parse_qs(query).get("window", ["900"])[0])))
         except ValueError:
@@ -880,10 +886,10 @@ class Handler(BaseHTTPRequestHandler):
         if route is None:
             if method == "GET" and not path.startswith(("/api/", "/auth/")):
                 return self._send_static(path, parsed.query)
-            return self._send_json(404, {"error": "Not found"}, [])
+            return self._send_json(404, {"error": NOT_FOUND}, [])
         fn, params, needs_user = route
         if method == "POST" and self.headers.get("X-Recursive") != "1":
-            return self._send_json(403, {"error": "Missing request header."}, [])
+            return self._send_json(403, {"error": BAD_REQUEST}, [])
         conn = None
         ctx = None
         try:
@@ -891,12 +897,12 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST":
                 length = int(self.headers.get("Content-Length") or 0)
                 if length > BODY_LIMITS.get(path, MAX_BODY):
-                    raise ApiError(413, "Request too large.")
+                    raise ApiError(413, TOO_LARGE)
                 raw = self.rfile.read(length) if length else b""
                 self._body_read = True
                 body = json.loads(raw) if raw else {}
                 if not isinstance(body, dict):
-                    raise ApiError(400, "Expected a JSON object.")
+                    raise ApiError(400, BAD_REQUEST)
             conn = get_db_conn()
             user = None
             token = self.cookies().get(auth.SESSION_COOKIE)
@@ -944,7 +950,7 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as e:
             self._send_json(e.status, {"error": e.message}, ctx.set_cookies if ctx else [])
         except json.JSONDecodeError:
-            self._send_json(400, {"error": "Malformed JSON."}, [])
+            self._send_json(400, {"error": BAD_REQUEST}, [])
         except (BrokenPipeError, ConnectionResetError):
             # The browser left before the reply (a navigation, a closed tab). There is no one to send
             # a 500 to, and it isn't a server failure: log it as 499 so /internal/perf's 5xx count

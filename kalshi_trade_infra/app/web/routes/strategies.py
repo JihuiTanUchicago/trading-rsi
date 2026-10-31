@@ -817,7 +817,7 @@ def what_if(ctx: Ctx):
     try:
         res = backtest.evaluate(spec, backtest.dataset(s["market"]), w)
     except Exception:
-        raise ApiError(503, "Backtest data is not available right now.")
+        raise ApiError(503, "The backtest data didn’t load just now. Try again in a moment.")
     return {k: res[k] for k in ("in_sample", "out_of_sample", "equity", "gates", "passed", "capital")}
 
 

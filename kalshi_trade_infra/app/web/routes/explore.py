@@ -218,7 +218,7 @@ def explore_market(ctx: Ctx):
     import time as _time
     ticker = (ctx.query.get("ticker") or "").strip()
     if not ticker:
-        raise ApiError(400, "No market given.")
+        raise ApiError(400, "This link names no market. Find one on Explore.")
     series = ticker.split("-", 1)[0]
     m: Dict = {}
     open_ts = None
@@ -238,7 +238,9 @@ def explore_market(ctx: Ctx):
     except Exception as e:
         # The raw error named the proxy and Kalshi's host to the user; keep that in the log.
         if " failed 404:" in str(e):  # api_get's RuntimeError carries the status in its text
-            raise ApiError(404, "Kalshi has no market %s." % ticker)
+            # The words the market page says (core.js MKT_GONE), never the raw code from the link ("KXNOPE-…").
+            raise ApiError(404, "Kalshi has no market at this link. It may have been taken down, or the link is "
+                                "incomplete. Find it again on Explore.")
         print("[explore] market %s history failed: %r" % (ticker, e), flush=True)
         # Still show the market: Kalshi's own record if that call got through, else the Explore
         # feed's snapshot of it. Only the chart waits for Kalshi (history_unavailable).

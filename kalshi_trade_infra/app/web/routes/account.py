@@ -81,7 +81,7 @@ def mark_notifications_read(ctx: Ctx):
 def set_ui_theme(ctx: Ctx):
     theme = str(ctx.body.get("theme") or "").strip()
     if theme not in ("tau", "meridian"):
-        raise ApiError(400, "Unknown theme.")
+        raise ApiError(400, "Pick Tau or Meridian.")
     repo.set_ui_theme(ctx.cur, ctx.uid, theme)
     _sync_ui_cookie(ctx, theme)  # the reload that follows gets the new theme's shell
     return {"ok": True, "theme": theme}

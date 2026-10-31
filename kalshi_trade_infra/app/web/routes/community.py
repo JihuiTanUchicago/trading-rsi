@@ -204,7 +204,7 @@ def create_community_post(ctx: Ctx):
     kind = ctx.body.get("kind") or "note"
     image = ctx.body.get("image")
     if kind not in ("note", "strategy", "deployment", "pnl"):
-        raise ApiError(400, "Unknown post type.")
+        raise ApiError(400, "Pick what to share: a note, a strategy, a deployment or your P&L.")
     if not body and kind == "note" and not image:
         raise ApiError(400, "Write something or attach a photo first.")
     if len(body) > 2000:
@@ -296,7 +296,7 @@ def react_post(ctx: Ctx):
     pid = _int_param(ctx)
     emoji = str(ctx.body.get("emoji") or "")
     if emoji not in REACTION_EMOJI:
-        raise ApiError(400, "Unsupported reaction.")
+        raise ApiError(400, "Pick one of the reactions in the list.")
     if not repo.post_exists(ctx.cur, pid):
         raise ApiError(404, "No such post.")
     repo.toggle_reaction(ctx.cur, pid, ctx.uid, emoji)
