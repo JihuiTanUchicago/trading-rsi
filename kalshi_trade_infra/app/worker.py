@@ -214,6 +214,8 @@ def research_floor_due(cur, uid: int) -> bool:
         return False
     if agent.MAX_GLOBAL_ACTIVE_RESEARCH and repo.count_active_research(cur) >= agent.MAX_GLOBAL_ACTIVE_RESEARCH:
         return False
+    if agent.autopilot_over_budget(cur, uid):  # Todd 2026-10-31: $240/day of autopilot research
+        return False
     last = repo.list_runs(cur, uid, limit=1)
     if last and now - last[0]["created_at"] < timedelta(minutes=RESEARCH_FLOOR_MINUTES):
         return False

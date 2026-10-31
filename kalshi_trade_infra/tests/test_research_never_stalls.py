@@ -149,3 +149,27 @@ def test_the_floor_runs_one_probe_per_kind_tested_too_little_before_standing_dow
     monkeypatch.setattr(agent.repo, "list_runs", lambda cur, uid, limit=500: [
         {"market": "btc_daily", "prompt": idea}, {"market": "btc15m", "prompt": "Order flow."}])
     assert agent._probed(None, 1) == {("btc_daily", "tick discreteness / rounding")}
+
+
+def test_autopilot_research_stops_at_the_daily_spend_cap(monkeypatch):
+    """Todd 2026-10-31 (card): reopen weather and sports research with a $240/day cap. The floor and
+    the reviews start nothing once the last 24 hours of research cost that much."""
+    runs = _all_cooling(monkeypatch)
+    r = agent.repo
+    spent = {"tokens": 0}
+    monkeypatch.setattr(r, "research_token_rows", lambda cur, uid, since: [
+        {"model": "opus-4-6", "input_tokens": spent["tokens"], "output_tokens": 0}])
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 240.0)
+    assert not agent.autopilot_over_budget(None, 1)
+    spent["tokens"] = 200_000_000                                   # far past $240 at any model's price
+    assert agent.research_spend(None, 1) > 240 and agent.autopilot_over_budget(None, 1)
+    msg, _ = agent.act(None, USER, {"type": "research", "market": None,
+                                    "idea": "Order-flow imbalance on short-dated contracts."}, True)
+    assert "$240" in msg and runs == []
+    monkeypatch.setattr(worker.billing, "is_ready", lambda cur, uid: True)
+    monkeypatch.setattr(worker.repo, "list_runs", lambda cur, uid, limit=1: [
+        {"created_at": NOW - worker.timedelta(minutes=worker.RESEARCH_FLOOR_MINUTES + 1)}])
+    assert not worker.research_floor_due(None, 1)
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 0.0)  # 0 = no cap
+    monkeypatch.setattr(agent, "autopilot_research_exhausted", lambda cur, uid: False)
+    assert worker.research_floor_due(None, 1)

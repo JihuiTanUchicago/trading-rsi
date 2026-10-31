@@ -737,6 +737,29 @@ def _scope_coin_words(conj: str) -> str:
     return names[0] if len(names) == 1 else "%s %s %s" % (", ".join(names[:-1]), conj, names[-1])
 
 
+# Todd 2026-10-31 20:33Z (card "Reopen taker research on weather and sports to find a pass faster?"):
+# "Yes, weather + sports, $240/day cap". The autopilot starts no research once the user's research runs
+# created in the last 24 hours cost this much, priced as the research watch prices them (rsi.run_cost_usd).
+# Research a person starts by hand is not limited. 0 = no cap.
+AUTOPILOT_RESEARCH_USD_PER_DAY = float(os.getenv("TAU_AUTOPILOT_RESEARCH_USD_PER_DAY", "240"))
+
+
+def research_spend(cur, user_id: int, hours: float = 24) -> float:
+    """Model spend of the user's research runs created in the last `hours`."""
+    from app.research import rsi
+    rows = repo.research_token_rows(cur, user_id, repo.now_utc() - timedelta(hours=hours))
+    return sum(rsi.run_cost_usd(r) for r in rows)
+
+
+def autopilot_over_budget(cur, user_id: int) -> bool:
+    if AUTOPILOT_RESEARCH_USD_PER_DAY <= 0:
+        return False
+    try:
+        return research_spend(cur, user_id) >= AUTOPILOT_RESEARCH_USD_PER_DAY
+    except Exception:  # noqa: BLE001 - a read hiccup must not stop research; the watch shows spend
+        return False
+
+
 def autopilot_scope_ok(market: Optional[str]) -> bool:
     """False for a crypto market whose coin the autopilot no longer researches (AUTOPILOT_CRYPTO_COINS)."""
     if not market or not AUTOPILOT_CRYPTO_COINS:
@@ -4532,6 +4555,9 @@ def act(cur, user: Dict, action: Dict, autopilot: bool, dataset_fn=backtest.data
                 cur, user_id, "research", since=repo.now_utc() - timedelta(days=1)) >= MAX_RESEARCH_PER_DAY:
             return ("You’ve hit the daily research limit (%d) — it resets over the next 24 hours, "
                     "and I’ll resume then." % MAX_RESEARCH_PER_DAY), None
+        if autopilot and autopilot_over_budget(cur, user_id):
+            return ("Autopilot research has used its $%.0f for the last 24 hours, the cap you set. I’ll start "
+                    "more as that spend rolls off." % AUTOPILOT_RESEARCH_USD_PER_DAY), None
         if MAX_GLOBAL_ACTIVE_RESEARCH and repo.count_active_research(cur) >= MAX_GLOBAL_ACTIVE_RESEARCH:
             return ("The research queue is full right now — I’ll start this once a slot frees up.", None)
         if sid:
