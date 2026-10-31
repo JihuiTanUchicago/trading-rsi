@@ -78,6 +78,12 @@ def older(rows: List[Dict], items: List[Dict]) -> bool:
     return sum(1 + n["more"] for n in items) < len(rows)
 
 
+def unread_listed(rows: List[Dict], items: List[Dict]) -> int:
+    """Unread notices among the ones `items` stand for (the newest rows, in order). The bell's count is every unread
+    notice; past its lines it says how many of the older ones are new too, so the count and the list agree."""
+    return sum(1 for r in rows[:sum(1 + n["more"] for n in items)] if r.get("read_at") is None)
+
+
 def unread_kinds(rows: List[Dict]) -> Dict[str, int]:
     """{kind: unread notices} among `rows`, so a list that filled up while the user was away can open
     with what it holds ("5 put on paper, 1 paused, 1 passed its paper test") before 20 lines of it.

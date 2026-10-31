@@ -520,7 +520,7 @@ test('this bundle keeps the keyboard and screen-reader contracts of the main flo
   // The full-screen sheet keeps Tab inside it; the bell and the profile menu close when focus leaves.
   assert.match(source, /if \(e\.key === 'Tab' && apSheet\(\) && apExpanded\(\)\) apSheetTab\(box, e\);/);
   assert.match(source, /const apSheet = \(\) => !!\(window\.matchMedia && window\.matchMedia\('\(max-width: 600px\)'\)\.matches\);/);
-  assert.match(source, /wrap\.addEventListener\('focusout', \(e\) => \{ if \(!menu\.hidden && !wrap\.contains\(e\.relatedTarget\)\) close\(\); \}\);/);
+  assert.match(source, /wrap\.addEventListener\('focusout', \(e\) => \{\s+if \(menu\.hidden \|\| wrap\.contains\(e\.relatedTarget\)\) return;\s+close\(\);/);
   assert.match(source, /prof\.addEventListener\('focusout', \(e\) => \{ if \(!menu\.hidden && !prof\.contains\(e\.relatedTarget\)\) close\(\); \}\);/);
   // Every field a reader meets has a name of its own, and the hidden photo picker (driven by the
   // Photo button) is not an unnamed, invisible tab stop.

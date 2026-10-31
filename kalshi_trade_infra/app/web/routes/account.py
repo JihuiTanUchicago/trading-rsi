@@ -70,7 +70,9 @@ def notifications(ctx: Ctx):
             # summary says which window its parts cover when the two differ ("131 new; the newest 100: …").
             "unread_kinds": bell.unread_kinds(rows), "unread_kinds_of": bell.READ_ROWS,
             # The bell lists its newest notices only, and says so under them when there are older ones.
-            "older": bell.older(read, items)}
+            "older": bell.older(read, items),
+            # Unread notices the listed lines stand for: `unread` past them are older ones, said under the list.
+            "unread_listed": bell.unread_listed(rows, items)}
 
 
 def mark_notifications_read(ctx: Ctx):

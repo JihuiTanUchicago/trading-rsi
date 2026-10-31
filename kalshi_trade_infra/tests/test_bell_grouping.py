@@ -146,3 +146,20 @@ def test_the_bell_says_when_older_notices_are_past_its_lines(monkeypatch):
     monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20: run[:limit])
     out = server.notifications(ctx)
     assert (len(out["items"]), out["items"][0]["more"], out["older"]) == (1, bell.READ_ROWS - 1, True)
+
+
+def test_the_bell_says_how_many_unread_notices_its_lines_stand_for(monkeypatch):
+    # 47 unread and 20 lines: the list shows 20 new ones and says the other 27 are older, so the count agrees.
+    rows = [_row(500 - i, "deployed", "/strategies/%d" % i, read=True) for i in range(bell.READ_ROWS + 1)]
+    for r in rows[:47]:
+        r["read_at"] = None
+    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20: rows[:limit])
+    monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 47)
+    out = server.notifications(type("C", (), {"cur": None, "uid": 1})())
+    assert len(out["items"]) == bell.SHOWN and out["unread_listed"] == bell.SHOWN and out["older"] is True
+    # A grouped line counts every unread notice it stands for, and a read one in it none.
+    grouped = [_row(9, "comment", "/community#post-4", read=False), _row(8, "comment", "/community#post-4"),
+               _row(7, "comment", "/community#post-4", read=False), _row(6, "share", None, read=False)]
+    assert bell.unread_listed(grouped, bell.grouped(grouped)) == 3
+    assert bell.unread_listed(grouped, bell.grouped(grouped, shown=1)) == 2
+    assert bell.unread_listed([], []) == 0

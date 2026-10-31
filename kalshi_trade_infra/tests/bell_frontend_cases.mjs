@@ -415,4 +415,94 @@ export function bellCases({name, frontend, detailStrategy}) {
     assert.match(f.root.querySelector('#feed-note').textContent, /That post isn’t here any more/);
     assert.ok(f.root.querySelector('.post[data-id="40"]'));
   });
+
+  test(`${name}: with more new notices than lines, the note under the list says how many older ones are new, until it closes`, async () => {
+    // 47 new and 20 lines: the count said 47 while the list showed 20 new lines and "Older notices aren't listed here."
+    const items = Array.from({length: 20}, (_, i) => ({id: 100 - i, kind: 'deployed', body: `Autopilot put “Idea ${i}” on paper: it passed every research gate.`,
+      link: `/strategies/${100 - i}`, created_at: ago((i + 1) * 60e3), read: false, more: 0}));
+    const f = dashboard({unread: 47, unread_listed: 20, older: true, items, unread_kinds: {deployed: 47}});
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const wrap = f.root.querySelector('.bell-wrap'), trig = wrap.querySelector('.bell-trig');
+    assert.equal(wrap.querySelector('.bell-new').textContent, '47 new');
+    assert.equal(wrap.querySelectorAll('.notif.unread').length, 20);
+    assert.equal(wrap.querySelector('.bell-older').textContent, 'Older notices aren’t listed here, including 27 new ones.');
+    await trig.onclick({stopPropagation() {}}); await settle();
+    await trig.onclick({stopPropagation() {}}); await settle();  // read and closed: no longer new
+    assert.ok(wrap.querySelectorAll('.bell-older-new').every((e) => e.removed));
+    // One new past the lines says "one"; none (or a server that doesn't say) reads as before.
+    for (const [d, want] of [[{unread: 21, unread_listed: 20}, 'Older notices aren’t listed here, including 1 new one.'],
+      [{unread: 20, unread_listed: 20}, 'Older notices aren’t listed here.'], [{unread: 30}, 'Older notices aren’t listed here.']]) {
+      const g = dashboard({...d, older: true, items: structuredClone(items)});
+      g.location.pathname = '/';
+      await g.render(); await settle();
+      assert.equal(g.root.querySelector('.bell-older').textContent.replace(/<[^>]*>/g, ''), want);
+      g.clearTimers && g.clearTimers();
+    }
+  });
+
+  test(`${name}: read in another tab, this tab's bell agrees when the tab comes back or its window is focused, by a read only`, async () => {
+    // Opening the bell in one tab marks the list read on the server; the other tab said "2 unread" until its next
+    // minute's tick, also right after the reader came back to it (walk 2026-10-31).
+    const notes = {unread: 2, items: [
+      {id: 8, kind: 'paused', body: '“Edge” was paused automatically.', link: '/strategies/7', created_at: ago(30e3), read: false, more: 0},
+      {id: 7, kind: 'passed', body: '“Edge” passed the paper forward gate and is a deployment candidate.', link: '/strategies/7', created_at: ago(90e3), read: false, more: 0}]};
+    const winOn = [];
+    const f = frontend({notifications: () => response(structuredClone(notes)), win: {addEventListener: (n, fn) => winOn.push([n, fn])},
+      fetchImpl: (path) => response(path === '/api/autopilot/status' ? {mode: 'off'} : {})});
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const trig = f.root.querySelector('.bell-trig'), dot = f.root.querySelector('.bell-dot');
+    const flip = async (hidden) => { f.document.hidden = hidden; for (const [n, fn] of f.documentListeners) if (n === 'visibilitychange') fn({}); await settle(); };
+    const focus = async () => { for (const [n, fn] of winOn) if (n === 'focus') fn({}); await settle(); };
+    const marks = () => f.requests.filter(({path}) => path === '/api/notifications/read').length;
+    assert.equal(trig.getAttribute('aria-label'), 'Notifications, 2 unread'); assert.equal(notesRead(f), 1);
+    notes.unread = 0; notes.items.forEach((n) => { n.read = true; });  // the other tab opened its bell
+    await flip(true); await flip(false);
+    assert.equal(notesRead(f), 1, 'not straight after the last read');
+    await flip(true); f.shiftClock(2e3); await flip(false);  // a few seconds in the other tab
+    assert.equal(notesRead(f), 2);
+    assert.equal(dot.hidden, true); assert.equal(trig.getAttribute('aria-label'), 'Notifications');
+    assert.equal(f.root.querySelectorAll('.notif.unread').length, 0);
+    assert.equal(f.root.querySelector('.bell-new'), null);
+    // Two windows side by side never go hidden: focusing this one reads it too, once.
+    notes.unread = 1;
+    notes.items.unshift({id: 9, kind: 'comment', body: 'Ana replied to your post.', link: '/community#post-4', created_at: ago(5e3), read: false, more: 0});
+    f.shiftClock(5e3); await focus();
+    assert.equal(notesRead(f), 2, 'a focus within 15 seconds of the last read adds none');
+    f.shiftClock(11e3); await focus();
+    assert.equal(notesRead(f), 3);
+    assert.equal(dot.hidden, false); assert.equal(trig.getAttribute('aria-label'), 'Notifications, 1 unread');
+    await focus();
+    assert.equal(notesRead(f), 3, 'focus flapping adds no read');
+    assert.equal(marks(), 0, 'nothing is marked read unless the reader opens the bell');
+    f.clearTimers && f.clearTimers();
+  });
+
+  test(`${name}: closed by a tap outside on nothing that takes focus, the list gives focus back to the bell; Tab to a control keeps it there`, async () => {
+    const f = dashboard({unread: 1, items: [
+      {id: 8, kind: 'paused', body: '“Edge” was paused automatically.', link: '/strategies/7', created_at: ago(30e3), read: false, more: 0}]});
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const wrap = f.root.querySelector('.bell-wrap'), trig = wrap.querySelector('.bell-trig'), menu = wrap.querySelector('.bell-menu');
+    const open = async () => { await trig.onclick({stopPropagation() {}}); await settle(); trig.focusOptions = undefined; };  // each fake records the focus it was handed
+    await open();
+    wrap.dispatchEvent({type: 'focusout', relatedTarget: null});  // a tap on the page's text: focus goes to no control
+    assert.equal(menu.hidden, true);
+    f.elapse(0);  // once the browser has moved it
+    assert.equal(trig.focusOptions && trig.focusOptions.preventScroll, true);
+    // A container focused only by script (tabindex="-1", as a page's main is) is no control either.
+    await open();
+    const pane = f.document.createElement('div'); pane.setAttribute('tabindex', '-1');
+    wrap.dispatchEvent({type: 'focusout', relatedTarget: pane});
+    f.elapse(0);
+    assert.equal(menu.hidden, true); assert.ok(trig.focusOptions);
+    // Tab or a tap onto a control: focus stays where it went.
+    await open();
+    const control = f.document.createElement('button');
+    wrap.dispatchEvent({type: 'focusout', relatedTarget: control});
+    f.elapse(0);
+    assert.equal(menu.hidden, true); assert.equal(trig.focusOptions, undefined);
+    f.clearTimers && f.clearTimers();
+  });
 }
