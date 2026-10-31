@@ -224,3 +224,17 @@ test('closedToday tells a book with no trade today from one that broke even, and
   assert.equal(closedToday([], 'paper', 0, now), false);
   assert.equal(closedToday(undefined, 'paper', undefined, now), false);
 });
+
+// Time walk 2026-10-31 (Europe/Berlin, the day after its clock change): Billing filed a 00:30 CEST charge under the day
+// before, by today's offset. localDay goes by the offset in force at the instant itself; given one, by that one.
+test('localDay is the day an instant fell on at a given offset, and the instant’s own offset by default', () => {
+  const {localDay} = core();
+  const at = '2026-10-20T22:30:00Z';  // 00:30 the next day two hours ahead of UTC (summer time), 23:30 at one hour
+  assert.equal(localDay(at, -120), '2026-10-21');
+  assert.equal(localDay(at, -60), '2026-10-20');
+  assert.equal(localDay(at, 0), '2026-10-20');
+  assert.equal(localDay('2026-10-31T04:30:00Z', 300), '2026-10-30');  // 23:30 in Chicago's summer time
+  assert.equal(localDay('2026-10-31T15:05:00Z', -540), '2026-11-01');  // 00:05 in Tokyo
+  assert.equal(localDay(at), localDay(at, new Date(at).getTimezoneOffset()));
+  assert.equal(localDay(''), ''); assert.equal(localDay('not a time'), ''); assert.equal(localDay(null), '');
+});

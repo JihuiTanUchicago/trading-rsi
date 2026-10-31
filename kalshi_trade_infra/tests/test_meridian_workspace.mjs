@@ -48,6 +48,7 @@ import {moneyAuditCases} from './money_audit_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
+import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
 import {badConnectionCases} from './bad_connection_frontend_cases.mjs';
@@ -1333,6 +1334,9 @@ test('Overview charts cumulative closed paper results separately from all-time P
       assert.match(label, /; (?:low [^;]+ \([A-Z][a-z]{2} \d+\), high [^;]+ \([A-Z][a-z]{2} \d+\)|flat at [^;]+); ends at /);
       assert.equal(performance.querySelector('.sect-note').getAttribute('title'), `${daily[0].d} – ${daily.at(-1).d}`);
       assert.ok(performance.querySelector('.sect-note').textContent.includes(daily.at(-1).d.slice(0, 4)));
+      // Its days are UTC days, as "Today (UTC)" counts them, and it says so (time walk 2026-10-31, Asia/Tokyo).
+      assert.match(performance.querySelector('.sect-note').textContent, /\u00a0· UTC days$/);
+      assert.match(label, /^Cumulative closed paper profit and loss by UTC day from /);
       assert.ok(label.endsWith('; ends at ' + ending)); assert.doesNotMatch(label, /backtest|111\.25/);
       assert.equal(chart.getAttribute('role'), 'group');
       const samples = chart.querySelectorAll('.chart-sample'); assert.equal(samples.length, daily.length);
@@ -6809,6 +6813,7 @@ chatPanelCases({name: 'Meridian', frontend, storageFor: m => m});
 a11yCases({name: 'Meridian', frontend, storageFor: m => m, billingPage, cardedBilling, source, strategyFrontend, detailStrategy,
   dashboard: dashboardData, fundsData: funds, apStatus});
 creditsCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, apStatus});
+timeTruthCases({name: 'Meridian', billingPage, cardedBilling});
 writeWaitCases({name: 'Meridian', frontend, billingPage, cardedBilling, postRequests, storageFor: m => m});
 declinedCardCases({name: 'Meridian', frontend, dashboard: dashboardData});
 flakyNetworkCases({name: 'Meridian', frontend});

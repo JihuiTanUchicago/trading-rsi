@@ -7,7 +7,7 @@ window.TauPage('billing', (T) => {
     alert0, api, apCostWatch, apSessionLine, armed, BEHIND, boardTitle, busy, cardFormFail, CLOCK, CLOCK_ZONE, dateFmt, esc, fig, flash,
     halfUp, holdFocus, ICON, KIND_LABEL, loadFail, loading, loadStripe, num, paceDay, paceTooSoon, paceWords, paint, poll, refreshed,
     retried, root, runwayLabel, S, SEP, sessionTitle, settleAt, shell, stripeFail, syncMeBilling, topupCharge, usd, waitNote, WJ,
-    WEEKDAY_DAY
+    localDay, WEEKDAY_DAY
   } = T;
   const CARDS_UNREAD_BUY = 'Your saved cards didn\u2019t load, so buying credits waits until they do.';
 
@@ -314,7 +314,10 @@ window.TauPage('billing', (T) => {
   // The time of a line, or the span of a session's calls that day, in the viewer's clock.
   const clockAt = (iso, zone) => { const d = new Date(iso || NaN); return Number.isFinite(d.getTime()) ? dateFmt(d, zone ? CLOCK_ZONE : CLOCK) : '—'; };
   const lineWhen = (r) => r.first_at && r.first_at !== r.created_at ? `${clockAt(r.first_at)}–${clockAt(r.created_at, true)}` : clockAt(r.created_at, true);
-  // A statement day ('2026-10-26', the viewer's day from the server) as a heading: "Today" or "Mon, Oct 26".
+  // A line's statement day: the reader's own day its time fell on (localDay, by that time's own offset), not the
+  // server's, which counted every line with today's offset; the server's day only says the line has one.
+  const lineDay = (r) => (r.day ? localDay(r.created_at) || r.day : '');
+  // A statement day ('2026-10-26', the viewer's day) as a heading: "Today" or "Mon, Oct 26".
   const ledgerDay = (day) => {
     const [y, m, dd] = String(day).split('-').map(Number), d = new Date(y, m - 1, dd);
     if (!Number.isFinite(d.getTime())) return esc(day);
@@ -393,7 +396,7 @@ window.TauPage('billing', (T) => {
     const rows = d.ledger || [], feePct = d.topup_fee_pct;
     if (!rows.length) return billMath(d.math) + '<p class="hint">No credit activity yet.</p>';
     const days = [];
-    rows.forEach((r) => { const last = days[days.length - 1]; if (last && last.day === (r.day || '')) last.rows.push(r); else days.push({ day: r.day || '', rows: [r] }); });
+    rows.forEach((r) => { const last = days[days.length - 1], day = lineDay(r); if (last && last.day === day) last.rows.push(r); else days.push({ day, rows: [r] }); });
     const cents = usageCents(d, days);
     // Credits added (a top-up, an auto-reload, the welcome bonus) are not profit: their amount is credit-in, a
     // tone of its own, never the green a P&L gain wears. A debit is credit-out and keeps its minus sign.
@@ -411,7 +414,7 @@ window.TauPage('billing', (T) => {
     };
     // A session's page shows its own total rounded half up; its lines here take the cents their day needs, so one
     // read −$0.73 under a session whose page said $0.72 (walk 2026-10-31). The key says so; the receipt is exact.
-    const key = d.math ? `Last ${d.math.days} days, newest first. Each research line is one session’s model calls that day; open it to see the session. Lines are rounded to the cent so they add up to their day, so a session’s lines can be a cent off the cost its own page shows; the receipt has every call and every card charge, exactly.`
+    const key = d.math ? `Last ${d.math.days} days, newest first. Its days and times are in your time zone; the receipt’s are in UTC. Each research line is one session’s model calls that day; open it to see the session. Lines are rounded to the cent so they add up to their day, so a session’s lines can be a cent off the cost its own page shows; the receipt has every call and every card charge, exactly.`
       : 'Newest first. The receipt has every line, with exact amounts.';
     return `${billMath(d.math)}<p class="hint ledger-key">${key}</p><div class="sheet"><table class="table stack t-dep t-ledger"><thead><tr><th>When</th><th>Item</th><th class="num">Amount</th></tr></thead><tbody>${
       days.map((g) => (g.day ? head(g) : '') + g.rows.map(line).join('')).join('')}</tbody></table></div>${d.ledger_cut ? '<p class="hint">Older days are in the receipt.</p>' : ''}`;
