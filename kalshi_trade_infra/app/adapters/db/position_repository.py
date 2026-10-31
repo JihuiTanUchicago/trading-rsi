@@ -499,7 +499,9 @@ def closed_trades_for_export(cur, user_id: int, mode: str, limit: int) -> List[D
     deployment's strategy is read once, as the LEFT JOINs gave it: a deployment or strategy that is
     gone leaves strategy_id or title None. The strategy's market and when it was made ride along
     (strategy_market, strategy_created), so the file can tell two strategies with one title apart in
-    plain words instead of by their ids."""
+    plain words instead of by their ids, and so does whether the deployment was removed
+    (deployment_removed: its status is 'stopped'), so a removed deployment's trades aren't filed under the
+    same name as the strategy's current deployment. Same two reads, one more column."""
     cur.execute(
         "SELECT p.mode, p.ticker, p.side, p.close_reason, " + _EXPORT_PACKED + """ AS v
            FROM app_positions p
@@ -517,15 +519,16 @@ def closed_trades_for_export(cur, user_id: int, mode: str, limit: int) -> List[D
         return rows
     dep_ids = sorted(set(dep_of))
     cur.execute(
-        "SELECT d.id, d.strategy_id, s.title, s.market AS strategy_market, s.created_at AS strategy_created "
+        "SELECT d.id, d.strategy_id, d.status, s.title, s.market AS strategy_market, s.created_at AS strategy_created "
         "FROM app_deployments d LEFT JOIN app_strategies s ON s.id=d.strategy_id "
         "WHERE d.id IN (" + ",".join(["%s"] * len(dep_ids)) + ")",
         tuple(dep_ids),
     )
-    deps = {d["id"]: (d["strategy_id"], d["title"], d.get("strategy_market"), d.get("strategy_created"))
-            for d in cur.fetchall()}
+    deps = {d["id"]: (d["strategy_id"], d["title"], d.get("strategy_market"), d.get("strategy_created"),
+                      d.get("status") == "stopped") for d in cur.fetchall()}
     for r, did in zip(rows, dep_of):
-        r["strategy_id"], r["title"], r["strategy_market"], r["strategy_created"] = deps.get(did, (None, None, None, None))
+        (r["strategy_id"], r["title"], r["strategy_market"], r["strategy_created"],
+         r["deployment_removed"]) = deps.get(did, (None, None, None, None, False))
     return rows
 
 

@@ -494,6 +494,17 @@ def _strategy_names(rows: List[Dict]) -> Dict[int, str]:
     return names
 
 
+# A removed (stopped) deployment's trades, in the strategy column: the file filed them under the same name as the
+# strategy's current deployment, so a reader couldn't tell the two books' runs apart (walk 2026-10-31). In words,
+# within the column (the columns and their order stay as they are), never by an id.
+REMOVED_DEPLOYMENT = " (removed deployment)"
+
+
+def _strategy_cell(names: Dict[int, str], r: Dict) -> str:
+    name = names.get(r.get("strategy_id"), "")
+    return name + REMOVED_DEPLOYMENT if name and r.get("deployment_removed") else name
+
+
 def trades_csv(ctx: Ctx):
     """One mode's closed trades as a CSV the user can check the P&L from: realized_pnl summed over the
     file is the mode's realized P&L on the dashboard (demo's is since the last reload, so it can
@@ -511,7 +522,7 @@ def trades_csv(ctx: Ctx):
     for r in reversed(rows[:TRADES_CSV_MAX_ROWS]):  # oldest first, the order a reader checks a book in
         row([
             _iso_utc(r["closed_at"]), _iso_utc(r["opened_at"]), r["mode"],
-            names.get(r.get("strategy_id"), ""), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
+            _strategy_cell(names, r), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
             _dec(r["entry_price"]), _dec(r["exit_price"]), _dec(r["entry_fee"]), _dec(r["exit_fee"]),
             _dec(r["pnl"]), r.get("close_reason") or "", r["id"]])
     if cut:

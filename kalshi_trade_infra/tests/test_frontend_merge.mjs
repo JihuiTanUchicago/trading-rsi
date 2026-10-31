@@ -60,6 +60,7 @@ import {firstWeekCases} from './first_week_frontend_cases.mjs';
 import {morningWalkCases} from './morning_walk_frontend_cases.mjs';
 import {themeFactsCases} from './theme_facts_frontend_cases.mjs';
 import {bookReconcileCases} from './book_reconcile_frontend_cases.mjs';
+import {demoReloadTruthCases} from './demo_reload_truth_frontend_cases.mjs';
 import {autopilotCostCases, billingCostCases} from './autopilot_cost_frontend_cases.mjs';
 import {settingsBillingCases} from './settings_billing_frontend_cases.mjs';
 import {researchFormCases} from './research_form_frontend_cases.mjs';
@@ -6342,6 +6343,7 @@ firstWeekCases({name: 'Tau', frontend, dashboard: () => emptyDashboard(), detail
 morningWalkCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 themeFactsCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
 bookReconcileCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
+demoReloadTruthCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
 autopilotCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn});
 billingCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, billingPage, cardedBilling});
 staleMoneyCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard});

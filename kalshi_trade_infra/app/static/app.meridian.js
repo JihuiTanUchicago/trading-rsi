@@ -21,7 +21,7 @@
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips,
     exploreNoBtc, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS,
-    shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
+    shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode,
     sessionNo, olderRows, researchBusy, depsBookNote
@@ -1861,15 +1861,17 @@
   // "· Max 2 open" could start a line.
   // A demo or live monitor's Realized P&L says its book and fees, as the strategy page's book lines do: "+$2.17"
   // under "Demo · Running" didn't say it was Tau's demo book, not real money, or after Kalshi's fees.
-  const monitorNet = (mode) => mode === 'live' ? 'real money, after Kalshi fees' : mode === 'demo' ? `after Kalshi fees, in ${DEMO_BOOK}: not real money` : '';
+  // After a reload a demo monitor's figure says it counts from its first demo trade (demoRowSince), beside the demo
+  // book's "since reload" in the Accounts menu.
+  const monitorNet = (mode, since = '') => mode === 'live' ? 'real money, after Kalshi fees' : mode === 'demo' ? `after Kalshi fees, in ${DEMO_BOOK}: not real money${since ? SEP + since : ''}` : '';
   // Its Unrealized, like a Deploy row's, is dimmed and says how old its oldest mark is once that is old (withMarkAge).
-  function deploymentMonitor(d, anchor = false, regs = null) {
+  function deploymentMonitor(d, anchor = false, regs = null, reloaded = false) {
     const live = d.mode === 'live';
     return `<article ${anchor ? 'id="dash-paused" ' : ''}class="dep-monitor${live ? ' live-row' : ''}">
       <header><h3><a href="/strategies/${d.strategy_id}">${esc(d.title)}</a></h3><span class="monitor-state"><span class="monitor-mode">${deploymentMode(d)}</span><span aria-hidden="true">·</span>${depState(d, live)}</span></header>
       <div class="monitor-config"><div class="monitor-summary"><p class="monitor-setup">${esc(marketFull(d.market))}${SEP}<span class="nobr">${depStake(d)}</span></p><div class="monitor-limits"><span>${depCap(d) ? `${SEP}<span class="nobr">${depCap(d)}</span>` : ''}${d.status !== 'running' && (d.status_why || d.status_reason) ? SEP + fundsLinked(esc(d.status_why || d.status_reason)) : ''}</span></div></div>${depIdleLine(d)}${demoRowLine(d)}${depInstant(d)}</div>
       <dl class="monitor-metrics">
-        <div class="monitor-realized"><dt>Realized P&amp;L</dt><dd>${realizedCell(d, '<span class="unavailable">None yet</span>')}${spark(d.curve, regs && regs[d.mode], d.closed_trades, d.mode)}</dd>${d.mode === 'paper' ? `<dd class="sub-fig paper-net">${gl(PAPER_NET, 'paperfills')}</dd>` : d.closed_trades ? `<dd class="sub-fig book-net">${monitorNet(d.mode)}</dd>` : ''}</div>
+        <div class="monitor-realized"><dt>Realized P&amp;L</dt><dd>${realizedCell(d, '<span class="unavailable">None yet</span>')}${spark(d.curve, regs && regs[d.mode], d.closed_trades, d.mode)}</dd>${d.mode === 'paper' ? `<dd class="sub-fig paper-net">${gl(PAPER_NET, 'paperfills')}</dd>` : d.closed_trades ? `<dd class="sub-fig book-net">${monitorNet(d.mode, demoRowSince(d, reloaded))}</dd>` : ''}</div>
         <div class="monitor-unrealized"><dt>${d.unrealized_pnl != null && d.open_positions ? 'Unrealized (est.)' : 'Unrealized P&amp;L'}</dt><dd>${d.unrealized_pnl == null ? `<span class="unavailable">${+d.open_positions ? NOT_MARKED : 'None open'}</span>` : markFig(d.oldest_mark_ts, money(d.unrealized_pnl))}</dd>${d.unrealized_pnl != null && markOld(d.oldest_mark_ts) ? `<dd class="sub-fig mark-when">${markedAt(d.oldest_mark_ts)}</dd>` : ''}${d.unrealized_pnl != null && markedOf(d.marked_open, d.open_positions) ? `<dd class="sub-fig mark-part">${markedOf(d.marked_open, d.open_positions)} marked</dd>` : ''}</div>
       </dl>
       <div class="monitor-footer"><dl class="monitor-counts"><div><dt>Closed / open</dt><dd aria-label="${num(d.closed_trades)} closed trades, ${num(d.open_positions || 0)} open positions">${num(d.closed_trades)} / ${num(d.open_positions || 0)}</dd></div></dl><div class="monitor-controls">${deploymentActions(d, false)}${deploymentEvidence(d, true)}</div></div>
@@ -2402,7 +2404,7 @@
       const firstPaused = d.deployments.find((x) => x.status === 'paused');
       const depRegs = curveRegs(d.deployments);  // the status line's "paused, needs you" jumps here
       const deps = d.deployments.length
-        ? `<div class="dep-register">${d.deployments.map((x) => deploymentMonitor(x, x === firstPaused, depRegs)).join('')}</div>${depsBookNote(d)}`
+        ? `<div class="dep-register">${d.deployments.map((x) => deploymentMonitor(x, x === firstPaused, depRegs, !!(d.demo && +d.demo.before_reload))).join('')}</div>${depsBookNote(d)}`
         : `<div id="deps-empty" data-on="${S.me.user && S.me.user.autopilot ? 1 : 0}">${depsEmpty(S.me.user && S.me.user.autopilot)}</div>`;
       const positionMarket = r => contractMkt(r.ticker);
       const depMarket = (r) => (d.deployments.find((x) => x.id === r.deployment_id) || {}).market;
@@ -2639,6 +2641,8 @@
       const active = running.filter((x) => !depIdle(x)), idle = running.length - active.length;
       const live = active.filter((x) => x.mode === 'live'), liveIdle = running.filter((x) => x.mode === 'live' && depIdle(x)).length;
       const runDemo = active.some((x) => x.mode === 'demo'), runPaper = active.some((x) => x.mode === 'paper');
+      // A demo deployment listed but none running (paused) is still a demo book: Money read "Paper money only" over it.
+      const demoPaused = !runDemo && demoDeps.some((x) => x.status !== 'stopped');
       // Open positions per book, never one count across books. A book with none is left out, except
       // live while live trading is on (or a live deployment is listed), so "0 live" reads as a fact. A
       // no-break space keeps each "3 paper" whole when the figure wraps on a phone.
@@ -2655,7 +2659,7 @@
         fig('Open positions', openSplit) +
         // Money says plainly what runs: "PAPER · nothing on live money" read oddly (walk 2026-10-30). A live deployment
         // listed but not running (paused) keeps "nothing running" on live money: it may still hold live positions.
-        fig('Money', live.length ? '<span class="mk live">Live</span>' : runDemo ? `${runPaper ? '<span class="mk">Paper</span> ' : ''}<span class="mk dep">Demo</span>` : '<span class="mk">Paper</span>', { small: live.length ? `${live.length} on live money` : liveIdle ? liveIdleCount(liveIdle) : liveDeps.length ? 'Nothing running on live money' : runDemo ? (runPaper ? 'Paper and demo only, nothing live' : 'Demo only, nothing live') : 'Paper money only, nothing live' }));
+        fig('Money', live.length ? '<span class="mk live">Live</span>' : runDemo || demoPaused ? `${runPaper || (demoPaused && paperDeps.length) ? '<span class="mk">Paper</span> ' : ''}<span class="mk dep">Demo</span>` : '<span class="mk">Paper</span>', { small: live.length ? `${live.length} on live money` : liveIdle ? liveIdleCount(liveIdle) : liveDeps.length ? 'Nothing running on live money' : runDemo ? (runPaper ? 'Paper and demo only, nothing live' : 'Demo only, nothing live') : demoPaused ? `${runPaper ? 'Paper running, demo paused' : paperDeps.length ? 'Paper and demo paused' : 'Demo paused'}, nothing live` : 'Paper money only, nothing live' }));
       const regs = curveRegs(d.deployments);
       replaceDeploymentContent(root.querySelector('#deps'), d.deployments.length ? deploymentTable(pausedFirst(d.deployments).map((x) => deploymentSlip(x, true, regs)).join(''), true)
         : `<div class="empty"><h3>Nothing deployed</h3><p>${passedN === 0 ? 'Nothing has passed yet. A strategy goes on the board once it passes every test in a research session, paper first.' : 'Open a passed strategy and deploy it here. Paper first: it trades the live market with paper money.'}</p>${S.me && S.me.user && S.me.user.autopilot ? '<p>Autopilot is on: strategies that pass every research test deploy here on their own, on paper.</p>' : ''}${apNudge('Rather not pick strategies yourself?', 'and it deploys the ones that pass, on paper.')}${passedN === 0 ? '<a class="btn" href="/research?new=1">New session</a>' : '<a class="btn" href="/strategies?status=passed">See passed strategies</a>'}</div>`);

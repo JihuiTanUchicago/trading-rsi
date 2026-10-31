@@ -1185,8 +1185,19 @@
   // "realized all time"). Demo money only, never added to paper or live; nothing before the book's first close, and a
   // day with no demo trade closed yet says so (closedToday), never "$0.00 realized". Display only. `recent` is the
   // dashboard's recent_closed.
+  // After a reload (before_reload nonzero) the book's figure above counts from the reload while the day counts from
+  // midnight UTC, trades before the reload included: the card read "+$3.49 realized since reload" over "Today (UTC):
+  // −$1.76" with nothing saying which counted what (walk 2026-10-31). The server keeps no reload time, so the day can't
+  // be cut at the reload; it says where it counts from instead.
+  const DEMO_DAY_SPAN = 'from midnight UTC, not from the reload';
   const demoToday = (dm, recent) => (!dm || dm.today_pnl == null || demoNoClose(dm)) ? ''
-    : `<span class="fig-today">${pnlWin('today')} ${!+dm.today_pnl && closedToday(recent, 'demo', dm.closed_trades) === false ? 'no trades closed yet' :`<span class="amt">${money(dm.today_pnl)}</span> realized, ${FEES_NET}`}</span>`;
+    : `<span class="fig-today">${pnlWin('today')} ${!+dm.today_pnl && closedToday(recent, 'demo', dm.closed_trades) === false ? 'no trades closed yet' :`<span class="amt">${money(dm.today_pnl)}</span> realized, ${FEES_NET}${+dm.before_reload ? `${SEP}${DEMO_DAY_SPAN}` : ''}`}</span>`;
+  // A demo deployment's realized P&L counts every closed trade it made, from its first demo trade: a reload doesn't
+  // reset it. Beside a reloaded book's "since reload" figure (the dashboard's demo card) a row's bare figure read as
+  // that book's: "+$3.49 realized since reload" over a Late-rush fade demo row at "−$11.66" (walk 2026-10-31). The
+  // strategy page says it so already (DEMO_WINDOW). '' unless the book was reloaded and the row closed a trade.
+  const DEMO_SINCE_FIRST = 'since its first demo trade: a reload doesn\u2019t reset it';
+  const demoRowSince = (d, reloaded) => (reloaded && d && d.mode === 'demo' && +d.closed_trades ? DEMO_SINCE_FIRST : '');
   const sinceSlip = (b) => (b && b.paper && +b.paper.trades ? slipEstGl(b.paper.slippage_estimate) : '');
   // Two or more links in a row ("A, B, C, 1 more"): to a thumb they stack one under another (.since-links, app.css),
   // each its own 44px, where on a line they reached into one another.
@@ -1392,7 +1403,7 @@
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips,
     exploreNoBtc, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
-    demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
+    demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,
     pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote

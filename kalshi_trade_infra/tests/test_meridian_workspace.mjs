@@ -61,6 +61,7 @@ import {firstWeekCases} from './first_week_frontend_cases.mjs';
 import {morningWalkCases} from './morning_walk_frontend_cases.mjs';
 import {themeFactsCases} from './theme_facts_frontend_cases.mjs';
 import {bookReconcileCases} from './book_reconcile_frontend_cases.mjs';
+import {demoReloadTruthCases} from './demo_reload_truth_frontend_cases.mjs';
 import {autopilotCostCases, billingCostCases} from './autopilot_cost_frontend_cases.mjs';
 import {settingsBillingCases} from './settings_billing_frontend_cases.mjs';
 import {researchFormCases} from './research_form_frontend_cases.mjs';
@@ -6820,6 +6821,7 @@ firstWeekCases({name: 'Meridian', frontend, dashboard: () => dashboardData(), de
 morningWalkCases({name: 'Meridian', frontend, dashboard: dashboardData});
 themeFactsCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 bookReconcileCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
+demoReloadTruthCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 autopilotCostCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 billingCostCases({name: 'Meridian', frontend, dashboard: dashboardData, billingPage, cardedBilling});
 staleMoneyCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData});
