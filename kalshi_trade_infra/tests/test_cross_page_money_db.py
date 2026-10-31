@@ -233,7 +233,9 @@ def test_every_page_shows_one_figure_per_quantity(conn, pages):
     assert Decimal(str(bill["balance"])).quantize(Decimal("0.0001")) == ledger.quantize(Decimal("0.0001"))
     assert cents(bill["balance"]) == cents(me["credit_balance"]) == ap["week"]["credits_left"] == balance
     spent = Decimal("1.335") + Decimal("0.905") + 3 * Decimal("0.0625")
-    assert bill["spent_7d"] == dash["since"]["spent"]["week"] == cents(spent) == 2.43
+    assert bill["spent_7d"] == cents(spent) == 2.43
+    # The strip's week only paces its "Research pauses in ...": it comes exact, as Billing's runway reads it.
+    assert dash["since"]["spent"]["week"] == float(spent) == 2.4275
     assert ap["week"]["research_credits"] == bill["spent_7d_by"]["research"] == 2.24
     assert ap["week"]["checkin_credits"] == bill["spent_7d_by"]["autopilot_review"] == 0.19
 

@@ -287,7 +287,9 @@ export function creditsCases({name, frontend, billingPage, cardedBilling, dashbo
     assert.equal(days.reduce((a, d) => a + d.used, 0), 1299);  // the days are the statement's usage
     assert.match(f.root.querySelector('.bill-math').textContent, /Agent usage\s*−\$12\.99/);
     assert.deepEqual(days[0].lines, ['−$7.96', '−$0.02', '−$0.003']);  // each within a cent of its exact amount
-    assert.match(f.root.querySelector('.ledger-key').textContent, /rounded to the cent so they add up to their day; the receipt has every call/);
+    // A line takes the cents its day needs, so it can be a cent off its session's own page (a session's −$0.7219 read
+    // −$0.73 here beside "Spent so far $0.72" there, walk 2026-10-31): the key says so.
+    assert.match(f.root.querySelector('.ledger-key').textContent, /rounded to the cent so they add up to their day, so a session’s lines can be a cent off the cost its own page shows; the receipt has every call/);
     // With older days cut off, the days can't be held to the month's usage, but each still adds up.
     const cut = billingPage(cardedBilling({math: {days: 30, start: 0, bought: 0, purchases: 0, other: 0, usage: 99.99, end: 1},
       ledger: [use(-7.9545, '2026-10-24', 'Autopilot research'), use(-0.0245, '2026-10-24', 'Autopilot check-in')], ledger_cut: true}));
@@ -337,6 +339,55 @@ export function creditsCases({name, frontend, billingPage, cardedBilling, dashbo
       read(f.root.querySelector('#dash-ap').textContent, `autopilot card ${status.billing_blocked ? 'paused' : 'low'}`);
       f.clearTimers();
     }
+  });
+
+  // Walk 2026-10-31: the dashboard showed "$4.61 of credits spent" in the strip and "Credits spent on research $7.99"
+  // on the autopilot card under it: two "credits spent" figures, one every agent call since the visit, one research
+  // only over the week, and only one said what it covered. Each says it now, and neither sits in the Money row.
+  test(`${name}: the dashboard's two credits-spent figures each say what they cover`, async () => {
+    const since = {at: '2026-10-27T20:00:00+00:00', first: false, books: {paper: {pnl: 7.41, trades: 12}}, passed: {n: 0, items: []},
+      autopilot: {}, runs: {}, spent: {since: 4.61, week: 8.2449, card_charged: true, pace_days: 7}, milestones: {}};
+    const status = {...apStatus, week};
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/dashboard')) return response({...dashboard(), since});
+      if (path === '/api/autopilot/status') return response(status);
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path.startsWith('/api/chat')) return response({messages: []});
+      throw new Error('Unexpected offline request: ' + path);
+    }});
+    f.S.me = {...f.S.me, billing_enabled: true, needs_card: false, credit_balance: 75.96, min_run_balance: 1, auto_reload: null};
+    f.S.me.user.autopilot = true; f.S.ap = status;
+    await f.viewDashboard(); await flush();
+    f.S.ap = status; f.paintDashAp();
+    const strip = f.root.querySelector('#dash-since').innerHTML, card = f.root.querySelector('#dash-ap').textContent;
+    assert.match(strip, /<dt>Cost<\/dt><dd><b>\$4\.61<\/b> of credits spent on research, chat and autopilot check-ins<span class="since-sub">/);
+    assert.doesNotMatch(strip.split('<dt>Cost</dt>')[0], /4\.61/, 'the spend is never in the Money row');
+    assert.match(card, /Credits spent on research\s*\$100\.01/);
+    f.clearTimers();
+  });
+
+  // The research card's Spend counts the sessions that ended (rsi.recent_runs): a card reading $5.79 over a list of
+  // sessions adding up to $7.99, one still going and one stopped by the user, said nothing of why (walk 2026-10-31).
+  test(`${name}: the research card's Spend says which sessions it leaves out`, async () => {
+    const board = {total: {runs: 6, explored: 24, gated: 0, gate_reach_rate: 0, passed: 0, holdout_passed: 0, cost_usd: 5.79,
+      pipeline_death_share: null}, days: [], trend: null, playbooks: [], scout: [], paper: null};
+    const run = {id: 8, status: 'cancelled', market: 'btc15m', direction: 'momentum', example: false, prompt: 'Idea', hypotheses_tried: 3,
+      strategies_passed: 0, spent_usd: 1.15, error: null, created_at: '2026-10-29T08:00:00Z', stop_reason: 'user'};
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/runs')) return response({runs: [run], counts: {research_running: 0, research_queued: 0, research_paused: 0},
+        policy: null, totals: {tried: 24, passed: 0}, v: 'v1'});
+      if (path.startsWith('/api/research/scoreboard')) return response(board);
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path === '/api/research/context') return response({markets: []});
+      if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+      return response({});
+    }});
+    f.S.me.user.autopilot = false;
+    f.location.pathname = '/research';
+    await f.viewResearch(); for (let i = 0; i < 8; i++) await flush();
+    const card = f.root.querySelector('#rsimo').textContent;
+    assert.match(card, /Spend\s*\$5\.79\s*\$0\.24 per idea\s*·\s*not counting sessions still going or stopped by you/);
+    f.clearTimers();
   });
 }
 

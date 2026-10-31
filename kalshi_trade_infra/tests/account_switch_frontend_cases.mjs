@@ -115,6 +115,37 @@ export function accountSwitchCases({name, frontend}) {
     assert.equal(asks().length, 3);
   });
 
+  // Two windows side by side: the tab is in view, so it never goes hidden and gets no visibilitychange. Focusing its
+  // window asks the same once, a read, one at a time, and at most once in 15 seconds however often focus flaps.
+  test(`${name}: a tab in view but not focused asks who it is when its window gets focus, throttled`, async () => {
+    let account = 7;
+    const windowListeners = [];
+    const f = frontend({session: sessionMap().store, win: {addEventListener: (n, fn) => windowListeners.push([n, fn])},
+      fetchImpl: (path) => reply(path === '/api/me' ? {user: {id: account}} : {}, account)});
+    const focus = async () => { for (const [n, fn] of windowListeners) if (n === 'focus') fn({}); await settle(); };
+    const asks = () => f.requests.filter((r) => r.path === '/api/me');
+    assert.ok(windowListeners.some(([n]) => n === 'focus'), 'a window focus listener');
+    f.document.hidden = false;
+    await focus();
+    assert.equal(asks().length, 0, 'not straight after the boot read');
+    f.shiftClock(16000);
+    await focus();
+    assert.equal(asks().length, 1, 'focused: one /api/me read');
+    assert.equal(asks()[0].options.method, undefined, 'a read, never a write');
+    for (let i = 0; i < 5; i++) { f.shiftClock(2000); await focus(); }  // focus flapping between two windows
+    assert.equal(asks().length, 1, 'no more within 15 seconds of the last ask');
+    // A return to the tab asks (visibilitychange) and the focus that comes with it adds nothing.
+    f.shiftClock(30000);
+    shown(f, true); shown(f, false); await focus();
+    assert.equal(asks().length, 2);
+    // Another window signed in to account 8: the next focus after the throttle reloads into it.
+    account = 8;
+    f.shiftClock(16000);
+    await focus();
+    assert.equal(asks().length, 3);
+    assert.equal(f.reloads.length, 1, 'the tab reloads into the account now signed in');
+  });
+
   test(`${name}: a failed or signed-out ask on return says nothing and the next return asks again`, async () => {
     let fail = true;
     const f = frontend({fetchImpl: (path) => (path === '/api/me' && fail ? Promise.reject(new TypeError('offline')) : reply({user: {id: 7}}, 7))});
