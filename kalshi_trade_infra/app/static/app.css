@@ -239,7 +239,12 @@ th .info { vertical-align: 0; }
 /* With the Autopilot button, a long account name ("Jonathan.Alexander.Smith") pushed the masthead onto a second row on
    a phone: the row stays one line and the name gives way, ending in an ellipsis (its full text stays its accessible name). */
 .profile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 560px) { .masthead-in { flex-wrap: nowrap; } .wordmark, .ap-entry, .bell-wrap, .admin-toggle { flex: none; } .asof, .profile, .profile-trig { min-width: 0; }
+@media (max-width: 560px) { .wordmark, .ap-entry, .bell-wrap, .admin-toggle { flex: none; } .asof, .profile, .profile-trig { min-width: 0; }
+  /* At 200% text (walked 2026-10-31, 360x640) Autopilot, the bell and the account menu no longer fit beside the
+     wordmark: the account button was squeezed to nothing and its chevron pushed the page 3px sideways. The row
+     wraps only when the controls themselves (about 11em of the line's own text size) can't fit; then they take a
+     second row, right-aligned. A long account name still gives way first, as above. */
+  .masthead-in { flex-wrap: wrap; } .asof { flex: 1 1 0; min-width: 11em; justify-content: flex-end; }
   .ap-entry { margin-right: 6px; } .ap-entry-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
 .bell-wrap { position: relative; display: inline-flex; margin-right: 12px; }
 .bell-trig { position: relative; display: inline-flex; align-items: center; color: var(--ink-3); background: none; border: 0; padding: 0; cursor: pointer; }
@@ -2055,7 +2060,7 @@ body.landing-body .apf { display: none; }
 .rp-verdict.good { border-color: var(--ink); }
 .rp-verdict.sig { border-color: var(--signal); background: var(--signal-wash); }
 .rp-verdict.quiet { border-color: var(--rule-2); background: var(--stock); }
-.rp-verdict .mk { flex: none; }
+.rp-verdict .mk { flex: none; max-width: 100%; white-space: normal; }  /* "DEPLOYMENT CANDIDATE" wraps inside the box at 200% text, never past it */
 .rp-verdict p { font-size: 13.5px; line-height: 1.55; color: var(--ink); max-width: 70ch; flex: 1 1 28ch; min-width: 0; }
 .rp-verdict { flex-wrap: wrap; }  /* phones: the words drop under a long chip instead of a one-word column spilling out of the box */
 
@@ -2402,6 +2407,24 @@ body.landing-body .apf { display: none; }
   /* The pipeline caption's chevron stays on the first line, not on a row of its own. */
   .pipecap { position: relative; padding-right: 44px; }
   .pipecap > .pipechev { position: absolute; right: 16px; top: 14px; }
+  /* 200% text on a phone (walked 2026-10-31 at 390x844 and 360x640, every font size doubled, both themes):
+     a figure tile's number grows with the text until it fills its half of the row, then stops growing. It never
+     breaks inside a number ("−$10,246.88" stays whole) and never pushes the page sideways (Deploy 104px, Home 78px,
+     a market page's 1,523,400 45px). The cap is a share of the screen's width, the tile's own share of it, set so it
+     never binds at normal size on a 360px phone (an 11-character figure fits the narrower, right-hand tile). */
+  .measure:where(:not(.tr-figs)) .fig { font-size: min(21px, 6.1vw); }
+  .m.fig-long .fig { font-size: min(16px, 4.5vw); }
+  /* A tile's paper slippage line ("≈ −$10,579.78 after typical live slippage…") grows with the text short of its
+     amount outgrowing the tile: at 200% the amount was split after "−$10,5". */
+  .measure:where(:not(.tr-figs)) .slip-est, .apcard-figs .slip-est { font-size: min(12px, 4.8vw); }
+  /* break-word, not anywhere: the amount moves to the next line whole, breaking only if wider than a line. The track
+     record's line is left as it was; a desktop's table columns keep their widths. */
+  .slip-est { overflow-wrap: break-word; }
+  .tr-figs .slip-est { overflow-wrap: anywhere; }
+  /* Deploy's open positions, stacked: the why line's 24ch floor (a desktop column's) widened the card 17px. */
+  #openpos .stack .pos-why { min-width: 0; }
+  /* Funds' "Show older entries" and Billing's "Download receipt (CSV)" wrap inside the button, not past the page. */
+  .ledger-older .btn, .sect-head > a.btn { max-width: 100%; white-space: normal; }
 }
 /* Touch: every control at least 44px tall (links set in a line of text stay 40px or more). Inline links
    grow with padding, which leaves the line box alone; block links pair it with a negative margin so the
@@ -2435,7 +2458,9 @@ body.landing-body .apf { display: none; }
   .since-links { display: inline; font-size: inherit; }
   /* A link right after a glossary (i) ("…and the spread (i) · Download trades (CSV)"): the (i)'s 44px reached 25px
      into it on the next line. The link keeps its 44px and starts clear of the (i)'s. */
-  .nobr:has(> .info) + a.csv-link { display: inline-block; margin-top: 13px; }
+  .nobr:has(> .info) + a.csv-link { display: inline-block; margin-top: 13px; margin-bottom: 0; }
+  /* The trades link is a box of its own (below): its 44px padding is taken back, so the line stays put. */
+  a.csv-link { margin-block: -13px; }
   /* The strategy page's "See them on the Deploy page" and "Open … on Kalshi" (two hint lines 12px apart, each link
      44px) overlapped by 11px; a demo-key hint's "Funds page" reached 3px into the Deploy on demo button over it. */
   p.hint:has(a) + p.hint:has(a) { padding-top: 14px; }
@@ -2515,5 +2540,7 @@ input[type=checkbox]:focus-visible { outline: 2px solid var(--ink); outline-offs
 .theme-opt:focus-visible { outline-offset: -4px; }
 .theme-opt.on:focus-visible { outline-color: #F1F3ED; }
 
-/* A trades CSV link stays whole: "Download" ended one line and "trades (CSV)" began the next (walked 2026-10-27). */
-a.csv-link { white-space: nowrap; }
+/* A trades CSV link stays whole: "Download" ended one line and "trades (CSV)" began the next (walked 2026-10-27).
+   It is one box, so it drops to a line of its own rather than split; at 200% text, in a phone's half-width figure,
+   nowrap pushed Home 93px sideways (walked 2026-10-31), so a box wider than its line wraps inside itself. */
+a.csv-link { display: inline-block; max-width: 100%; white-space: normal; }

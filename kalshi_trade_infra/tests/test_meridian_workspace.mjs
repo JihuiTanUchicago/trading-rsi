@@ -4989,7 +4989,7 @@ test('Meridian CSS: open-positions why line wraps, "Not connected" keeps its sma
   const css = readFileSync(new URL('../app/static/app.meridian.css', import.meta.url), 'utf8');
   assert.match(css, /\.pos-why \{[^}]*white-space: normal;/);
   assert.match(css, /#openpos td\.name \{ white-space: normal;/);
-  const phone = css.indexOf('.account-band .portfolio-numbers .fig { font-size: 28px');
+  const phone = css.indexOf('.account-band .portfolio-numbers .fig { font-size: min(28px');  // 28px, capped at 200% text
   const state = css.indexOf('.account-band .portfolio-numbers .fig.balance-state { font-size: 20px');
   assert.ok(phone > 0 && state > phone, 'the state size comes after the phone figure size');
   assert.match(css, /\.t-ledger\.stack tbody td\.name \{[^}]*flex-wrap: wrap; \}\n  \.t-ledger\.stack tbody td\.name \.sub-fig \{ min-width: 0; flex: 0 1 auto; \}/);
@@ -6906,9 +6906,10 @@ test('Overview’s day figures name their book, and a trades CSV link never brea
   // Walk 2026-10-27 (a live key, live trading closed): the paper band's "Realized today (UTC) −$0.57" sat above the
   // Kalshi cash band and didn't say it was paper's; at 1280 "Download" ended a line and "trades (CSV)" began the next.
   const css = readFileSync(new URL('../app/static/app.meridian.css', import.meta.url), 'utf8');
-  assert.match(css, /\na\.csv-link \{ white-space: nowrap; \}/);
+  // One box that drops to its own line whole (it wraps inside only when wider than a line: 200% text, walked 2026-10-31).
+  assert.match(css, /\na\.csv-link \{ display: inline-block; max-width: 100%; white-space: normal; \}/);
   const tau = readFileSync(new URL('../app/static/app.css', import.meta.url), 'utf8');
-  assert.match(tau, /\na\.csv-link \{ white-space: nowrap; \}/);
+  assert.match(tau, /\na\.csv-link \{ display: inline-block; max-width: 100%; white-space: normal; \}/);
   const f = frontend({fetchImpl: () => response(dashboardData({paper: {equity: 999.36, cash: 994.66, realized_pnl: -0.57, today_pnl: -0.57,
     closed_trades: 4, open_positions: 0, total_pnl: -0.57}}))});
   await f.viewDashboard();
