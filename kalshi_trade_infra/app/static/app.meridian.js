@@ -9,7 +9,7 @@
   const {
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
-    logTime, settleAt, markOld, markFig, keepZone, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
+    logTime, settleAt, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
@@ -2538,9 +2538,11 @@
         const f = (i) => plain(usd(periodCurve[i][1], true));
         return f(lo) === f(hi) ? `; flat at ${f(lo)}` : `; low ${f(lo)} (${paperDay(days[lo].d)}), high ${f(hi)} (${paperDay(days[hi].d)})`;
       };
-      const paperPlot = (width) => equityChart(periodCurve, null, null, { width: Math.max(280, width || root.querySelector('#main').clientWidth), height: 180, paper: true, fit: true, endLabel: false, label: `Cumulative closed paper profit and loss from ${paperDay(days[0].d, days[0].d.slice(0, 4) !== days[days.length - 1].d.slice(0, 4))} through ${paperDay(days[days.length - 1].d, true)}${paperRange()}; ends at ${usd(periodPnl, true)}` });
+      const paperPlot = (width) => equityChart(periodCurve, null, null, { width: Math.max(280, width || root.querySelector('#main').clientWidth), height: 180, paper: true, fit: true, endLabel: false, label: `Cumulative closed paper profit and loss by UTC day from ${paperDay(days[0].d, days[0].d.slice(0, 4) !== days[days.length - 1].d.slice(0, 4))} through ${paperDay(days[days.length - 1].d, true)}${paperRange()}; ends at ${usd(periodPnl, true)}` });
+      // Its days are UTC days (the server's daily_pnl), as the "Today (UTC)" figure above counts them: in Tokyo's morning
+      // the curve ended on yesterday's date with nothing saying why today's trades sat there.
       const periodLabel = days.length > 1 ? new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'}).formatRange(new Date(days[0].d + 'T12:00:00Z'), new Date(days[days.length - 1].d + 'T12:00:00Z')) : '';
-      const performance = days.length > 1 ? `<details class="overview-performance" id="paper-performance"${performanceOpen ? ' open' : ''}><summary><span class="performance-heading"><span class="performance-caption"><h2>Closed P&amp;L</h2>${ICON.chev}</span><strong class="${tone(periodPnl)}" title="Cumulative closed P&L over this period">${usd(periodPnl, true)}</strong></span><span class="performance-meta"><span class="performance-mode"><span class="performance-mode-prefix">Paper${SEP}</span>cumulative, ${PAPER_NET}</span><span class="sect-note" title="${esc(days[0].d)} – ${esc(days[days.length - 1].d)}">${esc(periodLabel)}</span></span></summary><div class="paper-plot">${paperPlot()}</div></details>` : '';
+      const performance = days.length > 1 ? `<details class="overview-performance" id="paper-performance"${performanceOpen ? ' open' : ''}><summary><span class="performance-heading"><span class="performance-caption"><h2>Closed P&amp;L</h2>${ICON.chev}</span><strong class="${tone(periodPnl)}" title="Cumulative closed P&L over this period">${usd(periodPnl, true)}</strong></span><span class="performance-meta"><span class="performance-mode"><span class="performance-mode-prefix">Paper${SEP}</span>cumulative, ${PAPER_NET}</span><span class="sect-note" title="${esc(days[0].d)} – ${esc(days[days.length - 1].d)}">${esc(periodLabel)}${SEP}UTC days</span></span></summary><div class="paper-plot">${paperPlot()}</div></details>` : '';
       const main = `${apFirst ? '' : sinceStrip(d, '#dash-paused')}<section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-paused') : ''}<div class="dash${paperWorkspace ? ' paper-workspace' : ''}"><div class="dash-layout">
         <section class="account-band"><dl class="figures measure dashboard-figures ${hasLive ? 'live-primary' : ''}">${hasLive ? liveSummary : paperFigure + (cashInBand ? liveFigure : '')}</dl><p class="stale-note" id="dash-stale" role="status"></p></section>
         <section class="positions-ledger" id="dash-open"><div class="sect-head"><h2>Open positions <span class="section-count">${openHead.n}</span>${openHead.book}</h2></div>
@@ -4019,7 +4021,7 @@
     researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind, runTag, runWaitLine, runwayLabel, S, sessionEstimate,
     sessionNo, sessionTitle, settleAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark, strategySlip, strategyTable,
     stripeFail, syncMeBilling, theme: 'meridian', tone, topupCharge, tradePrice, trDay, tzName, usd, waitNote, waitSpan, wakers,
-    WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker
+    localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker
   }, { get: (all, k) => { if (!(k in all)) throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); return all[k]; } }));
   // A page file calls this as it runs: make(shared()) returns the file's views. Once per name.
   window.TauPage = (name, make) => { if (!PAGES[name]) PAGES[name] = make(shared()); };

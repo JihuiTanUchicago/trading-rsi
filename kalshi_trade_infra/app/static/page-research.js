@@ -9,7 +9,7 @@ window.TauPage('research', (T) => {
     failText, feedMd, fig, fillLiveRow, flash, gl, glo, GLOSSARY, go, ICON, liveOpen, loading, logTime, marketPicker, marketShort,
     markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
     runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, waitSpan, when,
-    dateFmt, LOG_STAMP,
+    dateFmt, LOG_STAMP, settleAt,
     whyFailedHtml, wireMarketPicker
   } = T;
   // Each theme lays the pages out its own way. Tau's list is cards under the form, a line of words and figures over
@@ -1493,6 +1493,10 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     const open = pz.since != null && end > pz.since ? end - pz.since : 0;
     return Math.max(0, (end - started - pz.ms - open) / 1000);
   }
+  // When the session ran, under its Time: when it ended, or when one at work started, with the day unless it is today and
+  // always the zone (settleAt). Its log's times are bare clocks ("07:40"), and a session that ran yesterday said no day
+  // anywhere on its page: they read as this morning's (walk 2026-10-31).
+  const runAt = (r, active) => (!active && r.finished_at ? `ended ${settleAt(r.finished_at)}` : r.started_at ? `started ${settleAt(r.started_at)}` : '');
   // The Time figure, which moves with each 2s poll: "1 min" was all a session's first two minutes said (a queue wait's
   // minute count, waitSpan), so a session watched from its start sat on "1 min" (walk 2026-10-31), and "5 hr" stood
   // for anything from 4.5 to 5.5 hours. Seconds for its first minute, minutes for its first hour, then hours and minutes.
@@ -1805,7 +1809,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       // sat under a set-size session that was at work for minutes, and then jumped (walk 2026-10-31): it says when it moves.
       repaintFigs = () => paint(root.querySelector('#runfigs'),
         fig('Status', statusText) +
-        fig('Time', worked == null ? (active ? 'Not started yet' : 'Never started') : runSpan(worked), { small: pauses.ms || pauses.since != null ? 'not counting time paused' : '' }) +
+        fig('Time', worked == null ? (active ? 'Not started yet' : 'Never started') : runSpan(worked), { small: [pauses.ms || pauses.since != null ? 'not counting time paused' : '', worked == null ? '' : runAt(r, active)].filter(Boolean).join(SEP) }) +
         (r.spent_usd != null ? fig(active ? 'Spent so far' : 'Cost', active ? runSpentText(r) : r.example ? usd(r.spent_usd) : runSpentText(r, 'None'), { small: r.example ? 'free: Tau ran it for you' : [active || runPaid(r) ? 'from your credits' : '', active ? 'charged as each round of ideas ends' : '', usual != null && !active ? `sessions like it usually cost about ${usd(usual)}` : ''].filter(Boolean).join(SEP) }) : '') +
         runCountFigs(r, active, tried, d.strategies));
       repaintFigs();

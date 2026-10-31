@@ -228,6 +228,14 @@
   const markFig = (iso, html) => (markOld(iso) ? `<span class="mark-old">${html}</span>` : html);
   // A time with its zone on one line: the market page's "Closes Oct 28, 02:45" left "UTC" alone on the next.
   const keepZone = (t) => String(t).replace(/ (?=\S+$)/, '\u00a0');
+  // The reader's own day ('2026-10-21') an instant fell on, by the offset in force at that instant (`off`, minutes as
+  // getTimezoneOffset says them; the instant's own by default); '' when it isn't a time. Billing's statement days came
+  // from the server with today's offset alone: after a clock change a 00:30 CEST charge sat under the day before,
+  // its line reading "00:30 GMT+2" under "Tue, Oct 20" (walk 2026-10-31, Europe/Berlin).
+  const localDay = (iso, off) => {
+    const d = new Date(iso || NaN), t = d.getTime();
+    return Number.isFinite(t) ? new Date(t - (off == null ? d.getTimezoneOffset() : +off) * 60000).toISOString().slice(0, 10) : '';
+  };
 
   // ---------- counts and text ----------
   const fmtCount = new Intl.NumberFormat('en-US');  // what Number#toLocaleString('en-US') builds on every call
@@ -1391,7 +1399,7 @@
   window.TauCore = Object.freeze({
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
-    logTime, settleAt, markOld, markFig, keepZone, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
+    logTime, settleAt, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,

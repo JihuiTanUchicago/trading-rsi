@@ -299,7 +299,8 @@ export function runPageCases({name, frontend}) {
   test(`${name}: Time leaves out the pauses the log records, and stops while the session is paused`, async () => {
     const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
     const at = (id, kind, min) => ({id, kind, message: kind, data: {}, created_at: ago(min)});
-    const time = (f) => f.root.querySelectorAll('#runfigs .m').find((m) => m.querySelector('dt').textContent === 'Time').textContent;
+    // What the figure counts, without the line under it saying when the session started or ended (its own case below).
+    const time = (f) => f.root.querySelectorAll('#runfigs .m').find((m) => m.querySelector('dt').textContent === 'Time').textContent.replace(/(?:\u00a0· )?(?:started|ended) [^·]+$/, '');
     // Started 90 min ago, paused 60 min ago and still paused: 30 min, not 2 hr.
     let f = await open({status: 'paused', started_at: ago(90)}, [at(1, 'step', 89), at(2, 'paused', 60)]);
     assert.match(time(f), /^Time30 minnot counting time paused$/);
@@ -321,12 +322,34 @@ export function runPageCases({name, frontend}) {
   // count), and a five-hour one "5 hr" for anything from 4.5 to 5.5 hours.
   test(`${name}: Time counts seconds in a session's first minute, then minutes, then hours and minutes`, async () => {
     const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
-    const time = (f) => f.root.querySelectorAll('#runfigs .m').find((m) => m.querySelector('dt').textContent === 'Time').textContent;
+    // What the figure counts, without the line under it saying when the session started or ended (its own case below).
+    const time = (f) => f.root.querySelectorAll('#runfigs .m').find((m) => m.querySelector('dt').textContent === 'Time').textContent.replace(/(?:\u00a0· )?(?:started|ended) [^·]+$/, '');
     for (const [secs, said] of [[4, /^Time[45]s$/], [45, /^Time4[56]s$/], [61, /^Time1 min$/], [59 * 60 + 30, /^Time59 min$/],
       [3600, /^Time1 hr$/], [3600 + 5 * 60 + 10, /^Time1 hr 5 min$/], [26 * 3600 + 120, /^Time1 day 2 hr$/], [3 * 86400, /^Time3 days$/]]) {
       const f = await open({status: 'running', run_forever: 1, started_at: ago(secs)});
       assert.match(time(f), said, String(secs));
     }
+  });
+
+  // Time walk 2026-10-31: a session that ran yesterday showed its log as bare clocks ("07:40", "Times are GMT+9") and no
+  // day anywhere on its page, so its lines read as this morning's. Under its Time it says when it ended (or, at work,
+  // when it started): the day unless that is today, and always the zone, as an open position's "settles" does.
+  test(`${name}: a session's Time says when it ended or started, with the day unless today and the zone`, async () => {
+    const said = (f) => f.root.querySelectorAll('#runfigs .m').find((m) => m.querySelector('dt').textContent === 'Time').textContent;
+    const stamp = (iso) => {
+      const d = new Date(iso), today = d.toDateString() === new Date().toDateString();
+      return new Intl.DateTimeFormat(undefined, {...(today ? {} : {month: 'short', day: 'numeric'}), hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'}).format(d);
+    };
+    const older = '2026-01-14T22:40:00Z', end = '2026-01-14T23:50:00Z';
+    let f = await open({status: 'succeeded', started_at: older, finished_at: end});
+    assert.equal(said(f), `Time1 hr 10 minended ${stamp(end)}`);
+    assert.match(said(f), /ended [A-Z][a-z]{2} \d{1,2}, \d\d:\d\d \S+$/);  // another day: its date and zone
+    const now = new Date(Date.now() - 5 * 60000).toISOString();
+    f = await open({status: 'running', run_forever: 1, started_at: now});
+    assert.equal(said(f), `Time5 minstarted ${stamp(now)}`);
+    // Never started (cancelled in the queue): nothing to anchor, so no line.
+    f = await open({status: 'cancelled', started_at: null, finished_at: end});
+    assert.equal(said(f), 'TimeNever started');
   });
 
   // Walk 2026-10-31: reading the log as a session streamed, what sits above it (a new row of Tau's Ideas tested,
