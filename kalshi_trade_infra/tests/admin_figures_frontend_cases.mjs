@@ -48,7 +48,8 @@ export function adminFigureCases({name, frontend}) {
     await f.viewAdmin(); await settle();
     const line = f.root.querySelector('#o-state').textContent;
     assert.doesNotMatch(line, /just now/);
-    assert.match(line, /Paper: \$6\.00 at cost, oldest settles \d\d:\d\d \S+\./);
+    // Three hours out crosses midnight after 21:00, when the line names the day as well.
+    assert.match(line, /Paper: \$6\.00 at cost, oldest settles (?:[A-Z][a-z]{2} \d{1,2}, )?\d\d:\d\d \S+\./);
     assert.match(line, /Live: \$3\.00 at cost, oldest was due [A-Z][a-z]{2} \d{1,2}, \d\d:\d\d \S+\./);
     assert.match(line, /3 open positions \(paper: 2, live: 1\)/);  // counts per mode; never one money figure for both
     f.clearTimers();
