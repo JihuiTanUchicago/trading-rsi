@@ -153,7 +153,7 @@ export function badConnectionCases({name, frontend}) {
     hang = true;
     await flip(f, false);  // back on the tab: the poll reads at once, slowly
     assert.equal(typeof hang, 'function', 'the refresh is out');
-    assert.equal(note(), 'Last updated 2h ago, retrying', 'two hours old, said so while the refresh is out');
+    assert.equal(note(), 'Last updated 2h ago, refreshing', 'two hours old, said so while the refresh is out: refreshing, as nothing failed');
     hang(); await settle();
     assert.equal(note(), '', 'current again once it lands');
     f.clearTimers();

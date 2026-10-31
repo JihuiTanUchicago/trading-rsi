@@ -223,7 +223,9 @@ export function pastCloseCases({name, frontend, strategyFrontend, detailStrategy
     // Still open positions, one line per book, never one figure across them.
     assert.match(books, /Paper: 2 open positions at cost \+ fees \$1\.36/); assert.match(books, /Demo: 1 open position at cost \+ fees \$0\.68/);
     const before = reads();
-    f.shiftClock(180e3); await tick(f);
+    // The close clock alone flips it: the page's minute poll (its money read again) is not what does.
+    const clock = [...f.intervals.values()].find((c) => String(c).includes("querySelectorAll('[data-close]')"));
+    f.shiftClock(180e3); clock(); await settle();
     assert.equal(reads(), before, 'no reload');
     assert.deepEqual(lines().slice(0, 2), ['Closed, result pending', 'Closed, result pending']);
     assert.match(lines()[2], /^Settles Jan 1[56], /);

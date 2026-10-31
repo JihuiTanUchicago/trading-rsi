@@ -7,8 +7,9 @@
 window.TauPage('strategies', (T) => {
   'use strict';
   const {
-    announce, api, apNudge, boardTitle, bulkDeployable, busy, catOrder, depSaid, depWrite, errText, esc, fig, flash, gl, go, ICON, loadFail,
-    loading, marketShort, num, pageLede, paperShown, pct, recoverFails, registry, retried, root, S, SEP, shell, smooth, strategySlip, strategyTable, theme
+    announce, api, apNudge, boardTitle, bulkDeployable, busy, catOrder, depSaid, depWrite, errText, esc, fig, flash, gl, go, ICON, keepFocus, loadFail,
+    loading, marketShort, num, pageLede, paintKeep, paperShown, pct, poll, recoverFails, registry, retried, root, S, SEP, shell, smooth, strategySlip,
+    strategyTable, theme
   } = T;
   // Each theme heads the list its own way and says an empty list in its own words; the filters, figures, rows and
   // bulk deploy are the same in both.
@@ -53,7 +54,7 @@ window.TauPage('strategies', (T) => {
         <label class="vh" for="strat-sort">Sort</label><select class="input strat-mkt strat-sort" id="strat-sort" aria-label="Sort strategies">${[['', 'Newest first'], ['best', 'Later-period P&amp;L']].map(([v, l]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
         <div class="searchwrap"><input class="input" id="strat-q" type="search" placeholder="Search name or thesis…" value="${esc(f.q)}" aria-label="Search strategies"></div>
       </div>
-      <div id="bulkbar" class="bulkbar" hidden></div>
+      <div id="bulkbar" class="bulkbar" hidden></div><p class="stale-note" id="strats-stale" role="status"></p>
       <div id="slips" style="margin-top:16px">${loading(240)}</div>`);
     const applyFilters = () => {
       filtered = true;
@@ -95,12 +96,24 @@ window.TauPage('strategies', (T) => {
       const to = slipsEl.querySelector('tbody td.name a') || slipsEl.querySelector('[data-retry]');
       if (to && to.focus) to.focus({ preventScroll: true });
     };
-    const load = async () => {
-      slipsEl.innerHTML = loading(240);
+    // Open, the list reads again (the poll below: once a minute, and at once back on the tab after a while): its paper
+    // and demo P&L, trade counts and paused books, its figures and chip counts stood as they were at load after a laptop
+    // lid or a tab left open, with no age (walk 2026-10-31). That read (cfg, the poll's) keeps the list on the page while
+    // it is out, draws only what changed, keeps focus (paintKeep) and the strategies picked, and never runs while a
+    // bulk deploy (a write) is out. One that fails keeps the list and the poll's line says how old it is. `drawn`: the
+    // list's markup as drawn, null while a page's own read is out or it didn't load (the poll then reads nothing).
+    let drawn = null, seq = 0;
+    const load = async (cfg) => {
+      const quiet = !!cfg;
+      if (quiet && (!drawn || root.querySelector('.busy'))) return;
+      const mine = ++seq;
+      if (!quiet) { drawn = null; slipsEl.innerHTML = loading(240); }
       const p = new URLSearchParams(Object.entries(f).filter(([, v]) => v !== ''));
       p.set('page', sp);
       let d;
-      try { d = await api('/api/strategies?' + p.toString()); } catch (e) {
+      try { d = await api('/api/strategies?' + p.toString(), undefined, cfg); } catch (e) {
+        // A newer read (a page turn) took over: it says what it found.
+        if (quiet) { if (mine === seq) throw e; return; }
         if (e.status === 401) throw e;
         slipsEl.innerHTML = loadFail(errText(e), 'Your strategies');
         // Focus goes into the list that came in (or the Try again of one that failed again), not the page's body.
@@ -109,6 +122,7 @@ window.TauPage('strategies', (T) => {
         focusPaged();
         return;
       }
+      if (quiet && mine !== seq) return;
       // A remembered page past the end (the list shrank since) starts again at the first.
       if (sp > 0 && d.matched && !(d.strategies || []).length) { sp = 0; history.replaceState(null, '', location.pathname + location.search.replace(/([?&])page=\d+&?/, '$1').replace(/[?&]$/, '')); return load(); }
       const counts = d.counts || {}, total = counts.total || 0, c = (st) => counts[st] || 0;
@@ -121,11 +135,11 @@ window.TauPage('strategies', (T) => {
       const ex = counts.examples || {}, exN = (st) => +ex[st] || 0;
       const exOut = (st) => exN(st) ? `not counting the example’s ${num(exN(st))}` : '';
       const notes = (...xs) => xs.filter(Boolean).join(SEP);
-      root.querySelector('#sfigs').innerHTML = fig(gl('Passed', 'passed'), num(c('passed')), { small: notes(c('not_cleared') ? `${num(c('not_cleared'))} more passed but ${c('not_cleared') === 1 ? 'wasn’t' : 'weren’t'} cleared to trade` : '', exOut('passed')) }) + fig(gl('Void on unseen data', 'void'), num(c('failed') - c('failed_no_record')), { small: notes(c('failed_no_record') ? `${num(c('failed_no_record'))} more ${c('failed_no_record') === 1 ? 'was' : 'were'} void on a backtest that wasn’t held out` : '', exOut('failed')) }) + fig(gl('Rejected in testing', 'rejected'), num(c('rejected')), { small: exOut('rejected') }) +
+      paintKeep(root.querySelector('#sfigs'), fig(gl('Passed', 'passed'), num(c('passed')), { small: notes(c('not_cleared') ? `${num(c('not_cleared'))} more passed but ${c('not_cleared') === 1 ? 'wasn’t' : 'weren’t'} cleared to trade` : '', exOut('passed')) }) + fig(gl('Void on unseen data', 'void'), num(c('failed') - c('failed_no_record')), { small: notes(c('failed_no_record') ? `${num(c('failed_no_record'))} more ${c('failed_no_record') === 1 ? 'was' : 'were'} void on a backtest that wasn’t held out` : '', exOut('failed')) }) + fig(gl('Rejected in testing', 'rejected'), num(c('rejected')), { small: exOut('rejected') }) +
         // Its denominator said: Research's rate is of every idea tested (most never become a strategy), so the
         // two pages read 8.6% and 12.0% for one account with nothing saying why. With nothing tested yet (a new
         // account, or a market with none) it says so, where it read a bare "—".
-        fig('Pass rate', rate != null ? pct(rate, false) : f.deployed ? '—' : 'None yet', { small: f.deployed ? 'not with Deployed on: only passed strategies deploy' : rate != null ? `of the ${num(total)} strateg${total === 1 ? 'y' : 'ies'} here` : 'shows once a strategy here is tested' });
+        fig('Pass rate', rate != null ? pct(rate, false) : f.deployed ? '—' : 'None yet', { small: f.deployed ? 'not with Deployed on: only passed strategies deploy' : rate != null ? `of the ${num(total)} strateg${total === 1 ? 'y' : 'ies'} here` : 'shows once a strategy here is tested' }));
       const exAll = Object.keys(ex).reduce((a, st) => a + exN(st), 0);
       if (!tau) root.querySelector('#strategy-passrate').textContent = rate != null ? `${pct(rate, false)} pass rate, of the ${num(total)} strateg${total === 1 ? 'y' : 'ies'} here${exAll ? `, not counting the example’s ${num(exAll)}` : ''}` : 'Research results';
       const kept = total - c('failed') - c('rejected');
@@ -157,9 +171,9 @@ window.TauPage('strategies', (T) => {
         const clearBtn = on.length ? '<button class="btn" type="button" data-clear-filters>Clear filters</button>' : '';
         // Each theme's own words: Tau's "Nothing here yet" over what to do next, Meridian's heading that says which
         // empty it is, with New session for a new account. An h2 under the page's h1 (it was an h3, a level skipped, axe).
-        slipsEl.innerHTML = tau
+        draw(tau
           ? `<div class="empty"><h2>${missed && !noneKept ? 'No matching strategies' : 'Nothing here yet'}</h2><p>${noneKept ? 'None of your strategies has passed its tests yet. Most ideas fail; the ones that pass land here.' : missed ? missText : apOn ? 'Autopilot is on. The strategies it finds will land here.' : 'Start a research session and the strategies it finds will land here.'}${noneKept && apOn ? ' Autopilot keeps researching on its own.' : ''}</p>${missed && !noneKept ? clearBtn : `${apNudge('Rather not write ideas yourself?', 'and it researches on its own, on paper.')}<a class="btn" href="/research">${apOn ? 'See its research' : 'Go to Research'}</a>`}</div>`
-          : `<div class="empty"><h2>${noneKept ? 'No strategy has passed yet' : missed ? 'No matching strategies' : 'No strategies yet'}</h2>${noneKept ? `<p>Most ideas fail their tests; the ones that pass land here.${apOn ? ' Autopilot keeps researching on its own.' : ''}</p>` : missed ? `<p>${missText}</p>` : apOn ? '<p>Autopilot is on. The strategies it finds will land here.</p>' : '<p>Every strategy a research session writes lands here, with its test on data it never saw. Start a session to find your first.</p>'}${missed && !noneKept ? clearBtn : `${apNudge('Rather not write ideas yourself?', 'and it researches on its own, on paper.')}${apOn ? '<a class="btn" href="/research">See its research</a>' : '<a class="btn" href="/research?new=1">New session</a>'}`}</div>`;
+          : `<div class="empty"><h2>${noneKept ? 'No strategy has passed yet' : missed ? 'No matching strategies' : 'No strategies yet'}</h2>${noneKept ? `<p>Most ideas fail their tests; the ones that pass land here.${apOn ? ' Autopilot keeps researching on its own.' : ''}</p>` : missed ? `<p>${missText}</p>` : apOn ? '<p>Autopilot is on. The strategies it finds will land here.</p>' : '<p>Every strategy a research session writes lands here, with its test on data it never saw. Start a session to find your first.</p>'}${missed && !noneKept ? clearBtn : `${apNudge('Rather not write ideas yourself?', 'and it researches on its own, on paper.')}${apOn ? '<a class="btn" href="/research">See its research</a>' : '<a class="btn" href="/research?new=1">New session</a>'}`}</div>`, quiet);
         const clear = slipsEl.querySelector('[data-clear-filters]');
         if (clear) clear.onclick = () => { Object.assign(f, { status: '', market: '', q: '', deployed: '' }); applyFilters(); };
         sayListed(d);
@@ -171,12 +185,19 @@ window.TauPage('strategies', (T) => {
       const paperCol = list.some(paperShown);
       // Each bundle's strategyTable: Meridian's also takes whether the table is a research session's (here, never).
       const rows = list.map((s) => strategySlip(s, reg, { pick: anyPassed, paper: paperCol, q: f.q })).join('');
+      // The quiet read keeps what was picked (and Select all) on the rows still listed.
+      const had = quiet ? new Set(selected()) : null, hadAll = quiet && pickAlls().some((c) => c.checked);
       // Select all sits in the table's header, which a phone's stacked rows clip to nothing: only a keyboard reached it
       // there, and a tap couldn't (walked 2026-10-31 at 390px). Up to 760px it is a labelled box of its own over the rows
       // (CSS shows one of the two), and both do the same thing.
-      slipsEl.innerHTML = (anyPassed ? '<label class="pick-all-m"><input type="checkbox" data-pickall> Select all deployable</label>' : '')
+      if (!draw((anyPassed ? '<label class="pick-all-m"><input type="checkbox" data-pickall> Select all deployable</label>' : '')
         + (tau ? strategyTable(rows, anyPassed, paperCol) : strategyTable(rows, anyPassed, false, paperCol))
-        + (d.pages > 1 ? `<div class="xpage">${sp > 0 ? `<button class="btn sm" data-sp="${sp - 1}">← Prev</button>` : '<span></span>'}<span class="lab">Page ${sp + 1} of ${num(d.pages)}${SEP}${num(d.matched)} strategies</span>${sp + 1 < d.pages ? `<button class="btn sm" data-sp="${sp + 1}">Next →</button>` : '<span></span>'}</div>` : '');
+        + (d.pages > 1 ? `<div class="xpage">${sp > 0 ? `<button class="btn sm" data-sp="${sp - 1}">← Prev</button>` : '<span></span>'}<span class="lab">Page ${sp + 1} of ${num(d.pages)}${SEP}${num(d.matched)} strategies</span>${sp + 1 < d.pages ? `<button class="btn sm" data-sp="${sp + 1}">Next →</button>` : '<span></span>'}</div>` : ''), quiet)) return;
+      if (had) {
+        picks().forEach((c) => { c.checked = had.has(+c.dataset.id); });
+        const n = selected().length;
+        pickAlls().forEach((c) => { c.checked = hadAll && n > 0 && n === picks().length; });
+      }
       slipsEl.querySelectorAll('[data-sp]').forEach((b) => b.onclick = () => {
         sp = +b.dataset.sp;
         const u = new URLSearchParams(location.search);
@@ -184,9 +205,17 @@ window.TauPage('strategies', (T) => {
         history.replaceState(null, '', '/strategies' + (u.toString() ? '?' + u.toString() : ''));
         pagedFocus = true; load(); window.scrollTo({ top: 0, behavior: smooth() });
       });
-      wireBulk();
+      wireBulk(had);
       focusPaged();
       sayListed(d);
+    };
+    // The list's own markup into #slips: a page's read writes it; the quiet read only when it changed, focus kept.
+    // Says whether it wrote.
+    const draw = (html, quiet) => {
+      if (quiet && html === drawn) return false;
+      if (quiet) paintKeep(slipsEl, html, true); else slipsEl.innerHTML = html;
+      drawn = html;
+      return true;
     };
     // Multi-select deploy (paper only; live stays per-strategy behind the typed-LIVE gate).
     // Selection is per page — ponytail: cross-page selection is YAGNI for a 50-row page.
@@ -226,9 +255,16 @@ window.TauPage('strategies', (T) => {
         if (first && first.focus) first.focus({ preventScroll: true });
       };
     };
-    const wireBulk = () => {
+    // `had`: what was picked before a quiet read drew the list again. The bar stays as it was (what a bulk deploy said
+    // included), drawn again only when a picked strategy left the list, focus kept.
+    const wireBulk = (had) => {
       pickAlls().forEach((all) => all.onclick = () => { picks().concat(pickAlls()).forEach((c) => c.checked = all.checked); syncBar(); });
       picks().forEach((c) => c.onchange = () => { if (!c.checked) pickAlls().forEach((all) => all.checked = false); syncBar(); });
+      if (had) {
+        const n = selected().length, fl = root.querySelector('#bulkflash');
+        if (n !== had.size) keepFocus(bar, () => syncBar(n || !fl ? '' : fl.innerHTML));
+        return;
+      }
       const fl = keepSaid ? root.querySelector('#bulkflash') : null, said = fl ? fl.innerHTML : '';
       keepSaid = false;
       syncBar(said);
@@ -237,7 +273,9 @@ window.TauPage('strategies', (T) => {
       if (kept && kept.focus && (!a || a === document.body || a.isConnected === false)) kept.focus({ preventScroll: true });
     };
     load();
+    poll(load, LIST_POLL_MS, 'strats-stale');
   }
+  const LIST_POLL_MS = 60000;
 
   return {viewStrategies};
 });

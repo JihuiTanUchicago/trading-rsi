@@ -71,6 +71,7 @@ import {newUserCases} from './new_user_frontend_cases.mjs';
 import {sessionStateCases} from './session_state_frontend_cases.mjs';
 import {firstSessionCases} from './first_session_frontend_cases.mjs';
 import {checkinCadenceCases} from './checkin_cadence_frontend_cases.mjs';
+import {staleMoneyCases} from './stale_money_frontend_cases.mjs';
 
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
@@ -3138,7 +3139,8 @@ test('a run poll never stacks a second read on one that is still hanging', async
   hang = true;
   for (let i = 0; i < 7; i++) { f.shiftClock(2000); tick(); await flush(); }  // 14s of 2s ticks while one read hangs
   assert.equal(f.requests.length, before + 1);  // it used to send seven
-  assert.equal(f.root.querySelector('#run-stale').textContent, 'Last updated 14s ago, retrying');
+  // Nothing has failed yet (the read is still out): it refreshes, not retries.
+  assert.equal(f.root.querySelector('#run-stale').textContent, 'Last updated 14s ago, refreshing');
 });
 
 test('the dead "Dig deeper" win card is gone, and phone tap targets stay 40px or more', () => {
@@ -6342,6 +6344,7 @@ themeFactsCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
 bookReconcileCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
 autopilotCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn});
 billingCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, billingPage, cardedBilling});
+staleMoneyCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard});
 settingsBillingCases({name: 'Tau', frontend, billingPage, cardedBilling});
 unrealizedCellCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 unmarkedPositionCases({name: 'Tau', frontend});

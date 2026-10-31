@@ -72,6 +72,7 @@ import {newUserCases} from './new_user_frontend_cases.mjs';
 import {sessionStateCases} from './session_state_frontend_cases.mjs';
 import {firstSessionCases} from './first_session_frontend_cases.mjs';
 import {checkinCadenceCases} from './checkin_cadence_frontend_cases.mjs';
+import {staleMoneyCases} from './stale_money_frontend_cases.mjs';
 
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
@@ -4105,7 +4106,8 @@ test('a run poll never stacks a second read on one that is still hanging', async
   hang = true;
   for (let i = 0; i < 7; i++) { f.shiftClock(2000); tick(); await flush(); }  // 14s of 2s ticks while one read hangs
   assert.equal(f.requests.length, before + 1);  // it used to send seven
-  assert.equal(f.root.querySelector('#run-stale').textContent, 'Last updated 14s ago, retrying');
+  // Nothing has failed yet (the read is still out): it refreshes, not retries.
+  assert.equal(f.root.querySelector('#run-stale').textContent, 'Last updated 14s ago, refreshing');
 });
 
 test('the dead "Dig deeper" win card is gone, and phone tap targets stay 40px or more', () => {
@@ -6820,6 +6822,7 @@ themeFactsCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 bookReconcileCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 autopilotCostCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 billingCostCases({name: 'Meridian', frontend, dashboard: dashboardData, billingPage, cardedBilling});
+staleMoneyCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData});
 settingsBillingCases({name: 'Meridian', frontend, billingPage, cardedBilling});
 unrealizedCellCases({name: 'Meridian', frontend, dashboard: dashboardData});
 unmarkedPositionCases({name: 'Meridian', frontend});
