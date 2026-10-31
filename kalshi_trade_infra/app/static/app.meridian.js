@@ -917,6 +917,18 @@
     bellReq.then(() => { bellOkAt = at; }, () => {});
     return bellReq;
   }
+  // Another tab or device read the list (opening the bell there marks it read on the server), so this tab's count
+  // was out of date until its next minute's tick (walk 2026-10-31). Back in this tab the list is read again, unless it
+  // was read in the last BELL_BACK_MS; a window focused without the tab going hidden (two windows side by side) reads
+  // it when the one kept is over BELL_OPEN_FRESH_MS old, so focus flapping between them isn't a read per click. A
+  // read only: nothing is marked read here (an open list is left as the reader sees it, bellFresh).
+  const BELL_BACK_MS = 1500;
+  function bellBack(fresh) {
+    if (document.hidden || !bellFresh || Date.now() - bellReqAt < fresh) return;
+    bellReqAt = 0; bellTick();
+  }
+  document.addEventListener('visibilitychange', () => bellBack(BELL_BACK_MS));
+  window.addEventListener('focus', () => bellBack(BELL_OPEN_FRESH_MS));
   // A list that filled up while the user was away opens with what it holds, by kind (the server's
   // unread_kinds): a week back, seven "Autopilot put ... on paper" lines ran past the first screen
   // before the pause among them. Shown from BELL_SUM_MIN new notices; the lines below are unchanged.
@@ -949,7 +961,7 @@
     const close = () => {
       menu.hidden = true; trig.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', onDoc, true);
       list.querySelectorAll('.notif.unread').forEach((n) => n.classList.remove('unread'));
-      list.querySelectorAll('.notif-new, .bell-sum').forEach((n) => n.remove());
+      list.querySelectorAll('.notif-new, .bell-sum, .bell-older-new').forEach((n) => n.remove());
       const c = head.querySelector('.bell-new'); if (c) c.remove();
     };
     const onDoc = (e) => { if (!wrap.contains(e.target)) close(); };
@@ -958,7 +970,16 @@
     // without a page to open is plain text, not a link to nowhere. One about a strategy that is no longer the user's (the server's `gone`: deleted since, as a shared copy can be) says so,
     // as text: its link opened "Not found" (walk 2026-10-31).
     const BELL_GONE = 'This strategy is no longer in your list.';
-    const BELL_OLDER = 'Older notices aren\u2019t listed here.';
+    const BELL_OLDER = 'Older notices aren\u2019t listed here';
+    // The count is every unread notice, the lines the newest 20: with 47 new and 20 lines it said only that older
+    // ones aren't listed, so the count read as wrong. It says how many of them are new (the server's unread_listed),
+    // until the list closes, as the marks on the new lines do.
+    const bellOlder = (d) => {
+      const k = d.unread - d.unread_listed;
+      return `${BELL_OLDER}${d.unread_listed >= 0 && k > 0 ? `<span class="bell-older-new">, including ${num(k)} new ${k === 1 ? 'one' : 'ones'}</span>` : ''}.`;
+    };
+    // A control a tap or Tab can leave focus on; a container focused only by script (tabindex="-1") is none.
+    const takesFocus = (el) => { const t = el && el.getAttribute ? el.getAttribute('tabindex') : null; return !!el && (/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(el.tagName || '') ? t !== '-1' : t != null && +t >= 0); };
     const item = (n) => {
       const inner = `${n.read ? '' : '<span class="vh notif-new">New: </span>'}${esc(n.body)}${n.gone ? `<span class="notif-more">${BELL_GONE}</span>` : ''}${n.more ? `<span class="notif-more">${esc(bellMore(n))}</span>` : ''}${bellTime(n.created_at)}`;
       return !n.gone && /^\/(?!\/)/.test(n.link || '') ? `<a class="notif ${n.read ? '' : 'unread'}" href="${esc(n.link)}">${inner}</a>` : `<p class="notif ${n.read ? '' : 'unread'}">${inner}</p>`;
@@ -969,7 +990,7 @@
       head.innerHTML = '<b>Notifications</b>' + (d.unread ? `<span class="bell-new">${num(d.unread)} new</span>` : '');
       // Empty, it says what rings it: through a new user's first research session it said only "No notifications yet."
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
-      list.innerHTML = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? `<p class="bell-empty bell-older">${BELL_OLDER}</p>` : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
+      list.innerHTML = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? `<p class="bell-empty bell-older">${bellOlder(d)}</p>` : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
     };
     // A list that didn't load still opens, says so and offers Try again; the next read (bellTick) fills it
     // too. It used to leave the bell dead for the rest of the visit: a tap did nothing and no dot ever came.
@@ -1048,7 +1069,19 @@
     wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { close(); trig.focus(); } });
     // Tabbing past the last notification left the list open behind the page, where Esc (bound here) no
     // longer reached it: focus leaving the bell closes the list, as a click outside already does.
-    wrap.addEventListener('focusout', (e) => { if (!menu.hidden && !wrap.contains(e.relatedTarget)) close(); });
+    // A tap outside on nothing that takes focus (the page's text, a container) left focus on the page itself, behind
+    // the list that just closed, so the next Tab started from the top: it goes back to the bell, as Esc's does, once
+    // the browser has moved it (a container focused by script takes it after this). Focus moving to a control (Tab, a
+    // tapped link or field) stays there; one left on a line of the closed list (the window lost focus) comes back too.
+    wrap.addEventListener('focusout', (e) => {
+      if (menu.hidden || wrap.contains(e.relatedTarget)) return;
+      close();
+      if (takesFocus(e.relatedTarget)) return;
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (menu.hidden && (!takesFocus(a) || (wrap.contains(a) && a !== trig))) trig.focus({ preventScroll: true });
+      }, 0);
+    });
     // Opening a notice closes the list first, so its click-outside listener doesn't outlive the page.
     list.addEventListener('click', (e) => {
       const again = e.target.closest('[data-bell-retry]');
