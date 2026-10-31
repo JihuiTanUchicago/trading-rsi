@@ -226,6 +226,12 @@ def autopilot_kill(ctx: Ctx):
     return {"ok": True, "paused": paused}
 
 
+def _watch_id(active: List[Dict]) -> Optional[int]:
+    """The session the card's link opens: the newest running one, else the newest queued one (active is newest first)."""
+    pick = next((r for r in active if r.get("status") != "queued"), active[0] if active else None)
+    return pick["id"] if pick and pick.get("id") is not None else None
+
+
 def _research_activity(cur, uid: int, pulse: Optional[Dict] = None, spent: Optional[float] = None,
                        exact: Optional[float] = None) -> Dict:
     """What research is doing for the autopilot float: the markets being researched now and the
@@ -256,7 +262,8 @@ def _research_activity(cur, uid: int, pulse: Optional[Dict] = None, spent: Optio
             "queued": [label(r) for r in active if r.get("status") == "queued"],
             # The newest of those sessions (research_live is newest first), so the card and the panel can
             # link "It's researching Bitcoin" to the session itself: a new user found it two pages away.
-            "watch": active[0]["id"] if active and active[0].get("id") is not None else None,
+            # A running one before a queued one: "Watch it research" opened a session still queued to start.
+            "watch": _watch_id(active),
             "tested_7d": pulse["tested_7d"],
             "passed_7d": pulse["passed_7d"] - not_cleared,
             "not_cleared_7d": not_cleared,
@@ -853,11 +860,22 @@ def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age,
             else "review_wait" if d.get("review_wait") else "no_strategies")
     # While it researches, the line ends on what to press to watch: the one session it names, or Research
     # for several. "It's researching Bitcoin" was a dead end on the card and the panel.
-    one = len(research.get("active") or []) == 1
-    watch = None if code != "researching" else (
-        {"label": "Watch it research", "href": "/research/%d" % int(research["watch"])}
-        if one and research.get("watch") is not None
-        else {"label": "Watch %s on Research" % ("it" if one else "them"), "href": "/research"})
+    # A session still queued to start (research.queued, counted among research.active) isn't researching, as the
+    # Research page and Home say it ("1 session queued"): with only queued ones, the link opens it to see, not to
+    # watch research ("Watch it research" under "A session is queued to start."). The link's words only.
+    active = research.get("active") or []
+    running = len(active) - min(len(research.get("queued") or []), len(active))
+    one = (running or len(active)) == 1
+    if code != "researching":
+        watch = None
+    elif not running:
+        watch = ({"label": "See the queued session", "href": "/research/%d" % int(research["watch"])}
+                 if one and research.get("watch") is not None
+                 else {"label": "See %s on Research" % ("it" if one else "them"), "href": "/research"})
+    else:
+        watch = ({"label": "Watch it research", "href": "/research/%d" % int(research["watch"])}
+                 if one and research.get("watch") is not None
+                 else {"label": "Watch %s on Research" % ("it" if one else "them"), "href": "/research"})
     if retired:
         return _idle(code, "Nothing is on paper: %s that passed %s stopped on paper, and no new one has passed since. %s" % (
             "the strategy" if len(retired) == 1 else "the %d strategies" % len(retired),

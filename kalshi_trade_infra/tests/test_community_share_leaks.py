@@ -31,8 +31,8 @@ def share(monkeypatch):
     monkeypatch.setattr(community.repo, "recent_posts_count", lambda cur, uid, since: 0)
     monkeypatch.setattr(community.repo, "get_strategy", lambda cur, uid, sid: dict(STRATEGY))
     monkeypatch.setattr(community.repo, "get_deployment", lambda cur, uid, did: dict(DEPLOYMENT))
-    monkeypatch.setattr(community.repo, "realized_pnl", lambda cur, uid, mode: {"paper": 7.2, "live": -0.6}[mode])
-    monkeypatch.setattr(community.repo, "closed_trade_counts", lambda cur, uid: {"paper": 4, "live": 1})
+    monkeypatch.setattr(community.repo, "realized_pnl", lambda cur, uid, mode: {"paper": 7.2, "demo": -2.31, "live": -0.6}[mode])
+    monkeypatch.setattr(community.repo, "closed_trade_counts", lambda cur, uid: {"paper": 4, "demo": 3, "live": 1})
     monkeypatch.setattr(community.repo, "get_user", lambda cur, uid: {"id": uid, "name": "author@example.net",
                                                                        "credits": 12.5})
     monkeypatch.setattr(community.repo, "users_by_usernames", lambda cur, names: [])
@@ -86,9 +86,10 @@ def test_the_card_keeps_what_it_says(share):
                     "pnl": 42.17, "trades": 23, "win_rate": 0.61, "days": 9.4}
     dep = _as_read(share("deployment", 5150), mine=False)["snapshot"]
     assert dep["mode"] == "live" and dep["realized_pnl"] == -0.6 and dep["closed_trades"] == 1
-    # Each book on its own figure: paper and live are never added together.
+    # Each book on its own figure (demo too, since 2026-10-31): paper, demo and live are never added together.
     pnl = _as_read(share("pnl"), mine=False)["snapshot"]
-    assert pnl == {"kind": "pnl", "paper_pnl": 7.2, "live_pnl": -0.6, "paper_trades": 4, "live_trades": 1}
+    assert pnl == {"kind": "pnl", "paper_pnl": 7.2, "demo_pnl": -2.31, "live_pnl": -0.6, "paper_trades": 4,
+                   "demo_trades": 3, "live_trades": 1}
 
 
 def test_a_shared_pass_a_later_check_left_uncleared_says_so_and_nothing_more(share):

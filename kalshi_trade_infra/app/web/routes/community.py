@@ -49,12 +49,17 @@ def _post_snapshot(cur, user_id: int, kind: str, ref_id: int) -> Optional[Dict]:
                 "mode": dep["mode"], "realized_pnl": cents(dep["realized_pnl"]), "closed_trades": dep["closed_trades"],
                 "since": since.strftime("%Y-%m-%dT%H:%M:%SZ") if since else None}
     if kind == "pnl":
-        # Each book's all-time realized P&L with its closed-trade count, never added together.
+        # Each book's all-time realized P&L with its closed-trade count, never added together. The demo book is
+        # one of them: a demo-only trader's share read "Paper: no trades yet · Live (real money): no trades yet"
+        # under "Realized P&L, all time" (walked 2026-10-31). All time, as paper's and live's are and as the demo
+        # trades file sums: a reload restarts the dashboard's demo figure, not this one.
         paper = repo.realized_pnl(cur, user_id, "paper")
+        demo = repo.realized_pnl(cur, user_id, "demo")
         live = repo.realized_pnl(cur, user_id, "live")
         counts = repo.closed_trade_counts(cur, user_id)
-        return {"kind": "pnl", "paper_pnl": cents(paper), "live_pnl": cents(live),
-                "paper_trades": counts.get("paper", 0), "live_trades": counts.get("live", 0)}
+        return {"kind": "pnl", "paper_pnl": cents(paper), "demo_pnl": cents(demo), "live_pnl": cents(live),
+                "paper_trades": counts.get("paper", 0), "demo_trades": counts.get("demo", 0),
+                "live_trades": counts.get("live", 0)}
     return None
 
 
@@ -63,11 +68,12 @@ def _post_snapshot(cur, user_id: int, kind: str, ref_id: int) -> Optional[Dict]:
 SNAPSHOT_FIELDS = {
     "strategy": ("kind", "title", "market", "status", "verdict", "no_gatekeeper_record", "pnl", "trades", "win_rate", "days"),
     "deployment": ("kind", "title", "market", "mode", "realized_pnl", "closed_trades", "since"),
-    "pnl": ("kind", "paper_pnl", "live_pnl", "paper_trades", "live_trades"),
+    "pnl": ("kind", "paper_pnl", "demo_pnl", "live_pnl", "paper_trades", "demo_trades", "live_trades"),
 }
 
 
-def _snapshot_out(snap, mine: bool, unrecorded: bool = False, gone: bool = False) -> Optional[Dict]:
+def _snapshot_out(snap, mine: bool, unrecorded: bool = False, gone: bool = False,
+                  removed: bool = False) -> Optional[Dict]:
     """A post's shared card as one reader sees it. The author's row id goes only to the author, whose
     card links their own strategy page; anyone else's card is no link, so it needs none. A title reads
     as the app shows a person's text (no address, no internal model id). `unrecorded` (the feed read's
@@ -77,7 +83,9 @@ def _snapshot_out(snap, mine: bool, unrecorded: bool = False, gone: bool = False
     never judged on held-out data (VOID_NO_RECORD_SQL, the rule its Strategies row is flagged by), so its card
     says "not held out" as its page and row do. The same column of the feed's own read; display only.
     `gone` (the read's strategy_gone): the author has deleted the strategy since, so their card carries no id to link
-    (its page said "Not found") and says it is gone instead."""
+    (its page said "Not found") and every reader's says it is gone: another reader's said "Ask them to share a copy from
+    its page" of a page no longer there. `removed` (the read's deployment_removed): the author has removed the shared
+    deployment since, so its card says it no longer trades. Neither says more than that it is gone."""
     if not isinstance(snap, dict) or snap.get("kind") not in SNAPSHOT_FIELDS:
         return None
     out = {k: snap[k] for k in SNAPSHOT_FIELDS[snap["kind"]] if k in snap}
@@ -85,10 +93,12 @@ def _snapshot_out(snap, mine: bool, unrecorded: bool = False, gone: bool = False
         out["no_gatekeeper_record"] = True
     if out.get("title"):
         out["title"] = customer_text.clean(out["title"], "A strategy")
-    if mine and gone and out["kind"] == "strategy":
+    if gone and out["kind"] == "strategy":
         out["gone"] = True
     elif mine and snap.get("id") is not None:
         out["id"] = snap["id"]
+    if removed and out["kind"] == "deployment":
+        out["removed"] = True
     return out
 
 
@@ -109,7 +119,7 @@ def _post_out(p: Dict) -> Dict:
     return {
         "id": p["id"], "body": p["body"], "kind": p["kind"],
         "snapshot": _snapshot_out(p.get("snapshot"), bool(p.get("mine")), bool(p.get("no_gatekeeper_record")),
-                                  bool(p.get("strategy_gone"))),
+                                  bool(p.get("strategy_gone")), bool(p.get("deployment_removed"))),
         "likes": p["likes_count"], "comments": p["comments_count"], "created_at": p["created_at"],
         "author": customer_text.display_name(p.get("name"), "Trader"), "username": p.get("username"), "picture": p.get("picture_url"),
         "mine": p.get("mine", False), "liked": p.get("liked", False),

@@ -1,6 +1,6 @@
 // Shared cases, run against each bundle's offline DOM/transport harness (Tau and Meridian):
 // - the composer says, before anything is posted, who reads a post and what an attached strategy and
-//   Share my P&L show (its rules never; paper and live totals, each named);
+//   Share my P&L show (its rules never; paper, demo and live totals, each named);
 // - Share my P&L asks once before it posts real-money figures for everyone, and a second press posts;
 // - the author can delete their own post (asks once); no one else sees Delete on it;
 // - a signed-out link to a post (/community#post-<id>, from the bell or an email) carries the post
@@ -37,7 +37,7 @@ export function communityCases({name, frontend}) {
     assert.ok(hint, 'the composer carries a line on who reads posts');
     assert.match(hint.textContent, /Everyone signed in to Tau can read posts and replies\./);
     assert.match(hint.textContent, /attached strategy shows its name, market and backtest result, never its rules/);
-    assert.match(hint.textContent, /Share my P&(amp;)?L posts your paper and live \(real money\) totals/);
+    assert.match(hint.textContent, /Share my P&(amp;)?L posts your paper, demo \(play money\) and live \(real money\) totals as they stand now/);
     assert.equal(f.root.querySelector('#post-body').getAttribute('aria-describedby'), 'post-hint');
 
     const share = f.root.querySelector('[data-share="pnl"]'), label = share.innerHTML;
@@ -560,5 +560,66 @@ export function communityCases({name, frontend}) {
     assert.match(note.textContent, /That post isn’t here any more/);
     assert.ok(focusedOn(f, note), 'focus is on the line saying the post is gone');
     f.clearTimers();
+  });
+
+  // Community money walk (2026-10-31), as the poster and as another reader, in both themes.
+  const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/⁠/g, '').replace(/\s+/g, ' ');
+  const AT = '2026-10-29T22:29:39+00:00';
+  const DAY = new Intl.DateTimeFormat(undefined, {year: 'numeric', month: 'short', day: 'numeric'}).format(new Date(AT));
+
+  test(`${name}: a shared P&L names each book with the demo book on its own line, says its fees and the day it was shared`, () => {
+    const f = frontend();
+    // A demo-only trader's share read "Paper: no trades yet · Live (real money): no trades yet" (the demo book left out),
+    // with no word on fees, "as of this post" with no date.
+    const snap = {kind: 'pnl', paper_pnl: 0, demo_pnl: -2.31, live_pnl: 0, paper_trades: 0, demo_trades: 3, live_trades: 0};
+    const t = text(f.postSnapshot(snap, '@danap', AT));
+    assert.match(t, /Demo \(play money\) −\$2\.31 on 3 trades/);
+    assert.match(t, /Paper (N|n)o trades yet/); assert.match(t, /Live \(real money\) (N|n)o trades yet/);
+    assert.match(t, new RegExp(`(Realized P&(amp;)?L, all time|All time), as shared on ${DAY}`));
+    assert.match(t, /Demo after Kalshi fees\./);
+    assert.doesNotMatch(t, /as of this post|−\$2\.31.*−\$2\.31/);
+    const both = text(f.postSnapshot({...snap, paper_pnl: 18.82, paper_trades: 38}, '', AT));
+    assert.match(both, /Paper after Kalshi fees and the spread; demo after Kalshi fees\./);
+    assert.match(both, /\+\$18\.82 on 38 trades/);
+    // A share from before the demo book was counted says it isn't in it, beside a header that says "all time".
+    const old = text(f.postSnapshot({kind: 'pnl', paper_pnl: 18.82, live_pnl: 0, paper_trades: 38, live_trades: 0}, '', AT));
+    assert.match(old, /Paper after Kalshi fees and the spread; demo isn’t in this share\./);
+    assert.doesNotMatch(old, /Demo \(play money\)/);
+  });
+
+  test(`${name}: a shared deployment says its figure is as shared on its day, net of its book's fees, and says when it was removed since`, () => {
+    const f = frontend();
+    const dep = {kind: 'deployment', title: 'Late-rush fade', market: 'btc15m', mode: 'demo', realized_pnl: -15.15, closed_trades: 10, since: '2026-10-22T19:29:39Z'};
+    const t = text(f.postSnapshot(dep, '@rileyrich', AT));
+    assert.match(t, /−\$15\.15/);
+    assert.match(t, new RegExp(`Realized as shared on ${DAY}, in play money, after Kalshi fees\\.`));
+    assert.doesNotMatch(t, /Removed/);
+    assert.match(text(f.postSnapshot({...dep, mode: 'paper'}, '', AT)), /, after Kalshi fees and the spread\./);
+    assert.match(text(f.postSnapshot({...dep, mode: 'live'}, '', AT)), /, in real money, after Kalshi fees\./);
+    const gone = f.postSnapshot({...dep, mode: 'paper', removed: true}, '@rileyrich', AT);
+    assert.match(text(gone), /Removed from paper: it no longer trades\./);
+    assert.match(text(gone), /\+?−\$15\.15/, 'the figure stands as shared');
+  });
+
+  test(`${name}: another reader's card for a strategy its author deleted since says it is gone, not "ask them for a copy"`, () => {
+    const f = frontend();
+    const card = {kind: 'strategy', title: 'Opening gap scalp', market: 'btc15m', status: 'passed', pnl: 2.1, trades: 64, win_rate: 0.56, days: 8};
+    const html = f.postSnapshot({...card, gone: true}, '@rileyrich', AT);
+    assert.doesNotMatch(html, /<a |href=/);
+    assert.match(text(html), /@rileyrich has deleted this strategy since, so there’s no copy to ask for\. Its figures stand as shared\./);
+    assert.doesNotMatch(text(html), /Ask them to share a copy|ask them to share a copy|Only @rileyrich can open/);
+    assert.match(text(html), /\+\$2\.10/);
+    assert.match(text(f.postSnapshot(card, '@rileyrich', AT)), /share a copy from its page/, 'one still there says how to get a copy');
+  });
+
+  test(`${name}: a shared figure's colour is the shown amount's: a backtest's −$0.004 reads $0.00, untoned`, () => {
+    const f = frontend();
+    for (const snap of [{kind: 'strategy', id: 1, title: 'Flat', market: 'btc15m', status: 'passed', pnl: -0.004, trades: 3},
+      {kind: 'deployment', title: 'Flat', market: 'btc15m', mode: 'paper', realized_pnl: -0.004, closed_trades: 1},
+      {kind: 'pnl', paper_pnl: -0.004, paper_trades: 1, live_pnl: 0, live_trades: 0}]) {
+      const html = f.postSnapshot(snap, '', AT);
+      assert.match(text(html), /\$0\.00/); assert.doesNotMatch(text(html), /−\$0\.00/);
+      assert.doesNotMatch(html, /class="[^"]*\bloss\b/, JSON.stringify(snap));
+    }
   });
 }

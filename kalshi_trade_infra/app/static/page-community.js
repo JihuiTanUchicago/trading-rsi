@@ -5,8 +5,8 @@
 window.TauPage('community', (T) => {
   'use strict';
   const {
-    alert0, api, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, busy, deploymentMode, esc, flash, ICON, keepZone,
-    liveWaitMark, loading, marketShort, mdLite, notice, num, overDays, pageLede, pct, poll, realTrades, refreshed, researchBadge, root, S, SEP,
+    alert0, api, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, busy, deploymentMode, esc, FEES_NET, flash, halfUp, ICON, keepZone,
+    liveWaitMark, loading, marketShort, mdLite, notice, num, overDays, pageLede, PAPER_NET, pct, poll, realTrades, refreshed, researchBadge, root, S, SEP,
     settleAt, shell, statusMark, theme, tone, trDay, usd
   } = T;
   // Each theme lays the page and its cards out its own way: Tau's cards print a figure in a line of words and its
@@ -17,18 +17,37 @@ window.TauPage('community', (T) => {
   // A shared figure says what it is: which book (a backtest, paper, demo or live), over what span and on
   // how many trades, each book on its own line. `owner` names the author when the post isn't the viewer's:
   // a strategy page is its owner's alone, so the card says how to get a copy instead of a dead link.
+  // A figure's colour is the shown amount's, rounded as shown (money() in core.js): a backtest's −0.004 read a red "$0.00".
+  const toneShown = (v) => tone(v == null ? v : halfUp(+v));
   const snapPnl = tau
-    ? (v, n) => (n === 0 ? 'no trades yet' : `<b class="${tone(v)}">${usd(v, true)}</b>${n != null ? ` on ${realTrades(n)}` : ''}`)
-    : (v, n) => n === 0 ? '<dd>No trades yet</dd>' : `<dd class="${tone(v)}">${usd(v, true)}${n != null ? `<span class="snap-n">on ${realTrades(n)}</span>` : ''}</dd>`;
-  function postSnapshot(snap, owner) {
+    ? (v, n) => (n === 0 ? 'no trades yet' : `<b class="${toneShown(v)}">${usd(v, true)}</b>${n != null ? ` on ${realTrades(n)}` : ''}`)
+    : (v, n) => n === 0 ? '<dd>No trades yet</dd>' : `<dd class="${toneShown(v)}">${usd(v, true)}${n != null ? `<span class="snap-n">on ${realTrades(n)}</span>` : ''}</dd>`;
+  // A shared figure is the one its author had when they posted (the server stores it then and never updates it), so it
+  // says the post's date: "as of this post" named no date, and a deployment's "realized −$15.15 · 10 trades since Oct 22"
+  // read as its figure now (walked 2026-10-31).
+  const sharedOn = (at) => (Number.isFinite(Date.parse(at)) ? `as shared on ${trDay(Date.parse(at) / 1000)}` : 'as of this post');
+  // What each book's figure is net of, as the dashboard says it beside its own: paper after the spread and Kalshi's fees,
+  // demo and live after Kalshi's fees. Demo is play money and live real money, said where the book is named.
+  const BOOK_NET = { paper: PAPER_NET, demo: `in play money, ${FEES_NET}`, live: `in real money, ${FEES_NET}` };
+  // A P&L share's books, each on its own line and never added together. Demo is on a share from 2026-10-31 on (the
+  // server's demo_pnl); an older share left it out and said nothing, beside a header that says "all time", so it says so.
+  const PNL_BOOKS = [['paper', 'Paper'], ['demo', 'Demo (play money)'], ['live', 'Live (real money)']];
+  function pnlNote(snap) {
+    const traded = PNL_BOOKS.filter(([m]) => (m + '_pnl') in snap && snap[m + '_trades'] !== 0).map(([m]) => m);
+    const net = traded.map((m) => `${m} ${m === 'paper' ? PAPER_NET : FEES_NET}`).join('; ');
+    const s = [net, 'demo_pnl' in snap ? '' : 'demo isn’t in this share'].filter(Boolean).join('; ');
+    return s ? s[0].toUpperCase() + s.slice(1) + '.' : '';
+  }
+  function postSnapshot(snap, owner, at) {
     if (!snap) return '';
     if (snap.kind === 'pnl') {
+      const books = PNL_BOOKS.filter(([m]) => (m + '_pnl') in snap || m !== 'demo');
+      const note = pnlNote(snap);
       if (tau) {
-        return `<div class="snap"><div class="snap-meta">Realized P&amp;L, all time, as of this post</div><div class="snap-row"><span>Paper</span><span>${snapPnl(snap.paper_pnl, snap.paper_trades)}</span></div>
-        <div class="snap-row"><span>Live (real money)</span><span>${snapPnl(snap.live_pnl, snap.live_trades)}</span></div></div>`;
+        return `<div class="snap"><div class="snap-meta">Realized P&amp;L, all time, ${sharedOn(at)}</div>${books.map(([m, label]) => `<div class="snap-row"><span>${label}</span><span>${snapPnl(snap[m + '_pnl'], snap[m + '_trades'])}</span></div>`).join('\n        ')}${note ? `<div class="snap-note">${note}</div>` : ''}</div>`;
       }
-      return `<div class="snap snap-pnl"><div class="snap-head"><b>Realized P&amp;L</b><div class="snap-meta-line"><span class="snap-kind">All time, as of this post</span></div></div><dl class="snap-metrics"><div><dt>Paper</dt>${snapPnl(snap.paper_pnl, snap.paper_trades)}</div>
-        <div><dt>Live (real money)</dt>${snapPnl(snap.live_pnl, snap.live_trades)}</div></dl></div>`;
+      const when = sharedOn(at);
+      return `<div class="snap snap-pnl"><div class="snap-head"><b>Realized P&amp;L</b><div class="snap-meta-line"><span class="snap-kind">All time, ${when}</span></div></div><dl class="snap-metrics">${books.map(([m, label]) => `<div><dt>${label}</dt>${snapPnl(snap[m + '_pnl'], snap[m + '_trades'])}</div>`).join('\n        ')}</dl>${note ? `<p class="snap-note">${note}</p>` : ''}</div>`;
     }
     if (snap.kind === 'strategy') {
       // A backtest-only strategy, or a pass the server found no gatekeeper record for (no_gatekeeper_record), has a
@@ -48,7 +67,11 @@ window.TauPage('community', (T) => {
       // in a feed of paper and live results could pass for money made (walked 2026-10-30).
       // The author's own card for a strategy they have deleted since (the server's `gone`) is no link: its page said
       // "Not found" (walked 2026-10-31). It says the strategy is gone; the figures stand as shared.
-      const gone = snap.gone ? `You${'\u2019'}ve deleted this strategy since, so it no longer opens.` : '';
+      // Another reader's card for one its author has deleted since says so too, in place of "Ask them to share a copy from
+      // its page": there is no page or copy left to ask for (walked 2026-10-31).
+      const gone = !snap.gone ? '' : owner ? `${esc(owner)} has deleted this strategy since, so there${'\u2019'}s no copy to ask for. Its figures stand as shared.`
+        : `You${'\u2019'}ve deleted this strategy since, so it no longer opens.`;
+      if (gone) owner = '';
       const why = snap.pnl == null ? '' : later ? `Backtest${overDays(snap.days)} after the split date${snap.status === 'failed' ? '' : ', which picked it'} (later\u00a0period${SEP}not\u00a0held\u00a0out), not paper or live trading.`
         : `Backtest${overDays(snap.days)} after the split date (later\u00a0period${SEP}unseen\u00a0data), not paper or live trading.`;
       if (tau) {
@@ -61,16 +84,19 @@ window.TauPage('community', (T) => {
       // "+$42.17" under a Void stamp read as a result. Tau's card prints it untoned.
       const noPass = snap.status === 'failed' || snap.status === 'rejected' || snap.verdict === 'missed_final';
       const note = [why, owner ? `Only ${esc(owner)} can open this strategy; ask them to share a copy from its page.` : gone].filter(Boolean).join(' ');
-      const body = `<div class="snap-head"><span class="snap-title"><b>${esc(snap.title)}</b>${statusMark(snap)}${researchBadge(snap)}</span><div class="snap-meta-line"><span class="snap-kind">Strategy</span><span class="snap-meta">${esc(marketShort(snap.market))}</span></div></div><dl class="snap-metrics snap-evidence-metrics"><div class="snap-result"><dt>Later-period P&amp;L</dt><dd class="${noPass ? 'pnl-nopass' : tone(snap.pnl)}">${snap.pnl == null ? '—' : usd(snap.pnl, true)}</dd></div>${snap.trades != null ? `<div class="snap-secondary"><dt>Trades</dt><dd>${num(snap.trades)}</dd></div>` : ''}${snap.win_rate != null ? `<div class="snap-secondary"><dt>Win rate</dt><dd>${pct(snap.win_rate, false)}</dd></div>` : ''}</dl>${note ? `<p class="snap-note">${note}</p>` : ''}`;
+      const body = `<div class="snap-head"><span class="snap-title"><b>${esc(snap.title)}</b>${statusMark(snap)}${researchBadge(snap)}</span><div class="snap-meta-line"><span class="snap-kind">Strategy</span><span class="snap-meta">${esc(marketShort(snap.market))}</span></div></div><dl class="snap-metrics snap-evidence-metrics"><div class="snap-result"><dt>Later-period P&amp;L</dt><dd class="${noPass ? 'pnl-nopass' : toneShown(snap.pnl)}">${snap.pnl == null ? '—' : usd(snap.pnl, true)}</dd></div>${snap.trades != null ? `<div class="snap-secondary"><dt>Trades</dt><dd>${num(snap.trades)}</dd></div>` : ''}${snap.win_rate != null ? `<div class="snap-secondary"><dt>Win rate</dt><dd>${pct(snap.win_rate, false)}</dd></div>` : ''}</dl>${note ? `<p class="snap-note">${note}</p>` : ''}`;
       return owner || gone ? `<div class="snap snap-strategy">${body}</div>` : `<a class="snap snap-strategy" href="/strategies/${snap.id}">${body}</a>`;
     }
     if (snap.kind === 'deployment') {
+      // Its figure is the one it had when shared, net of what its book takes off (BOOK_NET), and a deployment its author
+      // has removed since (the server's `removed`) says so: "since Oct 10" read as a run still trading (walked 2026-10-31).
+      const book = snap.mode === 'live' ? 'live' : snap.mode === 'demo' ? 'demo' : 'paper';
+      const depNote = `Realized ${sharedOn(at)}, ${BOOK_NET[book]}.${snap.removed ? ` Removed from ${book}: it no longer trades.` : ''}`;
       if (tau) {
-        const book = snap.mode === 'live' ? 'live' : snap.mode === 'demo' ? 'demo' : 'paper';
         return `<div class="snap"><div class="snap-head"><b>${esc(snap.title)}</b>${book === 'live' ? '<span class="mk live">Live</span>' + liveWaitMark() : book === 'demo' ? '<span class="mk dep">Demo</span>' : '<span class="mk">Paper</span>'}</div>
-        <div class="snap-meta">${esc(marketShort(snap.market))}${SEP}${book}${SEP}realized ${usd(snap.realized_pnl, true)}${snap.closed_trades != null ? SEP + realTrades(snap.closed_trades) : ''}${snap.since ? ' since ' + trDay(Date.parse(snap.since) / 1000) : ''}</div></div>`;
+        <div class="snap-meta">${esc(marketShort(snap.market))}${SEP}${book}${SEP}realized ${usd(snap.realized_pnl, true)}${snap.closed_trades != null ? SEP + realTrades(snap.closed_trades) : ''}${snap.since ? ' since ' + trDay(Date.parse(snap.since) / 1000) : ''}</div><div class="snap-note">${depNote}</div></div>`;
       }
-      return `<div class="snap snap-deployment"><div class="snap-head"><span class="snap-title"><b>${esc(snap.title)}</b>${deploymentMode(snap)}${snap.mode === 'live' ? liveWaitMark() : ''}</span><div class="snap-meta-line"><span class="snap-kind">Deployment</span><span class="snap-meta">${esc(marketShort(snap.market))}</span>${snap.since ? `<span class="snap-kind snap-since">since ${trDay(Date.parse(snap.since) / 1000)}</span>` : ''}</div></div><dl class="snap-metrics snap-evidence-metrics"><div class="snap-result"><dt>Realized P&amp;L</dt><dd class="${tone(snap.realized_pnl)}">${usd(snap.realized_pnl, true)}</dd></div><div class="snap-secondary"><dt>Closed trades</dt><dd>${num(snap.closed_trades)}</dd></div></dl></div>`;
+      return `<div class="snap snap-deployment"><div class="snap-head"><span class="snap-title"><b>${esc(snap.title)}</b>${deploymentMode(snap)}${snap.mode === 'live' ? liveWaitMark() : ''}</span><div class="snap-meta-line"><span class="snap-kind">Deployment</span><span class="snap-meta">${esc(marketShort(snap.market))}</span>${snap.since ? `<span class="snap-kind snap-since">since ${trDay(Date.parse(snap.since) / 1000)}</span>` : ''}</div></div><dl class="snap-metrics snap-evidence-metrics"><div class="snap-result"><dt>Realized P&amp;L</dt><dd class="${toneShown(snap.realized_pnl)}">${usd(snap.realized_pnl, true)}</dd></div><div class="snap-secondary"><dt>Closed trades</dt><dd>${num(snap.closed_trades)}</dd></div></dl><p class="snap-note">${depNote}</p></div>`;
     }
     return '';
   }
@@ -123,7 +149,7 @@ window.TauPage('community', (T) => {
     const head = grouped ? '' : `<div class="post-head"><b>${authorLine(p.author, p.username)}</b><span class="when">${bellTime(p.created_at)}${p.edited ? `${SEP}edited` : ''}</span></div>`;
     const main = `<div class="post-main"><div class="post-body">${mdLite(p.body)}</div>
         ${p.image ? `<a class="post-img" href="${esc(p.image)}" target="_blank" rel="noopener"><img src="${esc(p.image)}" alt="" loading="lazy"></a>` : ''}
-        ${postSnapshot(p.snapshot, snapOwner(p))}`;
+        ${postSnapshot(p.snapshot, snapOwner(p), p.created_at)}`;
     const actions = `<div class="post-actions">
           <button class="thread-link" data-act="comments" aria-expanded="false">${tau ? ICON.comment : ''}<span>${replies ? `${num(replies)} ${replies === 1 ? 'reply' : 'replies'}` : 'Reply'}</span></button>
           ${p.mine ? `<button class="thread-link" data-act="edit">${ICON.pencil}<span>Edit</span></button><button class="thread-link" data-act="delete"><span>Delete</span></button>` : ''}
@@ -224,7 +250,7 @@ window.TauPage('community', (T) => {
             <button class="btn sm" type="button" data-share="pnl">${ICON.up}Share my P&amp;L</button>
             <button class="btn primary sm" type="submit">Post</button>
           </div>
-          <p class="hint post-hint" id="post-hint">Everyone signed in to Tau can read posts and replies. An attached strategy shows its name, market and backtest result, never its rules. Share my P&amp;L posts your paper and live (real money) totals.</p>
+          <p class="hint post-hint" id="post-hint">Everyone signed in to Tau can read posts and replies. An attached strategy shows its name, market and backtest result, never its rules. Share my P&amp;L posts your paper, demo (play money) and live (real money) totals as they stand now, each on its own.</p>
           <div id="post-flash"></div>
         </form>`;
     // Tau: the title over the feed and its filter, the composer under the feed. Meridian: the title, filter and lede in

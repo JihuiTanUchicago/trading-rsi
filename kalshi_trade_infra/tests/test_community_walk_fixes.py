@@ -90,6 +90,36 @@ def test_the_authors_card_for_a_strategy_they_deleted_since_has_no_link_and_says
     assert gone.get("gone") is True and "id" not in gone and gone["pnl"] == 5.5
     kept = community._post_out(_row(kind="strategy", snapshot=dict(snap), mine=True))["snapshot"]
     assert kept["id"] == 4711 and "gone" not in kept
-    # Anyone else's card is no link either way, and says nothing about the author's strategies.
+    # Anyone else's card is no link either way. It says the strategy is gone too: it said "Ask them to share a copy
+    # from its page" of a page no longer there (walked 2026-10-31).
     other = community._post_out(_row(kind="strategy", snapshot=dict(snap), strategy_gone=True))["snapshot"]
-    assert "id" not in other and "gone" not in other
+    assert "id" not in other and other.get("gone") is True and other["pnl"] == 5.5
+    assert "gone" not in community._post_out(_row(kind="strategy", snapshot=dict(snap)))["snapshot"]
+
+
+def test_a_shared_deployment_removed_since_says_so_to_every_reader_and_keeps_its_figures():
+    """"realized +$1.39 · 3 trades since Oct 10" read as a run still trading after its author removed it (walked
+    2026-10-31). The read's deployment_removed rides as `removed`; the figures stand as shared, and no id leaks."""
+    snap = {"kind": "deployment", "id": 99, "title": "Drift", "market": "btc15m", "mode": "paper",
+            "realized_pnl": 1.39, "closed_trades": 3, "since": "2026-10-10T19:29:39Z"}
+    for mine in (False, True):
+        card = community._post_out(_row(kind="deployment", snapshot=dict(snap), mine=mine, deployment_removed=True))["snapshot"]
+        assert card["removed"] is True and card["realized_pnl"] == 1.39 and ("id" in card) == mine
+        assert "removed" not in community._post_out(_row(kind="deployment", snapshot=dict(snap), mine=mine))["snapshot"]
+    # A strategy card never carries it.
+    strat = {"kind": "strategy", "id": 4711, "title": "Fade", "market": "btc15m", "status": "passed", "pnl": 5.5}
+    assert "removed" not in community._post_out(_row(kind="strategy", snapshot=strat, deployment_removed=True))["snapshot"]
+
+
+def test_a_pnl_share_carries_the_demo_book_on_its_own_line_never_added_in(monkeypatch):
+    """A demo-only trader's Share my P&L read "Paper: no trades yet · Live (real money): no trades yet" under "Realized
+    P&L, all time": the share left the demo book out (walked 2026-10-31). Each book's all-time realized figure through
+    cents(), with its closed-trade count, each apart; a reader sees those and nothing more."""
+    sums = {"paper": -3.14159, "demo": -2.305, "live": 0.0}
+    monkeypatch.setattr(repo, "realized_pnl", lambda cur, uid, mode, since=None: sums[mode])
+    monkeypatch.setattr(repo, "closed_trade_counts", lambda cur, uid: {"paper": 4, "demo": 3})
+    snap = community._post_snapshot(object(), 7, "pnl", 0)
+    assert snap == {"kind": "pnl", "paper_pnl": -3.14, "demo_pnl": -2.31, "live_pnl": 0.0,
+                    "paper_trades": 4, "demo_trades": 3, "live_trades": 0}
+    card = community._post_out(_row(kind="pnl", snapshot=dict(snap, private=1)))["snapshot"]
+    assert card == snap

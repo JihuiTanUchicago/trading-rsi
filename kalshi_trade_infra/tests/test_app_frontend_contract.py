@@ -932,10 +932,32 @@ def _passed(title='Rain tails', market='kxrainnyc', in_focus=True, candidate=Fal
     (_idle_d(research={'active': ['BTC 15m'], 'researched': False, 'watch': 7}), [], [], None, [], 'researching',
      "Nothing is on paper yet: no strategy has passed its research tests. It’s researching BTC 15m.",
      {'label': 'Watch it research', 'href': '/research/7'}),
+    # A session still queued to start isn't researching, as Research and Home say it ("1 session queued"): the link
+    # opens it to see. It said "Watch it research" under "A session on BTC 15m is queued to start."
+    (_idle_d(research={'active': ['BTC 15m'], 'queued': ['BTC 15m'], 'watch': 41}), [], [], None, [], 'researching',
+     "Nothing is on paper yet: no strategy has passed its research tests. A session on BTC 15m is queued to start.",
+     {'label': 'See the queued session', 'href': '/research/41'}),
+    (_idle_d(research={'active': ['BTC 15m', 'NBA winner'], 'queued': ['BTC 15m', 'NBA winner'], 'watch': 41}), [], [], None,
+     [], 'researching',
+     "Nothing is on paper yet: no strategy has passed its research tests. Sessions on BTC 15m and NBA winner are queued to start.",
+     {'label': 'See them on Research', 'href': '/research'}),
+    # One running beside one queued: one session researches, so the link watches it ("them" counted the queued one).
+    (_idle_d(research={'active': ['BTC 15m', 'NBA winner'], 'queued': ['NBA winner'], 'watch': 42}), [], [], None, [],
+     'researching', "Nothing is on paper yet: no strategy has passed its research tests. It’s researching BTC 15m.",
+     {'label': 'Watch it research', 'href': '/research/42'}),
 ])
 def test_idle_reason_names_why_nothing_trades(d, paper_run, paused, age, passed, code, line, action):
     idle = server._idle_reason(d, paper_run, paused, age, passed)
     assert idle == {'code': code, 'line': line, 'action': action}
+
+
+def test_watch_it_research_opens_a_running_session_before_a_queued_one():
+    """The card's "Watch it research" opened the newest session, a queued one, beside a running one (research_live
+    is newest first). It opens the newest running one; with only queued ones, the newest of those."""
+    from app.web.routes import chat
+    assert chat._watch_id([{'id': 9, 'status': 'queued'}, {'id': 8, 'status': 'running'}, {'id': 7, 'status': 'running'}]) == 8
+    assert chat._watch_id([{'id': 9, 'status': 'queued'}, {'id': 6, 'status': 'queued'}]) == 9
+    assert chat._watch_id([]) is None and chat._watch_id([{'status': 'running'}]) is None
 
 
 @pytest.mark.parametrize('d,paper_run', [
