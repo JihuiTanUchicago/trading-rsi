@@ -749,7 +749,7 @@ test('Meridian: a strategy page\'s four-figure P&L stays on one line in a 320px 
   // The paper sheet's figure columns are 118px at 320px: the 24px "+$1,234.56" broke as "+$1,234.5" over "6".
   const all = rules(read('app.meridian.css'));
   assert.equal(decl(all, '#figs .fig', 'font-size'), '24px');
-  assert.equal(decl(all, '.detail #figs .fig', 'font-size', '@media (max-width: 380px)'), '20px');
+  assert.equal(decl(all, '.detail #figs .fig', 'font-size', '@media (max-width: 380px)'), 'min(20px, 6.3vw)');  // 20px; the cap binds only at 200% text
   assert.equal(decl(all, '.detail #figs .fig', 'overflow-wrap'), 'anywhere');  // still the last resort, never overflow
   assert.equal(decl(all, '.detail #figs.measure', 'grid-template-columns', '@media (max-width: 720px)'), 'repeat(2, minmax(0, 1fr))');
 });
@@ -872,4 +872,111 @@ test('Meridian: a post\'s reaction is 44px wide to a thumb, as Tau\'s is', () =>
   // An emoji and its count was 38x44px beside the next reaction (walked at 360px).
   assert.equal(decl(rules(read('app.meridian.css')), '.post-footer .rx:not(.add)', 'min-width', '@media (hover: none), (pointer: coarse)'), '44px');
   assert.equal(decl(rules(read('app.css')), '.reactions .rx', 'min-width', COARSE), '44px');
+});
+
+// 200% text walk 2026-10-31 (390x844 and 360x640, every font size doubled, page width measured against the phone's
+// own width, both themes). A figure tile's number grows with the text until it fills its half of the row, then stops:
+// it never breaks inside a number and never pushes the page sideways. The cap is a share of the screen's width that
+// never binds at normal size on a 360px phone and still holds an 11-character figure ("−$10,246.88") in the tile.
+const capOf = (v) => { const m = /^min\(([\d.]+)px, ([\d.]+)vw\)$/.exec(v || ''); return m ? {size: +m[1], vw: +m[2]} : null; };
+for (const [bundle, file, size] of [['Tau', 'app.css', 21], ['Meridian', 'app.meridian.css', 23]]) {
+  test(`${bundle}: at 200% text a figure tile's number stops growing at its tile's width, whole, the track record left alone`, () => {
+    const all = rules(read(file));
+    const cap = capOf(decl(all, '.measure:where(:not(.tr-figs)) .fig', 'font-size', PHONE));
+    assert.ok(cap, 'phone figures carry a width cap');
+    assert.equal(cap.size, size);  // the phone's own size
+    assert.ok(cap.vw * 3.6 >= size, `${cap.vw}vw binds at normal size on a 360px phone`);
+    assert.ok(cap.vw * 3.9 <= 26, `${cap.vw}vw lets an 11-character figure outgrow a 390px phone's half tile`);
+    const long = capOf(decl(all, '.m.fig-long .fig', 'font-size', PHONE));
+    assert.ok(long && long.size === 16 && long.vw * 3.6 >= 16, 'a long figure (fig-long) is capped too');
+    // A tile's slippage line: its amount moves whole ("−$10,5" over "79.78" before), its size capped so it fits.
+    assert.equal(decl(all, '.slip-est', 'overflow-wrap', PHONE), 'break-word');
+    assert.equal(decl(all, '.tr-figs .slip-est', 'overflow-wrap', PHONE), 'anywhere');  // the track record's line is as it was
+    assert.equal(decl(all, '.slip-est', 'overflow-wrap'), 'anywhere');  // a desktop's table columns keep their widths
+    const slip = capOf(decl(all, '.apcard-figs .slip-est', 'font-size', PHONE));
+    assert.ok(slip && slip.size === 12 && slip.vw * 3.6 >= 12, 'the slippage line in a tile is capped, never at normal size');
+    assert.ok(!all.some((r) => sels(r).some((s) => /tr-figs/.test(s) && !/:not\(\.tr-figs\)/.test(s) && !/slip-est/.test(s) && /\.fig\b/.test(s))),
+      'no new rule sizes the track record\'s figures');
+  });
+
+  test(`${bundle}: the trades CSV link drops to its own line whole, and wraps inside itself only when wider than the line`, () => {
+    // nowrap pushed Tau's Home 93px sideways at 200% text in a phone's half-width figure.
+    const all = rules(read(file));
+    assert.equal(decl(all, 'a.csv-link', 'display'), 'inline-block');
+    assert.equal(decl(all, 'a.csv-link', 'max-width'), '100%');
+    assert.equal(decl(all, 'a.csv-link', 'white-space'), 'normal');
+    // Its 44px touch padding is taken back, so its line stays where it was; after a glossary (i) it keeps its clearance.
+    assert.equal(decl(all, 'a.csv-link', 'margin-block', COARSE), '-13px');
+    assert.equal(decl(all, '.nobr:has(> .info) + a.csv-link', 'margin-top', COARSE), '13px');
+    assert.equal(decl(all, '.nobr:has(> .info) + a.csv-link', 'margin-bottom', COARSE), '0');
+    if (bundle === 'Meridian') {  // Home's "…and the spread (i)" glues the (i) to its last word in a nested span
+      assert.equal(decl(all, '.nobr:has(> .nobr > .info) + a.csv-link', 'margin-top', COARSE), '13px');
+    }
+  });
+
+  test(`${bundle}: at 200% text the verdict chip and Deploy's stacked open positions stay inside a phone`, () => {
+    const all = rules(read(file));
+    assert.equal(decl(all, '.rp-verdict .mk', 'max-width'), '100%');  // "DEPLOYMENT CANDIDATE" ran 2-32px past
+    assert.equal(decl(all, '.rp-verdict .mk', 'white-space'), 'normal');
+    assert.equal(decl(all, '.rp-verdict', 'flex-wrap'), 'wrap');
+    assert.equal(decl(all, '#openpos .stack .pos-why', 'min-width', PHONE), '0');  // its 24ch floor widened the card
+  });
+}
+
+test('Tau: at 200% text the masthead\'s controls take a second row instead of squeezing the account menu to nothing', () => {
+  const all = rules(read('app.css')), media = '@media (max-width: 560px)';
+  assert.equal(decl(all, '.masthead-in', 'flex-wrap', media), 'wrap');
+  assert.equal(decl(all, '.asof', 'flex', media), '1 1 0');
+  // The row wraps only when the controls (about 11em of their own text size) can't fit: never at normal size.
+  assert.match(decl(all, '.asof', 'min-width', media), /^\d+(\.\d+)?em$/);
+  assert.equal(decl(all, '.asof', 'justify-content', media), 'flex-end');
+  assert.equal(decl(all, '.profile-name', 'text-overflow'), 'ellipsis');  // a long name still gives way first
+});
+
+test('Tau: at 200% text Funds\' and Billing\'s buttons wrap inside themselves on a phone', () => {
+  const all = rules(read('app.css'));
+  for (const sel of ['.ledger-older .btn', '.sect-head > a.btn']) {
+    assert.equal(decl(all, sel, 'white-space', PHONE), 'normal', sel);
+    assert.equal(decl(all, sel, 'max-width', PHONE), '100%', sel);
+  }
+});
+
+test('Meridian: at 200% text Home\'s book figures and position cards stay whole inside a phone', () => {
+  const all = rules(read('app.meridian.css'));
+  for (const [sel, size, media] of [['.account-band .portfolio-numbers .fig', 28, '@container dashboard (max-width: 679px)'],
+    ['.account-band .portfolio-detail > strong', 22, '@container dashboard (max-width: 679px)'],
+    ['.t-positions .position-pnl', 18, '@container dashboard (max-width: 779px)'], ['.t-positions .position-cost', 16, '@container dashboard (max-width: 779px)']]) {
+    const cap = capOf(decl(all, sel, 'font-size', media));
+    assert.ok(cap && cap.size === size && cap.vw * 3.6 >= size, `${sel}: ${decl(all, sel, 'font-size', media)}`);
+  }
+  // "as of 51 min ago" wraps in its column: the line ran 65px past a 390px phone, its hidden mark time with it.
+  assert.equal(decl(all, '.t-positions .position-marked', 'white-space', '@container dashboard (max-width: 779px)'), 'normal');
+  // Split after "−$13,2" before: a figure moves whole now, breaking only if wider than its column.
+  assert.equal(decl(all, '.portfolio-numbers .fig', 'overflow-wrap'), 'break-word');
+  assert.equal(decl(all, '.portfolio-detail > strong', 'overflow-wrap'), 'break-word');
+  // The book line's kept-together phrases are boxes that wrap inside only when wider than a line, (i) kept with its word.
+  assert.equal(decl(all, '.portfolio-return > .nobr', 'display', PHONE), 'inline-block');
+  assert.equal(decl(all, '.portfolio-return > .nobr', 'white-space', PHONE), 'normal');
+  // Wrapped, "the spread (i)" sat 32px under "realized P&L (i)": 32 + 12 keeps their 44px touch boxes apart.
+  assert.ok(32 + px(decl(all, '.portfolio-return > .nobr:has(.info) + .nobr:has(.info)', 'margin-top', COARSE)) >= 44);
+  const js = read('app.meridian.js');
+  assert.match(js, /<span class="nobr">realized \$\{gl\('P&amp;L', 'realized'\)\} \$\{money\(p\.realized_pnl\)\}<\/span>/);
+  assert.match(js, /<span class="nobr">\$\{gl\(PAPER_NET, 'paperfills'\)\}<\/span>/);
+  // The strategy page's paper figures: capped, and moved whole ("+$6.40" split at 390px).
+  assert.equal(decl(all, '.detail #figs .fig', 'font-size', '@media (min-width: 381px) and (max-width: 760px)'), 'min(24px, 6.3vw)');
+  assert.equal(decl(all, '.detail #figs .fig', 'overflow-wrap', PHONE), 'break-word');
+});
+
+test('Meridian: "How research works" without a badge flows as a wide screen\'s caption, its tag wrapping inside the box', () => {
+  // Its tag sat in the badge-less grid's second column, 107px past a session page's edge at 200% text.
+  const all = rules(read('app.meridian.css'));
+  assert.equal(decl(all, '.rsidisc-cap:not(:has(> .rsi-badge))', 'display', PHONE), 'flex');
+  assert.equal(decl(all, '.rsidisc-cap', 'flex-wrap'), 'wrap');
+  assert.equal(decl(all, '.rsi-tag', 'background'), 'var(--signal)');  // the red badge itself is untouched
+});
+
+test('Meridian: "needs you", "Open this market on Kalshi" and a figure\'s link are 44px to a thumb, their lines left alone', () => {
+  // 42-43px at 360px: 12-13px type (a 16-17px content box) in 13px of padding. Padding on an inline link leaves the line alone.
+  const all = rules(read('app.meridian.css'));
+  for (const sel of ['.said a', '.hint a', '.sub-fig a:not(.csv-link)']) assert.equal(decl(all, sel, 'padding-block', COARSE), '14px', sel);
 });

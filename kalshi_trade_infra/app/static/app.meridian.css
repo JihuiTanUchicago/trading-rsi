@@ -958,7 +958,10 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
 .detail #figs .fig { max-width: 100%; overflow-wrap: anywhere; }
 /* Walk 2026-10-31 at 320px: in the paper sheet's two 118px columns a 24px "+$1,234.56" broke as "+$1,234.5" over "6".
    Up to 380px the figures read at 20px, so a four- or five-figure amount keeps one line (anywhere stays the last resort). */
-@media (max-width: 380px) { .detail #figs .fig { font-size: 20px; } }
+@media (max-width: 380px) { .detail #figs .fig { font-size: min(20px, 6.3vw); } }
+/* At 200% text a figure grows until it fills its column, then stops, whole (as a phone's other figure tiles do, in
+   Phone polish): "+$6.40" split at 390px. The cap never binds at normal size on a phone 320px or wider. */
+@media (min-width: 381px) and (max-width: 760px) { .detail #figs .fig { font-size: min(24px, 6.3vw); } }
 .strategy-deployments { display: grid; gap: 12px; margin-bottom: 12px; }
 .strategy-deployments > .hint { line-height: 1.6; }
 .strategy-deployments > .btn { justify-content: center; }
@@ -1935,8 +1938,11 @@ body.landing-body .apf { display: none; }
 .rp-verdict.good { border-color: var(--ink); }
 .rp-verdict.sig { border-color: var(--signal); background: var(--signal-wash); }
 .rp-verdict.quiet { border-color: var(--rule-2); background: var(--stock); }
-.rp-verdict .mk { flex: none; }
-.rp-verdict p { font-size: 13.5px; line-height: 1.55; color: var(--ink); max-width: 70ch; }
+.rp-verdict .mk { flex: none; max-width: 100%; white-space: normal; }
+.rp-verdict p { font-size: 13.5px; line-height: 1.55; color: var(--ink); max-width: 70ch; flex: 1 1 8em; min-width: 0; }
+/* At 200% text "DEPLOYMENT CANDIDATE" ran 16px past a 360px phone: the words drop under the chip once the two can't
+   share the line, and a chip wider than the box wraps inside it. At normal size the words stay beside the chip. */
+.rp-verdict { flex-wrap: wrap; }
 
 /* charts */
 .rp-figs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
@@ -2175,12 +2181,12 @@ body.landing-body .apf { display: none; }
 .portfolio-numbers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
 .portfolio-group { display: contents; }
 .portfolio-group > div { min-width: 0; }
-.portfolio-numbers .fig { font: 500 30px/32px var(--f-ui); font-variant-numeric: tabular-nums lining-nums; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.portfolio-numbers .fig { font: 500 30px/32px var(--f-ui); font-variant-numeric: tabular-nums lining-nums; letter-spacing: -.035em; overflow-wrap: break-word; }
 .portfolio-return { display: block; margin-top: 2px; font-size: 12px; line-height: 16px; font-weight: 400; color: var(--ink-2); }
 .portfolio-return .gain, .portfolio-detail .gain, .dash .gain, .t-strat .gain { color: #365D3B; }
 .portfolio-return .loss, .portfolio-detail .loss, .dash .loss, .t-strat .loss { color: var(--signal); }
 .portfolio-detail .lab { margin: 0; }
-.portfolio-detail > strong { display: block; margin: 2px 0 0; font: 500 20px/24px var(--f-ui); font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0; overflow-wrap: anywhere; }
+.portfolio-detail > strong { display: block; margin: 2px 0 0; font: 500 20px/24px var(--f-ui); font-variant-numeric: tabular-nums lining-nums; letter-spacing: 0; overflow-wrap: break-word; }  /* break-word: a figure moves whole, never split after "−$13,2" (anywhere did at 200% text) */
 .other-accounts { position: relative; }
 .other-accounts > summary { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 0 6px 12px; color: var(--ink-2); font-size: 13px; }
 .other-accounts > summary::before { content: none; }
@@ -2623,6 +2629,12 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .t-positions td.position-expiry-cell::before { content: "Expiry "; font-size: 12px; color: var(--ink-3); }
   .t-positions td.position-entry::before { content: "Entry"; display: block; font: 400 12px/18px var(--f-ui); color: var(--ink-3); }
   .t-positions td:has(.position-cost)::before { content: "Cost + fee"; display: block; font: 400 12px/18px var(--f-ui); color: var(--ink-3); }
+  /* 200% text: a card's third-width figures stop growing once they fill their column, and "as of 51 min ago" wraps
+     in it; the line had run 65px past a 390px phone, its hidden mark time taking the page sideways with it. The caps
+     never bind at normal size on a 360px phone. */
+  .t-positions .position-pnl { font-size: min(18px, 5vw); }
+  .t-positions td.position-entry, .t-positions .position-cost { font-size: min(16px, 4.5vw); }
+  .t-positions .position-marked { white-space: normal; }
   /* The dashboard's position card, likewise: "Unrealized P&L Not marked yet", not a bare dash. */
   .t-positions .position-pnl .unavailable[title] > [aria-hidden="true"] { display: none; }
   .t-positions .position-pnl .unavailable[title] > .vh { position: static !important; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; }
@@ -2631,9 +2643,11 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .account-band .portfolio-numbers { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .account-band .portfolio-group, .account-band .portfolio-group + .portfolio-group { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
   .account-band .portfolio-group + .portfolio-group { padding: 10px 0 0; border: 0; border-top: 1px solid var(--rule-soft); }
-  .account-band .portfolio-numbers .fig { font-size: 28px; line-height: 32px; }
+  /* Capped by the screen's width (the cap never binds at normal size on a 360px phone): at 200% text the book's
+     figures grow until they fill their half of the band, then stop, whole. */
+  .account-band .portfolio-numbers .fig { font-size: min(28px, 7.8vw); line-height: 32px; }
   .account-band .portfolio-numbers .fig.balance-state { font-size: 20px; line-height: 28px; }
-  .account-band .portfolio-detail > strong { font-size: 22px; line-height: 32px; }
+  .account-band .portfolio-detail > strong { font-size: min(22px, 6.2vw); line-height: 32px; }
   .performance-meta { margin-left: 0; }
 }
 @container community-feed (max-width: 919px) {
@@ -3073,11 +3087,34 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .rsi-head > .rsi-tag { grid-column: 2; justify-self: start; margin-left: 0; }
   .rsidisc-cap { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 6px; }
   .rsidisc-cap > .rsi-tag, .rsidisc-cap > .rsidisc-delta { grid-column: 2; justify-self: start; margin-left: 0; }
+  /* "How research works" has no badge for the first column: its tag sat in the second, past the box's edge at 200%
+     text (107px on a session page). Without a badge the caption flows as a wide screen's does, the tag wrapping under. */
+  .rsidisc-cap:not(:has(> .rsi-badge)) { display: flex; }
   /* The pipeline caption's chevron stays on the first line, not on a row of its own. */
   .pipecap { position: relative; padding-right: 44px; }
   .pipecap > .pipechev { position: absolute; right: 16px; top: 14px; }
   .research-compose .pipecap { padding-right: 28px; }
   .research-compose .pipecap > .pipechev { right: 0; top: 50%; margin-top: -8px; }
+  /* 200% text on a phone (walked 2026-10-31 at 390x844 and 360x640, every font size doubled, both themes):
+     a figure tile's number grows with the text until it fills its half of the row, then stops growing. It never
+     breaks inside a number ("−$10,246.88" stays whole) and never pushes the page sideways (Deploy 107px, a market
+     page's 1,523,400 51px). The cap is a share of the screen's width, the tile's own share of it, set so it never
+     binds at normal size on a 360px phone. */
+  .measure:where(:not(.tr-figs)) .fig { font-size: min(23px, 6.4vw); }
+  .m.fig-long .fig { font-size: min(16px, 4.5vw); }
+  /* A tile's paper slippage line ("≈ −$10,579.78 after typical live slippage…") grows with the text short of its
+     amount outgrowing the tile: at 200% the amount was split after "−$10,5". */
+  .measure:where(:not(.tr-figs)) .slip-est, .apcard-figs .slip-est { font-size: min(12px, 4.8vw); }
+  /* break-word, not anywhere: the amount moves to the next line whole, breaking only if wider than a line. The track
+     record's line is left as it was; a desktop's table columns keep their widths. */
+  .slip-est { overflow-wrap: break-word; }
+  .tr-figs .slip-est { overflow-wrap: anywhere; }
+  .detail #figs .fig { overflow-wrap: break-word; }  /* its size is capped with the strategy page's figure rules */
+  /* Deploy's open positions, stacked: the why line's 24ch floor (a desktop column's) widened the card 50px. */
+  #openpos .stack .pos-why { min-width: 0; }
+  /* Home's book line: a phrase kept on one line ("after Kalshi fees and the spread") is one box that drops to its
+     own line whole and, wider than the line at 200% text, wraps inside, its (i) kept with the last word. */
+  .portfolio-return > .nobr { display: inline-block; max-width: 100%; white-space: normal; }
 }
 /* Touch: every control at least 44px tall (links set in a line of text stay 40px or more). Inline links
    grow with padding, which leaves the line box alone; block links pair it with a negative margin so the
@@ -3116,7 +3153,15 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .since-links { display: inline; font-size: inherit; }
   /* A link right after a glossary (i) ("…and the spread (i) · Download trades (CSV)") starts clear of the (i)'s
      44px when it wraps under it. */
-  .nobr:has(> .info) + a.csv-link { display: inline-block; margin-top: 13px; }
+  .nobr:has(> .info) + a.csv-link, .nobr:has(> .nobr > .info) + a.csv-link { display: inline-block; margin-top: 13px; margin-bottom: 0; }
+  /* Home's book line: "after Kalshi fees and the spread (i)", a box that wraps on a phone, put its (i) 32px under
+     "realized P&L (i)" and their 44px reached 12px into each other (390px): the box starts 12px lower. */
+  .portfolio-return > .nobr:has(.info) + .nobr:has(.info) { margin-top: 12px; }
+  /* The trades link is a box of its own (below): its 44px padding is taken back, so the line stays put. */
+  a.csv-link { margin-block: -13px; }
+  /* Home's "1 paused, needs you", a strategy page's "Open this market on Kalshi" and a figure's link ("Connect
+     Kalshi") were 42-43px tall in their 12-13px type: 14px above and below makes 44px, the line box left alone. */
+  .said a, .hint a, .sub-fig a:not(.csv-link) { padding-block: 14px; }
   /* The strategy page's "See it on Deploy" reached 2px into the Demo & live fold's 44px under it; a demo-key
      hint's "Funds page" sits as close under Deploy on demo. Research's totals line: its "Passed (i)" reached 6px
      into the first session under it at 768px. */
@@ -3191,5 +3236,7 @@ input[type=checkbox]:focus-visible { outline: 2px solid var(--ink); outline-offs
    on a phone, and on a wide screen the line ran under "New session". */
 .research-page > #rexample { grid-column: 1 / -1; }
 
-/* A trades CSV link stays whole: "Download" ended one line and "trades (CSV)" began the next (walked 2026-10-27). */
-a.csv-link { white-space: nowrap; }
+/* A trades CSV link stays whole: "Download" ended one line and "trades (CSV)" began the next (walked 2026-10-27).
+   It is one box, so it drops to a line of its own rather than split; a box wider than its line (200% text in a
+   phone's half-width figure) wraps inside itself instead of pushing the page sideways. */
+a.csv-link { display: inline-block; max-width: 100%; white-space: normal; }
