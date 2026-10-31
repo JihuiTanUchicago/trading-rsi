@@ -915,6 +915,7 @@ def main() -> None:
         cur.execute("SELECT id, email, name FROM app_users WHERE username IS NULL OR username=''")
         for u in cur.fetchall():
             _repo.assign_username(cur, u["id"], u["email"], u["name"])
+        apply_focus_decision(cur)
         # One-time migration: seed spot_candles_1m with existing BTC history so the
         # generalized backtester has BTC's full price path. Idempotent (INSERT IGNORE on PK).
         cur.execute(
@@ -923,6 +924,33 @@ def main() -> None:
         )
     conn.close()
     print("App schema initialized.")
+
+
+# Todd 2026-10-31 20:33Z tapped "Yes, weather + sports, $240/day cap" on the card "Reopen taker research on
+# weather and sports to find a pass faster?". His stored autopilot focus was crypto, and only he sets it,
+# so his decision is applied once here and said in his chat like a focus he set himself. The chat line is
+# the one-time marker: a later focus he sets is never overwritten.
+FOCUS_DECISION_USER = 1
+FOCUS_DECISION_ADD = ("weather-high", "sports")
+FOCUS_DECISION_MARKER = "(your decision on Oct 31: reopen research on weather and sports, $240 a day cap)"
+
+
+def apply_focus_decision(cur) -> bool:
+    import json
+    from app import repository as _repo
+    from app.research import agent
+    cur.execute("SELECT autopilot_focus FROM app_users WHERE id=%s", (FOCUS_DECISION_USER,))
+    row = cur.fetchone()
+    if not row or _repo.chat_contains(cur, FOCUS_DECISION_USER, "system", FOCUS_DECISION_MARKER):
+        return False
+    tokens = agent.focus_tokens(row)
+    if not tokens:  # no focus: every market is already in scope
+        return False
+    new = list(dict.fromkeys(tokens + list(FOCUS_DECISION_ADD)))
+    _repo.set_autopilot_focus(cur, FOCUS_DECISION_USER, new)
+    _repo.add_chat(cur, FOCUS_DECISION_USER, "system", "Market focus set to %s. %s" % (
+        agent.focus_words(new), FOCUS_DECISION_MARKER))
+    return True
 
 
 if __name__ == "__main__":

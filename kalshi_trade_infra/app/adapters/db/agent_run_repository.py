@@ -76,6 +76,14 @@ def count_runs(cur, user_id: int, kind: str, since: Optional[datetime] = None, a
     return int(cur.fetchone()["n"])
 
 
+def research_token_rows(cur, user_id: int, since: datetime) -> List[Dict[str, Any]]:
+    """(model, input_tokens, output_tokens) of the user's research runs created since `since`, for the
+    autopilot's daily research budget (agent.research_spend)."""
+    cur.execute("SELECT model, input_tokens, output_tokens FROM app_agent_runs WHERE user_id=%s AND kind='research' "
+                "AND created_at >= %s", (user_id, since))
+    return list(cur.fetchall())
+
+
 def count_active_research(cur) -> int:
     """GLOBAL count (all users) of research runs that hold or await a worker slot — for autopilot
     backpressure: when the shared queue is already saturated, don't launch more. Uses the
