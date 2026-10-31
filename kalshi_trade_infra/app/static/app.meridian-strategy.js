@@ -779,9 +779,12 @@ window.TauPage('strategy', (T) => {
       // Each Unrealized figure says when its mark was read (the engine's mark_ts), as Deploy's does: a mark
       // hours old, with the engine stopped, read as this minute's.
       // Beside a Live or Demo row a paper one says Paper too: untagged, it read as the real-money book.
+      // Each holding reads as the dashboard's position rows do: its market's plain name, then when it settles. The line
+      // under the name was the raw contract code ("Kalshi contract KXNBAGAME-26OCT31MILPHI-PHI"); the name opens the
+      // market page, which still gives that code beside its Kalshi link for anyone finding it there.
       return `<section class="panel" id="holding-now"><h3>Holding right now</h3>
-      <ul class="holdlist">${s.holdings.map((p) => `<li><div class="pos-name">${contractLink(p.ticker, s.market)} ${p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : books.length > 1 ? '<span class="mk">Paper</span>' : ''}</div><div class="sub-fig">${kalshiRef(p.ticker)}</div>
-        <div class="holdlist-figs"><b>${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(p.entry_price)}</b><span>Cost + fee ${usd(p.cost)}</span><span>Unrealized ${p.unrealized == null ? NOT_MARKED.toLowerCase() : markFig(p.mark_ts, money(p.unrealized)) + (p.mark_ts ? ` ${markedAt(p.mark_ts)}` : '')}</span>${liveClose(p.market_close_time, 'settles', { cap: true })}</div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</li>`).join('')}</ul>
+      <ul class="holdlist">${s.holdings.map((p) => `<li><div class="pos-name">${contractLink(p.ticker, s.market)} ${p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : books.length > 1 ? '<span class="mk">Paper</span>' : ''}</div><div class="sub-fig">${liveClose(p.market_close_time, 'settles', { cap: true })}</div>
+        <div class="holdlist-figs"><b>${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(p.entry_price)}</b><span>Cost + fee ${usd(p.cost)}</span><span>Unrealized ${p.unrealized == null ? NOT_MARKED.toLowerCase() : markFig(p.mark_ts, money(p.unrealized)) + (p.mark_ts ? ` ${markedAt(p.mark_ts)}` : '')}</span></div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</li>`).join('')}</ul>
       <p class="hint" style="margin-top:8px">${books.map(bookLine).join('<br>')}</p></section>`;
     })() : '';
     root.querySelector('#main').innerHTML = `

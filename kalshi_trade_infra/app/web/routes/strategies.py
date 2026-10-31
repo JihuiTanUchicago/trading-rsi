@@ -101,18 +101,24 @@ def _with_marks(rows: List[Dict]) -> List[Dict]:
 # acts on it now: the row names it and says so.
 DELETED_STRATEGY = "Deleted strategy"
 DELETED_WHY = "Its strategy was deleted, so Tau no longer sells or settles this position."
+UNTITLED_STRATEGY = "Untitled strategy"  # the agent's own word for one (agent.py), never its row number
 
 
 def _with_why(rows: List[Dict], deps: List[Dict]) -> List[Dict]:
     """Each position's one-line entry/exit reason (app.services.trade_why), from the strategy specs
     of the deployments the request already read: no extra statement. A position of a stopped
     deployment (not in `deps`) gets its exit reason only; an open one whose strategy is deleted is
-    named DELETED_STRATEGY and says nothing acts on it (display only)."""
+    named DELETED_STRATEGY and says nothing acts on it, and one whose strategy has an empty title is named
+    UNTITLED_STRATEGY (display only)."""
     specs = {d["id"]: d.get("spec") for d in deps}
     for p in rows:
-        if "title" in p and not p["title"] and p.get("status") == "open":
+        # Deleted means no strategy row (the LEFT JOIN's None). A strategy saved with an empty title is still
+        # there and still trading: it read "Deleted strategy ... Tau no longer sells or settles this position".
+        if "title" in p and p["title"] is None and p.get("status") == "open":
             p["title"], p["why"] = DELETED_STRATEGY, DELETED_WHY
             continue
+        if p.get("title") is not None and not str(p["title"]).strip():
+            p["title"] = UNTITLED_STRATEGY
         p["why"] = trade_why.trade_why(p, specs.get(p.get("deployment_id")))
     return rows
 

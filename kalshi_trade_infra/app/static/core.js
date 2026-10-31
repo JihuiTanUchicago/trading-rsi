@@ -648,6 +648,9 @@
   const MARK = {
     passed: ['on', 'Passed'], failed: ['', 'Void'], rejected: ['quiet', 'Rejected'], queued: ['quiet', 'Testing'],
     paused: ['armed', 'Paused'], stopped: ['quiet', 'Stopped'], 'backtest-only': ['armed', 'Backtest only'],
+    // A strategy row the research loop saved before its checks gave a verdict (agent.py's provisional "pending"): its
+    // stamp read the raw key, "pending". Not "Testing": a session that stopped mid-check leaves it unjudged for good.
+    pending: ['quiet', 'Not judged'],
   };
   const mark = (key, live) => {
     if (key === 'running') return live ? '<span class="mk live">Live</span>' : '<span class="mk">Paper</span>';
