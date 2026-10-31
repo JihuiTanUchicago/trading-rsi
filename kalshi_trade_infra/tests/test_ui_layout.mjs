@@ -820,3 +820,56 @@ for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css
     assert.equal(decl(all, '.mk.shared svg', 'flex'), 'none');
   });
 }
+
+// Phone walk 2026-10-31 (Playwright, 360x640 and 375x667 with a touch pointer, a 200% text pass at 390x844 and a
+// 360x400 "keyboard up" pass, both themes, every signed-in page with 80-character titles, one with no spaces, and
+// five-figure losses). The page's width was measured against the phone's, not Chrome's mobile layout viewport (which
+// grows to fit an overflow and hid it).
+for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css']]) {
+  const all = rules(read(file));
+  test(`${bundle}: an open position's line breaks a title with no spaces instead of widening the page`, () => {
+    // Tau's Home scrolled 122px sideways at 360px (107px at 375px): its Open positions line held the title whole.
+    assert.equal(decl(all, '.stub small', 'overflow-wrap'), 'anywhere');
+  });
+  test(`${bundle}: at 200% text the Kalshi key form and a session card's foot stay inside the column`, () => {
+    // The key file picker's own width set the form's column: Funds scrolled 193px (Tau) and 208px (Meridian) sideways.
+    assert.equal(decl(all, '.key-file', 'min-width'), '0');
+    assert.equal(decl(all, '.key-file input', 'min-width'), '0');
+    assert.equal(decl(all, '.key-file input', 'max-width'), '100%');
+    // "STOPPED ON AN ERROR" and its date on one line that never wrapped: Research scrolled 37px sideways.
+    assert.equal(decl(all, '.run-foot', 'flex-wrap'), 'wrap');
+  });
+}
+
+test('Tau: on a phone the new-version bar takes the width over the pill, under an open autopilot sheet, and covers no field', () => {
+  const all = rules(read('app.css'));
+  // Desktop keeps it centred at the foot.
+  assert.equal(decl(all, '.verbar', 'position'), 'fixed');
+  assert.equal(decl(all, '.verbar', 'left'), '50%');
+  // A phone: left 50% left it half the screen to wrap in (79px tall at 360px), over the pill and over the open
+  // sheet's message box ("RELOA" over "What should…", walked at 360x400).
+  assert.equal(decl(all, '.verbar', 'left', PHONE_SHEET), 'var(--apf-gap)');
+  assert.equal(decl(all, '.verbar', 'right', PHONE_SHEET), 'var(--apf-gap)');
+  assert.equal(decl(all, '.verbar', 'transform', PHONE_SHEET), 'none');
+  const strip = 'var(--apf-gap) + var(--apf-h) + 8px';
+  assert.equal(decl(all, '.verbar', 'bottom', PHONE_SHEET), `calc(${strip} + env(safe-area-inset-bottom, 0px))`, 'over the pill’s strip');
+  assert.ok(+decl(all, '.verbar', 'z-index', PHONE_SHEET) < +decl(all, '.apf', 'z-index'), 'an open sheet covers it');
+  // Its height is the token the room under the page counts: one line and a 44px Reload.
+  assert.equal(decl(all, ':root', '--verbar-h', PHONE_SHEET), '64px');
+  // A page's last field scrolls clear of it, a focused field lands above it, and the bars that stick to the foot sit over it.
+  assert.equal(decl(all, 'body:not(.landing-body):has(> .verbar)', 'padding-bottom', PHONE_SHEET),
+    `calc(${strip} + var(--verbar-h) + 22px + env(safe-area-inset-bottom, 0px))`);
+  assert.equal(decl(all, 'html:has(> body > .verbar)', 'scroll-padding-bottom', PHONE_SHEET),
+    `calc(${strip} + var(--verbar-h) + 8px + env(safe-area-inset-bottom, 0px))`);
+  for (const bar of ['.composer-post', '.bulkbar']) {
+    assert.equal(decl(all, `body:has(> .verbar) ${bar}`, 'bottom', PHONE_SHEET), `calc(${strip} + var(--verbar-h) + 8px + env(safe-area-inset-bottom, 0px))`, bar);
+  }
+  // The bar's markup is still the one these rules are for: a direct child of body.
+  assert.match(read('app.js'), /bar\.id = 'verbar'; bar\.className = 'verbar';[\s\S]{0,200}document\.body\.appendChild\(bar\);/);
+});
+
+test('Meridian: a post\'s reaction is 44px wide to a thumb, as Tau\'s is', () => {
+  // An emoji and its count was 38x44px beside the next reaction (walked at 360px).
+  assert.equal(decl(rules(read('app.meridian.css')), '.post-footer .rx:not(.add)', 'min-width', '@media (hover: none), (pointer: coarse)'), '44px');
+  assert.equal(decl(rules(read('app.css')), '.reactions .rx', 'min-width', COARSE), '44px');
+});

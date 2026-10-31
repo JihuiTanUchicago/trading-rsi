@@ -564,7 +564,7 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
 
 .stub { display: grid; grid-template-columns: 1fr auto; gap: 1px 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
 .stub:last-child { border-bottom: 0; }
-.stub small { color: var(--ink-3); font-size: 12px; grid-column: 1 / -1; }
+.stub small { color: var(--ink-3); font-size: 12px; grid-column: 1 / -1; overflow-wrap: anywhere; }  /* a title with no spaces breaks: it scrolled a 360px Home 122px sideways */
 
 .detail { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; margin-top: 8px; }
 .runs { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
@@ -584,7 +584,7 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
   /* A failed run's error (e.g. a timeout URL, or a long parse error) lives here — clamp it so one
      pathological message can't balloon a card to thousands of px and break the grid. */
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.run-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.run-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
 .run-state { font-family: var(--f-nar); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 7px; }
 .run-when { font-family: var(--f-nar); font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
 .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--signal); animation: pulse 1.6s var(--ease) infinite; }
@@ -2732,6 +2732,8 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .post-footer .rx, .post-footer .rx:not(.add), .post-footer .rx.add, .post-footer .thread-link, .active-open, .research-page .research-create > summary, .t-explore th button, .t-explore .xlink a,
   .strategy-summary > summary { min-height: 44px; }
   .t-explore .xlink a { min-width: 44px; opacity: 1; }
+  /* A post's reaction (an emoji and its count) was 38px wide beside the next one (walked 2026-10-31 at 360px). */
+  .post-footer .rx:not(.add) { min-width: 44px; justify-content: center; }
   /* Walked 2026-10-31 at 390px: the Bitcoin filter was 43px wide, a row named by its title alone (no condition, chip
      or close) a 26px link, and a market page's "Back to Explore" 33px tall. */
   .explore-filters .xshow .chip { min-width: 44px; }
@@ -2886,8 +2888,8 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
 }
 
 /* Funds: pick the downloaded Kalshi .key file instead of pasting its text. */
-.key-file { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
-.key-file input { font: inherit; font-size: 12.5px; max-width: 100%; color: var(--ink-2); }
+.key-file { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); min-width: 0; }
+.key-file input { font: inherit; font-size: 12.5px; max-width: 100%; min-width: 0; color: var(--ink-2); }  /* its intrinsic width at large text set the form's column */
 
 /* Research page: one-click autopilot nudge for people who'd rather not write ideas. */
 .research-ap, .research-ap-on { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }

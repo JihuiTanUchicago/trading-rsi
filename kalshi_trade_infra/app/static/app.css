@@ -632,7 +632,7 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
 }
 .stub { display: grid; grid-template-columns: 1fr auto; gap: 1px 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
 .stub:last-child { border-bottom: 0; }
-.stub small { color: var(--ink-3); font-size: 12px; grid-column: 1 / -1; }
+.stub small { color: var(--ink-3); font-size: 12px; grid-column: 1 / -1; overflow-wrap: anywhere; }  /* a title with no spaces breaks: it scrolled a 360px Home 122px sideways */
 /* Closed lately shows five; the track record below is where every closed trade adds up. */
 .stub-all { display: block; padding-top: 10px; font-size: 12.5px; color: var(--ink-2); }
 
@@ -654,7 +654,7 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
   /* A failed run's error (e.g. a timeout URL, or a long parse error) lives here — clamp it so one
      pathological message can't balloon a card to thousands of px and break the grid. */
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.run-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.run-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
 .run-state { font-family: var(--f-nar); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 7px; }
 .run-when { font-family: var(--f-nar); font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
 /* "Out of credits · 2 of 9 passed" wraps under itself instead of pushing the date out of the card. */
@@ -1997,8 +1997,18 @@ body.landing-body .apf { display: none; }
 .log .ap-empty, .ap-empty { display: block; padding: 16px; font-size: 13px; line-height: 1.6; color: var(--ink-3); list-style: none; }
 .apf-composer-row { flex: none; border-top: 1px solid var(--rule); padding: 11px 14px; background: var(--stock-raised); }
 .apf-composer-row textarea { min-height: 40px; max-height: 120px; }
-@media (max-width: 600px) { :root { --apf-gap: 10px; }
-  .apf.open { left: 10px; width: auto; max-width: none; max-height: calc(100vh - 20px); } }
+@media (max-width: 600px) { :root { --apf-gap: 10px; --verbar-h: 64px; }
+  .apf.open { left: 10px; width: auto; max-width: none; max-height: calc(100vh - 20px); }
+  /* The new-version bar (walked 2026-10-31 at 360x400, the keyboard up): centred with left 50%, it had half the screen
+     to wrap in (79px tall), sat over the pill and, above the open autopilot sheet, over its message box ("RELOA" over
+     "What should…"), and over Community's composer. On a phone it takes the width on one line over the pill's strip,
+     under an open sheet, and the page's last line and a focused field keep clear of it. */
+  .verbar { left: var(--apf-gap); right: var(--apf-gap); transform: none; justify-content: space-between; z-index: 59;
+    bottom: calc(var(--apf-gap) + var(--apf-h) + 8px + env(safe-area-inset-bottom, 0px)); }
+  body:not(.landing-body):has(> .verbar) { padding-bottom: calc(var(--apf-gap) + var(--apf-h) + 8px + var(--verbar-h) + 22px + env(safe-area-inset-bottom, 0px)); }
+  /* The bars that stick to the foot (Community's composer, the Strategies bulk bar) sit over it, not under it. */
+  body:has(> .verbar) .composer-post, body:has(> .verbar) .bulkbar { bottom: calc(var(--apf-gap) + var(--apf-h) + 8px + var(--verbar-h) + 8px + env(safe-area-inset-bottom, 0px)); }
+  html:has(> body > .verbar) { scroll-padding-bottom: calc(var(--apf-gap) + var(--apf-h) + 8px + var(--verbar-h) + 8px + env(safe-area-inset-bottom, 0px)); } }
 
 /* ---------- Strategy research-paper page (RESEARCH_PIPELINE_DESIGN.md §D) ----------
    One-page research paper: ink on stock, hairline rules, Archivo Narrow eyebrows,
@@ -2193,8 +2203,8 @@ body.landing-body .apf { display: none; }
 }
 
 /* Funds: pick the downloaded Kalshi .key file instead of pasting its text. */
-.key-file { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); }
-.key-file input { font: inherit; font-size: 12.5px; max-width: 100%; color: var(--ink-2); }
+.key-file { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); min-width: 0; }
+.key-file input { font: inherit; font-size: 12.5px; max-width: 100%; min-width: 0; color: var(--ink-2); }  /* its intrinsic width at large text set the form's column */
 
 /* Research page: one-click autopilot nudge for people who'd rather not write ideas. */
 .research-ap, .research-ap-on { margin: 0 0 14px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
