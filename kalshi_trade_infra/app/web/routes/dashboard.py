@@ -109,7 +109,9 @@ def dashboard(ctx: Ctx):
     # Capital and P&L look fine while Kalshi refuses every order. From the demo cash memo alone: pending when
     # it isn't kept (a line from a figure read under two minutes ago meanwhile, so it doesn't drop for a poll).
     health, health_pending = demo_health_memo(cur, ctx.uid, deps)
-    demo.update(capital=de["capital"], equity=de["equity"], realized_pnl=de["realized"],
+    # realized_all: every closed demo trade's P&L (the read above, one SUM rounded once), what the demo trades CSV sums
+    # to; the card says it beside the file's link only while realized_pnl counts from a reload. Display only.
+    demo.update(capital=de["capital"], equity=de["equity"], realized_pnl=de["realized"], realized_all=cents(realized["demo"][0]),
                 total_pnl=de["realized"], roi=de["roi"], before_reload=de["before_reload"], health=health)
     if health_pending:
         demo["health_pending"] = True

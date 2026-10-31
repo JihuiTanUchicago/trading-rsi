@@ -283,6 +283,8 @@ def test_every_page_shows_the_same_book_to_the_cent(conn, monkeypatch):
             assert bucket["realized_pnl"] == _money(b["realized"] - before_reload)
             assert bucket["equity"] == _money(RELOAD_TO + b["realized"] - before_reload)
             assert _money(bucket["realized_pnl"] + bucket["before_reload"]) == csv_sum(lines)[0]
+            # The figure the card says beside the CSV link after a reload: the file's own total, to the cent.
+            assert bucket["realized_all"] == csv_sum(lines)[0] == realized
         else:
             assert bucket["realized_pnl"] == realized == csv_sum(lines)[0], mode
         assert bucket["open_positions"] == 1 and bucket["open_at_cost"] == _money(b["open_cost"]), mode

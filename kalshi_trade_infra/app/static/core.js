@@ -1198,11 +1198,35 @@
   // glued to its last word and the separator (gloSep).
   // Tau's dashboard shows a link per book, all three reading "Download trades (CSV)": a screen reader's list of links
   // gave three alike, so each says its book after the words it shows (walked 2026-10-31).
+  // The file holds every closed trade of its book. A demo book reloaded since says its P&L from the reload, so the
+  // file's realized_pnl column summed to another figure than the one beside its link (walk 2026-10-31: "+$3.49 realized
+  // since reload" over a file adding to −$11.66): the link then says the file's total too, the server's all-time demo
+  // figure (realized_all, one SUM rounded once), never worked out here. Demo money only.
+  const csvAll = (mode, b) => (mode === 'demo' && b && +b.before_reload && b.realized_all != null
+    ? `<span class="csv-all">${SEP}every demo trade, before the reload too: <span class="nobr">${usd(b.realized_all, true)}</span> realized, ${FEES_NET}</span>` : '');
   function tradesCsv(mode, b, info = '', before = '') {
     const has = b && b.closed_trades > 0;
-    const link = has ? `<a class="csv-link" href="/api/trades.csv?mode=${mode}" download>Download trades (CSV)<span class="vh"> for the ${mode} book</span></a>` : '';
+    const link = has ? `<a class="csv-link" href="/api/trades.csv?mode=${mode}" download>Download trades (CSV)<span class="vh"> for the ${mode} book</span></a>${csvAll(mode, b)}` : '';
     if (info) return (has ? gloSep(info, before) : before + glo(info)) + link;
     return before + (has ? SEP : '') + link;
+  }
+  // Home's Deployed rows sit under the book figures. A removed deployment leaves the rows but not its book, so the
+  // paper card's "+$18.26 realized" stood over rows adding to $16.87 with no word why, where Deploy says it ("+$1.39 from
+  // 1 removed deployment"); and a reloaded demo book's "since reload" figure over a demo row counting every demo trade.
+  // From the closed-trade counts the page holds (each book's and each row's), never money worked out here: a book that
+  // counts more closed trades than its rows says how many came from removed deployments. '' when the rows add up.
+  // Display only; books are never added together.
+  function depsBookNote(d) {
+    const deps = (d && d.deployments) || [], out = [];
+    for (const m of ['live', 'demo', 'paper']) {
+      const b = d && d[m];
+      if (!b || b.closed_trades == null) continue;
+      const rows = deps.filter((x) => x.mode === m);
+      const gone = (+b.closed_trades || 0) - rows.reduce((n, x) => n + (+x.closed_trades || 0), 0);
+      if (gone > 0) out.push(`The ${m} book’s realized P&amp;L above also counts ${num(gone)} closed trade${gone === 1 ? '' : 's'} from removed deployments, not listed here.`);
+      if (m === 'demo' && rows.length && +b.before_reload) out.push('Demo rows count every demo trade; the demo book above counts from its last reload.');
+    }
+    return out.length ? `<p class="hint deps-book">${out.join(' ')} <a href="/deploy">Deploy</a> totals each book.</p>` : '';
   }
 
   // ---------- autopilot words ----------
@@ -1371,6 +1395,6 @@
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,
-    pageLede, deploymentMode, sessionNo, olderRows, researchBusy
+    pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote
   });
 })();

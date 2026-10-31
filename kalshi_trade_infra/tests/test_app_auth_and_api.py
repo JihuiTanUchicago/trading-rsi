@@ -270,7 +270,7 @@ def test_dashboard_paper_book_carries_its_reset_so_all_time_labels_stay_true(mon
         "paper_ledger_summary": lambda cur, uid: {"balance": 480.0, "deposited": 500.0, "reset_at": at},
         "paper_ledger_version": lambda cur, uid: (2, 9),  # the ledger's rows and highest id (book_memo keeps the sum)
         "closed_book_totals": lambda cur, uid, since, visit=None, split=False, fills=False: (
-            {m: (0.0, 0.0) for m in ("paper", "demo", "live")}, {"demo": 3},
+            {"paper": (0.0, 0.0), "demo": (52.0049, 0.0), "live": (0.0, 0.0)}, {"demo": 3},
             {m: (0.0, 0) for m in ("paper", "demo", "live")}) + (({},) if split else ()) + (({},) if fills else ()),
         "daily_pnl": lambda *a, **k: [],
         "activity_since": lambda cur, uid, since, **k: {"autopilot": {}, "runs": {}},
@@ -287,6 +287,9 @@ def test_dashboard_paper_book_carries_its_reset_so_all_time_labels_stay_true(mon
     assert paper["reset_at"] == at and paper["total_pnl"] == -20.0 and paper["equity"] == 480.0
     # Demo P&L is since the last reload; before_reload lets the label say so (track record counts it all).
     assert demo["realized_pnl"] == 12.0 and demo["before_reload"] == 40.0 and demo["equity"] == 512.0
+    # Beside it, every closed demo trade's P&L (one SUM, rounded once), what the demo trades CSV adds up to, so the
+    # card can say the file's total by its link after a reload (walk 2026-10-31: "+$3.49 since reload" by a −$11.66 file).
+    assert demo["realized_all"] == 52.0
     # Each bucket says how many closed trades it has, so the page offers that mode's download only.
     assert (paper["closed_trades"], demo["closed_trades"], out["live"]["closed_trades"]) == (0, 3, 0)
 

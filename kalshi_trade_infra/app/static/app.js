@@ -23,7 +23,7 @@
     waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday,
     sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER, apPillLabel, apAgo, apEvery, FOCUS_WORDS,
     creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount, exitWord, AP_FOCUS, KIND_LABEL, runwayLabel,
-    paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode, sessionNo, olderRows, researchBusy
+    paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote
   } = window.TauCore;
 
   const root = document.getElementById('app');
@@ -575,8 +575,18 @@
   // They read now. A glance away and back (WAKE_AWAY_MS or less) reads nothing new.
   const WAKE_AWAY_MS = 5000;
   let hiddenAt = 0;
+  // Back on the tab at all, it also asks once who it is signed in as (/api/me, a read): after a sign-in to another
+  // account in another tab, this tab only found out on its next read, up to 20s on a polled page and not at all on
+  // one with no poll (a strategy page). api() compares the reply's account with the tab's (accountMoved) and reloads
+  // into the new one. One ask at a time; a failed one says nothing, and the next return to the tab asks again.
+  let whoAsk = null;
+  const askWho = () => {
+    if (whoAsk || !S.me || S.accountMoved) return;
+    whoAsk = api('/api/me', undefined, { keep: true }).catch(() => {}).then(() => { whoAsk = null; });
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
+    askWho();
     if (hiddenAt && Date.now() - hiddenAt > WAKE_AWAY_MS) wake();
     hiddenAt = 0;
   });
@@ -2257,7 +2267,7 @@
       const dashDeps = [...d.deployments].sort((a, b) => depRank(a) - depRank(b)).slice(0, DASH_ROWS);
       const more = (n, what) => n > DASH_ROWS ? `<a class="stub-all" href="/deploy">See all ${num(n)} ${what} on Deploy \u2192</a>` : '';
       const deps = d.deployments.length
-        ? deploymentTable(dashDeps.map((x) => deploymentSlip(x, regs, true)).join(''), true) + more(d.deployments.length, 'deployments')  // same controls as Deploy
+        ? deploymentTable(dashDeps.map((x) => deploymentSlip(x, regs, true)).join(''), true) + more(d.deployments.length, 'deployments') + depsBookNote(d)  // same controls as Deploy
         : `<div id="deps-empty" data-on="${S.me.user && S.me.user.autopilot ? 1 : 0}">${depsEmpty(S.me.user && S.me.user.autopilot)}</div>`;
       // An open position says what it would sell for now and the gain in it ("+$0.48" alone read as
       // banked), or its cost with its fee (Deploy's "Cost + fee") until the engine's first price.
