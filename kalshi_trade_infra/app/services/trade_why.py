@@ -30,8 +30,13 @@ def _move(x: float) -> str:
     return ("+" if x >= 0 else "−") + _c(abs(x))
 
 
-def _num(v: Any) -> str:
+def _num(v: Any, feature: str = "") -> str:
+    """A filter's value: a return or volatility as the strategy page's percent (spec.plain_filter_value, "+0.20%"),
+    any other as written ("2", "−0.5")."""
     v = float(v)
+    pct = specmod.plain_filter_value(feature, v)
+    if pct:
+        return pct.replace("-", "−", 1)
     return ("−%g" % abs(v)) if v < 0 else "%g" % v
 
 
@@ -46,7 +51,7 @@ def _entry(pos: Dict, spec: Optional[Dict]) -> Optional[str]:
     if spec.get("cross"):
         return at + ": one leg of a relative-value pair"
     e = spec.get("entry") or {}
-    rule = ["%s %s %s" % (specmod.plain_feature(f["feature"]), _OPS.get(f["op"], f["op"]), _num(f["value"]))
+    rule = ["%s %s %s" % (specmod.plain_feature(f["feature"]), _OPS.get(f["op"], f["op"]), _num(f["value"], f["feature"]))
             for f in e.get("filters") or []]
     edge = float(e.get("min_edge") or 0)
     rule.append("edge ≥ %s after fees" % _c(edge) if edge > 0 else "fair value at or above the price after fees")
@@ -92,7 +97,7 @@ def _exit(pos: Dict, spec: Optional[Dict]) -> Optional[str]:
 
 
 def trade_why(pos: Dict, spec: Optional[Dict] = None) -> Optional[str]:
-    """"Entered at 27¢: the 5-minute return < −0.2, edge ≥ 3¢ after fees · Exited at 48¢:
+    """"Entered at 27¢: the 5-minute return < −0.20%, edge ≥ 3¢ after fees · Exited at 48¢:
     take-profit (+21¢ vs +20¢ target)". `spec` is the position's strategy spec, or None when the
     caller doesn't have it (then only the exit is said). None when there is nothing to say.
     A spec it can't read is treated as missing: a display line never fails the page it is on."""

@@ -522,11 +522,13 @@ def test_run_page_times_the_queue_on_the_server_and_counts_who_is_ahead(monkeypa
     monkeypatch.setattr(server.repo, 'research_queue_ahead', lambda cur, rid: ahead.append(rid) or 2)
     ctx = context()
     ctx.params = ('9',)
-    assert server.get_run(ctx)['run']['wait'] == {'state': 'queued', 'seconds': 19, 'overdue': False}
-    assert ahead == []  # only counted once the wait is overdue
+    # Counted from the first read, not only once overdue: a first session said only "Queued" for its first 4 minutes
+    # (first-hour walk 2026-10-31). One statement, within get_run's budget (it already counted it once overdue).
+    assert server.get_run(ctx)['run']['wait'] == {'state': 'queued', 'seconds': 19, 'overdue': False, 'ahead': 2}
+    assert ahead == [9]
     run['created_at'] = now - timedelta(minutes=6)
     assert server.get_run(ctx)['run']['wait'] == {'state': 'queued', 'seconds': 360, 'overdue': True, 'ahead': 2}
-    assert ahead == [9]
+    assert ahead == [9, 9]
     run.update(status='running', started_at=now - timedelta(minutes=30), heartbeat_at=now - timedelta(seconds=20))
     assert server.get_run(ctx)['run']['wait'] is None  # beating normally
     run.update(heartbeat_at=now - timedelta(minutes=5))

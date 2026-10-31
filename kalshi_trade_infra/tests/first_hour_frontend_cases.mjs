@@ -410,4 +410,30 @@ export function firstHourCases({name, frontend, billingPage, cardedBilling, dash
     f.clearTimers();
   });
 
+
+  test(`${name}: a first session says its place in the queue from its first read, not only once it is overdue`, async () => {
+    // First-hour walk 2026-10-31: a first session said only "Queued" for its first 4 minutes; the count of sessions a
+    // worker takes first (the server's `ahead`) came only once the wait was overdue.
+    const at = async (wait) => {
+      const f = frontend({fetchImpl: (path) => path.startsWith('/api/runs/9')
+        ? response({run: {id: 9, prompt: 'Idea', market: null, status: 'queued', created_at: AT, wait}, events: []}) : response({})});
+      await f.viewRun(9);
+      const out = {wait: f.root.querySelector('#rsiobs [data-wait]'), phase: f.root.querySelector('#rsiobs [data-phase]')};
+      f.clearTimers();
+      return out;
+    };
+    let got = await at({state: 'queued', seconds: 4, overdue: false, ahead: 0});
+    assert.equal(got.wait.hidden, false);
+    assert.equal(got.wait.textContent, 'Waiting for a free research worker. It’s next in line and starts when one frees up.');
+    assert.equal(got.phase.hidden, true);  // it says what "Waiting for the agent to start." said, and more
+    got = await at({state: 'queued', seconds: 30, overdue: false, ahead: 2});
+    assert.equal(got.wait.textContent, 'Waiting for a free research worker. 2 sessions are ahead of it; it starts when one frees up.');
+    // Overdue, as before: how long, then the queue.
+    got = await at({state: 'queued', seconds: 300, overdue: true, ahead: 1});
+    assert.equal(got.wait.textContent, 'Still waiting for a free research worker (5 min). 1 session is ahead of it; it starts when one frees up.');
+    // An older server that sends no count keeps the phase line.
+    got = await at({state: 'queued', seconds: 4, overdue: false});
+    assert.equal(got.wait.hidden, true); assert.equal(got.phase.hidden, false);
+  });
+
 }

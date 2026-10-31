@@ -1278,14 +1278,20 @@ def _plain_filter(flt: Dict) -> str:
         words = re.split(r"[,.;]", re.sub(r"\s*\([^)]*\)(?:/\([^)]*\))?", "", doc))[0].strip()
         if not re.fullmatch(r"[A-Za-z][\w '’-]{2,88}", words):  # a formula or a paragraph: keep the name
             words = name
-    pct = _PCT_FEATURE.fullmatch(name)
-    if pct and value == 0:
-        shown = "0%"
-    elif pct:
-        shown = ("%+.2f%%" if pct.group(1) == "ret" else "%.2f%%") % (value * 100)
-    else:
-        shown = "%g" % value
+    shown = plain_filter_value(name, value) or "%g" % value
     return "Only when %s %s %s." % (words, _OP_WORDS.get(flt["op"], flt["op"]), shown)
+
+
+def plain_filter_value(name: str, value: float) -> Optional[str]:
+    """A return or volatility filter's value as a percent ('+0.40%', '0.25%', '0%'), as the plain reading says it
+    (they are log returns, so near enough); None for any other feature. The trade line on the book says it the same
+    way (services.trade_why): it read "the 5-minute return > 0.002" beside this page's "+0.20%"."""
+    pct = _PCT_FEATURE.fullmatch(name or "")
+    if not pct:
+        return None
+    if value == 0:
+        return "0%"
+    return ("%+.2f%%" if pct.group(1) == "ret" else "%.2f%%") % (value * 100)
 
 
 def _plain_moneyness(op: str, value: float) -> str:
