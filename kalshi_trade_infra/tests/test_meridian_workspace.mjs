@@ -6822,7 +6822,7 @@ themeFactsCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 bookReconcileCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 autopilotCostCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 billingCostCases({name: 'Meridian', frontend, dashboard: dashboardData, billingPage, cardedBilling});
-staleMoneyCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData, billingPage, cardedBilling});
+staleMoneyCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData});
 settingsBillingCases({name: 'Meridian', frontend, billingPage, cardedBilling});
 unrealizedCellCases({name: 'Meridian', frontend, dashboard: dashboardData});
 unmarkedPositionCases({name: 'Meridian', frontend});

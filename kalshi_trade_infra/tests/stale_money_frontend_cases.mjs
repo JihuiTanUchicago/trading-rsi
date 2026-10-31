@@ -6,8 +6,6 @@
 //   are while a read fails;
 // - back from the lid, Home's line said "Last updated 2h ago, retrying" while its first read was out, before anything
 //   had failed;
-// - Billing's saved-card list that Stripe didn't answer stayed "didn't load" until someone pressed Try again, where
-//   other reads try again by themselves.
 // Reads only: nothing here sends, retries or times out a write (api() never does, test_api_retry.mjs).
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
@@ -25,7 +23,7 @@ const BAD = () => response({error: 'Bad request.'}, 400);
 // Each harness records focus its own way (Tau marks the element, Meridian moves document.activeElement).
 const hasFocus = (f, el) => !!el && (el.focused === true || f.document.activeElement === el);
 
-export function staleMoneyCases({name, frontend, detailStrategy, dashboard, billingPage, cardedBilling}) {
+export function staleMoneyCases({name, frontend, detailStrategy, dashboard}) {
   test(`${name}: the Strategies list reads again back on the tab and on a minute's poll, draws what changed, keeps picks and focus, and says how old a list that won't refresh is`, async () => {
     let pnl = 1.25, trades = 3, hang = null, down = false;
     const row = () => detailStrategy({id: 64, title: 'On paper', status: 'passed', deployed: true, books: ['paper'], real: {pnl, trades, open: 1, mode: 'paper'}});
@@ -171,41 +169,6 @@ export function staleMoneyCases({name, frontend, detailStrategy, dashboard, bill
     assert.equal(note(), 'Last updated 2h ago, refreshing');
     hang(BAD()); hang = true; await settle();
     assert.equal(note(), 'Last updated 2h ago, retrying');
-    f.clearTimers();
-  });
-
-  test(`${name}: Billing's saved cards that didn't load come back by themselves, a read only, and not over a field being typed in`, async () => {
-    let data = cardedBilling({cards: [], cards_unread: true});
-    const BILL = `/api/billing?tz=${new Date().getTimezoneOffset()}`;
-    const f = billingPage(null, [], {[BILL]: () => response(data)});
-    f.location.pathname = '/billing';
-    await f.render(); await settle(); await settle();
-    const reads = () => f.requests.filter((r) => r.path === BILL).length;
-    assert.match(f.root.querySelector('#cards').textContent, /Your saved cards didn’t load/);
-    const cb = [...f.intervals.values()].find((c) => String(c).includes('.load-fail [data-retry]'));
-    assert.ok(cb, 'the card list tries again by itself');
-    // The recovery's press is a click no one made (an untrusted event).
-    const tick = () => { f.root.querySelectorAll('.load-fail [data-retry]').forEach((b) => { b.click = () => b.onclick({isTrusted: false}); }); return cb(); };
-    // The page's own draw asks Stripe for a setup intent (its card form): what the tries send is counted from here.
-    const before = reads(), wrote = () => writes(f).length, drew = wrote();
-    // A field holds focus (the top-up amount): the try waits, as the draw that follows would go over it.
-    f.document.activeElement = f.root.querySelector('#topup-amt');
-    tick(); f.shiftClock(6000); tick(); await settle();
-    assert.equal(reads(), before, 'not over a field being typed in');
-    // Still unread: the try is the read alone. Nothing else is sent (no new setup intent), and the box stays.
-    f.document.activeElement = f.document.body;
-    tick(); f.shiftClock(11000); tick(); await settle(); await settle();
-    assert.equal(reads(), before + 1, 'one read');
-    assert.equal(wrote(), drew, 'a read only');
-    assert.match(f.root.querySelector('#cards').textContent, /Your saved cards didn’t load/);
-    // Back: the page is drawn from that read (its card form mounts again, as on any draw), and the tries stop.
-    data = cardedBilling();
-    tick(); f.shiftClock(21000); tick(); await settle(); await settle();
-    assert.equal(reads(), before + 2, 'one read more');
-    assert.match(f.root.querySelector('#cards').textContent, /VISA •••• 4242/);
-    assert.ok(writes(f).slice(drew).every((r) => r.path === '/api/billing/setup-intent'), 'no write but the card form’s setup intent');
-    tick(); f.shiftClock(130e3); tick(); await settle();
-    assert.equal(reads(), before + 2, 'and none once they loaded');
     f.clearTimers();
   });
 }

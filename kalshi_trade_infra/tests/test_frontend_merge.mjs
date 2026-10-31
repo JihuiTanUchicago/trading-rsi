@@ -6344,7 +6344,7 @@ themeFactsCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
 bookReconcileCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()});
 autopilotCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn});
 billingCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, billingPage, cardedBilling});
-staleMoneyCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard, billingPage, cardedBilling});
+staleMoneyCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard});
 settingsBillingCases({name: 'Tau', frontend, billingPage, cardedBilling});
 unrealizedCellCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 unmarkedPositionCases({name: 'Tau', frontend});

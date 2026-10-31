@@ -5,16 +5,10 @@ window.TauPage('billing', (T) => {
   'use strict';
   const {
     alert0, api, apCostWatch, apSessionLine, armed, BEHIND, boardTitle, busy, cardFormFail, CLOCK, CLOCK_ZONE, dateFmt, esc, fig, flash,
-    halfUp, holdFocus, ICON, KIND_LABEL, loadFail, loading, loadStripe, num, paceDay, paceTooSoon, paceWords, paint, poll, recoverFails, refreshed,
+    halfUp, holdFocus, ICON, KIND_LABEL, loadFail, loading, loadStripe, num, paceDay, paceTooSoon, paceWords, paint, poll, refreshed,
     retried, root, runwayLabel, S, SEP, sessionTitle, settleAt, shell, stripeFail, syncMeBilling, topupCharge, usd, waitNote, WJ,
     WEEKDAY_DAY
   } = T;
-  // A field on the page holds focus (the card form's frame, an amount, a select), or a write on it is out (a busy
-  // button other than `own`, the read's own).
-  const billEditing = (own) => {
-    const a = document.activeElement;
-    return [...root.querySelectorAll('.busy')].some((b) => b !== own) || !!(a && a !== document.body && root.contains(a) && /^(INPUT|SELECT|TEXTAREA|IFRAME)$/.test(a.tagName || ''));
-  };
   const CARDS_UNREAD_BUY = 'Your saved cards didn\u2019t load, so buying credits waits until they do.';
 
   async function viewBilling() {
@@ -78,9 +72,8 @@ window.TauPage('billing', (T) => {
     let shown = null;  // the read the page shows; the poll keeps its figures current
     // The estimate (or the autopilot's model) landing repaints the figures, as it does the dashboard card.
     apCostWatch.add(() => { if (gen !== S.gen) return false; if (shown) paintFigs(shown); });
-    // `got`: the page's read already in hand (the saved cards' own retry, below), drawn as it is.
-    const load = async (got) => {
-      const d = got || await api('/api/billing?tz=' + new Date().getTimezoneOffset());  // the statement's days are yours
+    const load = async () => {
+      const d = await api('/api/billing?tz=' + new Date().getTimezoneOffset());  // the statement's days are yours
       syncMeBilling(d);
       if (gen !== S.gen) return;
       shown = d;
@@ -142,29 +135,8 @@ window.TauPage('billing', (T) => {
       if (!d.configured) return;
       const cardsAgain = root.querySelector('#cards [data-retry]');
       // The cards back, focus goes to their panel's heading (Payment method); still unread, to the new Try again.
-      // Unread, it tries again by itself too, as a page or list that didn't load does (recoverFails: 5s, 10s, 20s ...
-      // every two minutes, only while the tab shows and online): the list sat on "didn't load" after Stripe came back
-      // until someone pressed Try again. That press (a click no one made) is the page's read alone (/api/billing): the
-      // page, and its card form, which asks Stripe for a setup intent as it mounts, is drawn again only once the cards
-      // are back, so a try that finds them still unread sends nothing else and says nothing. It waits while a field on
-      // the page holds focus (the card form, an amount) or a write is out, as the draw would go over what is being typed,
-      // and moves focus only off its own button.
-      if (cardsAgain) {
-        cardsAgain.onclick = (e) => {
-          if (!(e && e.isTrusted === false)) {
-            return busy(cardsAgain, () => load().catch((err) => flash('#flash', err.message, 'bad')))
-              .then(() => retried(root.querySelector('#main'), '.panel h2'));
-          }
-          if (billEditing()) return;
-          const own = document.activeElement === cardsAgain;
-          return busy(cardsAgain, async () => {
-            const again = await api('/api/billing?tz=' + new Date().getTimezoneOffset()).catch(() => null);
-            if (!again || gen !== S.gen || (again.cards_unread && !(again.cards || []).length) || billEditing(cardsAgain)) return;
-            await load(again).catch(() => {});
-          }).then(() => { if (own) retried(root.querySelector('#main'), '.panel h2'); });
-        };
-        recoverFails();
-      }
+      if (cardsAgain) cardsAgain.onclick = () => busy(cardsAgain, () => load().catch((err) => flash('#flash', err.message, 'bad')))
+        .then(() => retried(root.querySelector('#main'), '.panel h2'));
       // top-up fee preview
       const amt = root.querySelector('#topup-amt'), note = root.querySelector('#topup-note');
       // At the user's own pace, how long the amount being bought would last: picks the amount for them.
