@@ -514,10 +514,12 @@
   // Once a poll's last good read is older than about two of its intervals and it is still failing,
   // the figures it painted stay up but say how old they are. The next good read clears the note.
   const staleAfter = (ms) => Math.max(2 * ms, 10000);
-  const staleText = (at) => `Last updated ${age(Math.max(0, Math.round((Date.now() - at) / 1000)))} ago, retrying`;
+  // `refreshing`: a read is out and none has failed yet (back on the tab after a sleep, the figures past their age): it
+  // said "retrying" there, where nothing had failed to retry. A read that failed and goes again says "retrying".
+  const staleText = (at, refreshing) => `Last updated ${age(Math.max(0, Math.round((Date.now() - at) / 1000)))} ago, ${refreshing ? 'refreshing' : 'retrying'}`;
   function paced(read, ms, note) {
     let busy = false, fails = 0, wait = 0, okAt = Date.now(), wokeAt = 0;
-    const mark = () => { if (note) note((busy || fails) && Date.now() - okAt > staleAfter(ms) ? okAt : null); };
+    const mark = () => { if (note) note((busy || fails) && Date.now() - okAt > staleAfter(ms) ? okAt : null, !fails); };
     // wake (the browser came back online) skips what is left of the back-off.
     return (wake) => {
       if (wake === true && !busy) wait = 0;
@@ -537,10 +539,11 @@
       ).finally(() => { busy = false; mark(); });
     };
   }
-  // noteId names the page's quiet "Last updated 2m ago, retrying" line beside the figures it polls.
+  // noteId names the page's quiet "Last updated 2m ago, retrying" line beside the figures it polls ("refreshing" while
+  // the first read after a sleep is out).
   function poll(fn, ms, noteId) {
     const gen = S.gen;
-    const tick = paced(fn, ms, noteId && ((at) => { const el = document.getElementById(noteId); if (el) el.textContent = at ? staleText(at) : ''; }));
+    const tick = paced(fn, ms, noteId && ((at, refreshing) => { const el = document.getElementById(noteId); if (el) el.textContent = at ? staleText(at, refreshing) : ''; }));
     const id = setInterval(() => { if (!document.hidden && gen === S.gen) tick(); }, ms);
     S.timers.push(id);
     wakers.add(() => { if (gen !== S.gen) return false; if (!document.hidden) tick(true); });
@@ -1446,8 +1449,11 @@
     const twin = twinsOf(host, had, sig)[nth];
     if (twin && twin.focus) twin.focus({ preventScroll: true });
   };
-  function paintKeep(el, html) {
+  // `fresh`: the element was written since its last paint by other means (a list's own draw), so the markup is written
+  // whatever paint last wrote there.
+  function paintKeep(el, html, fresh) {
     const m = twinMark(el);
+    if (fresh) painted.delete(el);
     paint(el, html);
     twinBack(el, m);
   }
@@ -3854,7 +3860,7 @@
     exampleLine, exitWord, failText, feedMd, fig, fillLiveRow, flash, fmt0, fold, gl, glo, GLOSSARY, go,
     halfUp, holdFocus, ICON, isPerpetual, KIND_LABEL, loadFail, loading, loadStripe, logTime, mark,
     marketKalshiUrl, marketFull, marketKnown, marketPicker, marketShort, markQuietRows, mdLite, money,
-    notice, num, olderRows, overDays, paced, paceDay, paceTooSoon, paceWords, pageAssets, paint, paintDashAp, painted, paintRows,
+    notice, num, olderRows, overDays, paced, paceDay, paceTooSoon, paceWords, pageAssets, paint, paintDashAp, painted, paintKeep, paintRows,
     paperAgain, PAPER_NET, NOT_MARKED, markedOf, paperCount, paperShown, paperSince, realWords, demoWords, slipEst, slipEstGl, slipTip, PAPER_COUNT_WHY, PNL_WINDOW, pnlWin, repaintKeep, retried, pausesIn, pct, PERPS_SCENARIO, phone, poll, realTrades, refreshAutopilot,
     recoverFails, refreshed, registry, render, researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind,
     runTag, runWaitLine, runwayLabel, S, sessionEstimate, sessionNo, sessionTitle, settleAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark,

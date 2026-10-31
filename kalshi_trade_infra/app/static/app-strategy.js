@@ -9,7 +9,7 @@ window.TauPage('strategy', (T) => {
     cents, chartWidth, CODE_RESEARCH_ONLY, contractLink, contractName, dateFmt, DEMO_BOOK, demoCashRead, demoHealthLine, DEP_DONE, depIdle,
     depActed, depSaid, depWrite, dirLabel, equityChart, esc, EXAMPLE_NOTE, EXAMPLE_TAG, exitWord, FEES_NET, fig, flash, fmt0, fold, fundsLinked,
     gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
-    money, notice, num, overDays, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, refreshed, render, researchBadge,
+    money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4,
     tone, tradePrice, usd, when, whyFailedHtml
   } = T;
@@ -563,7 +563,7 @@ window.TauPage('strategy', (T) => {
   }
 
   async function viewStrategy(id) {
-    shell('/strategies', boardTitle('Strategy') + '<div id="paper-top"></div><dl class="figures measure" id="figs" style="margin-top:14px"></dl>', loading(420));
+    shell('/strategies', boardTitle('Strategy') + '<div id="paper-top"></div><dl class="figures measure" id="figs" style="margin-top:14px"></dl><p class="stale-note" id="strat-stale" role="status"></p><div id="strat-moved"></div>', loading(420));
     const s = await api('/api/strategies/' + id);
     const perpetual = isPerpetual(s), restricted = researchOnly(s);
     const missed = Array.isArray(s.why_failed) && s.why_failed.length ? s.why_failed : null;
@@ -759,6 +759,34 @@ window.TauPage('strategy', (T) => {
     // The page heading above the paper says its title, market and direction (boardTitle), so the paper's header
     // says only when it was filed, under a heading a screen reader's outline keeps; it said the title twice.
     const paperSec = (title, body) => body ? `<section class="paper-sec"><h3 class="paper-sec-t">${title}</h3><div class="paper-sec-body">${body}</div></section>` : '';
+    // What it holds now, per book (its section id'd so the poll below draws it again in place).
+    const holdingNow = (s) => !restricted && s.holdings && s.holdings.length ? (() => {
+      // One summary per money book: a strategy can hold on paper and demo (or live) at once, and
+      // their cost and unrealized P&L are never added together. A single book reads as before.
+      const books = ['live', 'demo', 'paper'].map((m) => s.holdings.filter((p) => (p.mode || 'paper') === m)).filter((xs) => xs.length);
+      const bookLine = (xs) => {
+        const marked = xs.filter((p) => p.unrealized != null), unreal = marked.reduce((a, p) => a + p.unrealized, 0);
+        // The sum is as old as its oldest mark: dimmed, with that mark's age, once it is old (markFig).
+        const oldest = marked.map((p) => p.mark_ts).filter((t) => Number.isFinite(Date.parse(t))).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+        // Alone too: a strategy holding on paper only read "4 open positions at cost + fees $20.38" with no word of
+        // which money, its rows untagged (walked 2026-10-31), and a demo-only one's line read like real money.
+        const lead = ({ live: 'Live', demo: 'Demo', paper: 'Paper' })[xs[0].mode || 'paper'] + ': ';
+        // Some marked, some not: the sum says how many it covers and how many wait for a price (markedOf).
+        // The book's open cost as the dashboard and Funds say it (the server's holdings_books: the exact sum, rounded
+        // once): adding the rows' rounded costs read two $1.005 positions as $2.02 beside their $2.01.
+        const bookCost = (rows) => { const b = (s.holdings_books || {})[rows[0].mode || 'paper']; return b && b.open_cost != null ? b.open_cost : sum4(rows.map((p) => p.cost)); };
+        const part = markedOf(marked.length, xs.length);
+        return `${lead}${num(xs.length)} open position${xs.length === 1 ? '' : 's'} at cost + fees ${usd(bookCost(xs))}${marked.length ? `${SEP}unrealized ${markFig(oldest, money(unreal))}${part ? ` on ${part}` : ''} (est., mark-to-market on the current bid${markOld(oldest) ? ', ' + markedAt(oldest) : ''})${part ? `${SEP}${num(xs.length - marked.length)} ${NOT_MARKED.toLowerCase()}` : ''}` : `${SEP}${NOT_MARKED.toLowerCase()}`}.`;
+      };
+      // A list, not a five-column table: in the sidebar the table clipped everything after Position.
+      // Each Unrealized figure says when its mark was read (the engine's mark_ts), as Deploy's does: a mark
+      // hours old, with the engine stopped, read as this minute's.
+      // Beside a Live or Demo row a paper one says Paper too: untagged, it read as the real-money book.
+      return `<section class="panel" id="holding-now"><h3>Holding right now</h3>
+      <ul class="holdlist">${s.holdings.map((p) => `<li><div class="pos-name">${contractLink(p.ticker, s.market)} ${p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : books.length > 1 ? '<span class="mk">Paper</span>' : ''}</div><div class="sub-fig">${kalshiRef(p.ticker)}</div>
+        <div class="holdlist-figs"><b>${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(p.entry_price)}</b><span>Cost + fee ${usd(p.cost)}</span><span>Unrealized ${p.unrealized == null ? NOT_MARKED.toLowerCase() : markFig(p.mark_ts, money(p.unrealized)) + (p.mark_ts ? ` ${markedAt(p.mark_ts)}` : '')}</span>${liveClose(p.market_close_time, 'settles', { cap: true })}</div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</li>`).join('')}</ul>
+      <p class="hint" style="margin-top:8px">${books.map(bookLine).join('<br>')}</p></section>`;
+    })() : '';
     root.querySelector('#main').innerHTML = `
       <div id="flash"></div>
       <div class="detail">
@@ -787,33 +815,7 @@ window.TauPage('strategy', (T) => {
           </article>
         </div>
         <aside aria-label="Deploy and gates">
-          ${!restricted && s.holdings && s.holdings.length ? (() => {
-            // One summary per money book: a strategy can hold on paper and demo (or live) at once, and
-            // their cost and unrealized P&L are never added together. A single book reads as before.
-            const books = ['live', 'demo', 'paper'].map((m) => s.holdings.filter((p) => (p.mode || 'paper') === m)).filter((xs) => xs.length);
-            const bookLine = (xs) => {
-              const marked = xs.filter((p) => p.unrealized != null), unreal = marked.reduce((a, p) => a + p.unrealized, 0);
-              // The sum is as old as its oldest mark: dimmed, with that mark's age, once it is old (markFig).
-              const oldest = marked.map((p) => p.mark_ts).filter((t) => Number.isFinite(Date.parse(t))).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
-              // Alone too: a strategy holding on paper only read "4 open positions at cost + fees $20.38" with no word of
-              // which money, its rows untagged (walked 2026-10-31), and a demo-only one's line read like real money.
-              const lead = ({ live: 'Live', demo: 'Demo', paper: 'Paper' })[xs[0].mode || 'paper'] + ': ';
-              // Some marked, some not: the sum says how many it covers and how many wait for a price (markedOf).
-              // The book's open cost as the dashboard and Funds say it (the server's holdings_books: the exact sum, rounded
-              // once): adding the rows' rounded costs read two $1.005 positions as $2.02 beside their $2.01.
-              const bookCost = (rows) => { const b = (s.holdings_books || {})[rows[0].mode || 'paper']; return b && b.open_cost != null ? b.open_cost : sum4(rows.map((p) => p.cost)); };
-              const part = markedOf(marked.length, xs.length);
-              return `${lead}${num(xs.length)} open position${xs.length === 1 ? '' : 's'} at cost + fees ${usd(bookCost(xs))}${marked.length ? `${SEP}unrealized ${markFig(oldest, money(unreal))}${part ? ` on ${part}` : ''} (est., mark-to-market on the current bid${markOld(oldest) ? ', ' + markedAt(oldest) : ''})${part ? `${SEP}${num(xs.length - marked.length)} ${NOT_MARKED.toLowerCase()}` : ''}` : `${SEP}${NOT_MARKED.toLowerCase()}`}.`;
-            };
-            // A list, not a five-column table: in the sidebar the table clipped everything after Position.
-            // Each Unrealized figure says when its mark was read (the engine's mark_ts), as Deploy's does: a mark
-            // hours old, with the engine stopped, read as this minute's.
-            // Beside a Live or Demo row a paper one says Paper too: untagged, it read as the real-money book.
-            return `<section class="panel"><h3>Holding right now</h3>
-            <ul class="holdlist">${s.holdings.map((p) => `<li><div class="pos-name">${contractLink(p.ticker, s.market)} ${p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : books.length > 1 ? '<span class="mk">Paper</span>' : ''}</div><div class="sub-fig">${kalshiRef(p.ticker)}</div>
-              <div class="holdlist-figs"><b>${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(p.entry_price)}</b><span>Cost + fee ${usd(p.cost)}</span><span>Unrealized ${p.unrealized == null ? NOT_MARKED.toLowerCase() : markFig(p.mark_ts, money(p.unrealized)) + (p.mark_ts ? ` ${markedAt(p.mark_ts)}` : '')}</span>${liveClose(p.market_close_time, 'settles', { cap: true })}</div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</li>`).join('')}</ul>
-            <p class="hint" style="margin-top:8px">${books.map(bookLine).join('<br>')}</p></section>`;
-          })() : ''}
+          ${holdingNow(s)}
           ${ladder ? `<section class="panel" id="ladder"><h3>Paper → demo → live</h3><div class="rung-books" id="ladder-body">${ladder}</div></section>` : ''}
           <section class="panel"><h3>${restricted ? 'Research only' : 'Deploy'}</h3>
             ${canDeploy ? `<div style="display:grid;gap:10px">
@@ -924,12 +926,13 @@ window.TauPage('strategy', (T) => {
         // "too early to tell against the backtest" (walk 2026-10-31).
         const btEarly = (s.backtest_checks || []).some((c) => c && c.mode === 'paper' && c.verdict === 'early');
         const body = root.querySelector('#road-live-body');
-        if (body) body.innerHTML = roadSummary(r, s, liveWhy, rows.length, apPaper) + gatesHtml(rows)
+        // Drawn again by the poll below too: focus on a link in it stays.
+        if (body) keepFocus(body, () => { body.innerHTML = roadSummary(r, s, liveWhy, rows.length, apPaper) + gatesHtml(rows)
           // The server's realization is against the backtest's later slice (its out_of_sample), so the hint names it as
           // the figure up top does, by laterQual: "later period · unseen data" only with a gatekeeper record (splitOnly
           // otherwise). It read "made money on unseen data" and "…P&L per trade on unseen data".
           + (p.realization != null && !btEarly ? `<p class="hint" style="margin-top:6px;font-variant-numeric:tabular-nums">${p.realization < 0 ? `Paper is <b>losing money</b> per trade, while the backtest made money after its split date (later period${SEP}${laterQual}).` : `Paper earns <b>${num(Math.round(p.realization * 100))}%</b> of the backtest’s P&amp;L per trade after its split date (later period${SEP}${laterQual}).`}</p>` : '')
-          + `<p class="hint" style="margin-top:6px">Paper counts only fills simulated against the live order book (bought at the ask, sold at the bid, after Kalshi fees), from every paper run of this strategy, removed ones included, so these figures are not its realized P&amp;L above. Clearing every check never starts real money by itself: you deploy it with live money and type LIVE${auto ? ', or live autopilot, which you turned on, may do it within your caps' : ''}. Live trading: ${S.me.live_trading_available ? 'open' : 'not open yet'}. Your Kalshi key: ${S.me.kalshi_connected ? 'connected' : 'not connected'}.</p>`;
+          + `<p class="hint" style="margin-top:6px">Paper counts only fills simulated against the live order book (bought at the ask, sold at the bid, after Kalshi fees), from every paper run of this strategy, removed ones included, so these figures are not its realized P&amp;L above. Clearing every check never starts real money by itself: you deploy it with live money and type LIVE${auto ? ', or live autopilot, which you turned on, may do it within your caps' : ''}. Live trading: ${S.me.live_trading_available ? 'open' : 'not open yet'}. Your Kalshi key: ${S.me.kalshi_connected ? 'connected' : 'not connected'}.</p>`; });
       } catch (e) {
         // A read that failed (a bad connection) says why and offers Try again: it said "unavailable" for the
         // rest of the visit, and only a reload asked again.
@@ -1041,7 +1044,56 @@ window.TauPage('strategy', (T) => {
       };
       wi.querySelectorAll('input[type=range]').forEach((r) => (r.oninput = update));
     }
+    // Open, its money reads again (the poll: once a minute, and at once back on the tab after a while): the paper line
+    // up top, Since deploying, what it holds, the ladder and Road to live stood as they were at load after a laptop lid
+    // or a tab left open, P&L, trade counts and paused books alike, with no age (walk 2026-10-31). Only those parts are
+    // drawn again, and only when the read differs, focus kept; the backtest and the Deploy panel stay as drawn. One
+    // whose deployments changed since (paused, resumed, stopped or added elsewhere) says the panel may be behind, with
+    // Reload. A read only, never while a write on the page is out (its own re-read shows it); one that fails keeps the
+    // figures and the poll's line says how old they are.
+    if (!restricted) {
+      const depsKey = (x) => (x.deployments || []).map((d) => `${d.id}:${d.mode}:${d.status}`).join(' '), drawnDeps = depsKey(s);
+      const liveKey = (x) => JSON.stringify(LIVE_PARTS.map((k) => x[k]));
+      // Road to live is read again only when its books moved (a trade closed, a deployment changed), not with each mark.
+      const roadKey = (x) => JSON.stringify([x.deployments, x.book_totals]);
+      let liveDrawn = liveKey(s), roadDrawn = roadKey(s);
+      // One part in place: `sel` finds it, `html` is its new markup ('' when it has none now), `put` places a new one.
+      const swap = (sel, html, put) => {
+        const el = root.querySelector(sel);
+        if (!el) { if (html) put(html); return; }
+        if (!html) { el.remove(); return; }
+        if (el.parentElement) keepFocus(el.parentElement, () => { el.outerHTML = html; });
+      };
+      poll(async (cfg) => {
+        if (root.querySelector('.busy')) return;
+        const x = await api('/api/strategies/' + s.id, undefined, cfg);
+        const key = liveKey(x);
+        if (key === liveDrawn || root.querySelector('.busy')) return;
+        liveDrawn = key;
+        LIVE_PARTS.forEach((k) => { s[k] = x[k]; });
+        if (!x.demo_health_pending) s.demo_health = x.demo_health;
+        paintKeep(root.querySelector('#paper-top'), paperTop(s));
+        swap('#since-deploying', realRecord(s), (h) => root.querySelector('.paper-abstract').insertAdjacentHTML('afterend', h));
+        swap('#holding-now', holdingNow(s), (h) => root.querySelector('aside[aria-label="Deploy and gates"]').insertAdjacentHTML('afterbegin', h));
+        const lb = root.querySelector('#ladder-body');
+        if (lb) keepFocus(lb, () => { lb.innerHTML = ladderLines(s, { canDeploy, demoWhy, road: roadNow, apPaper }); });
+        if (root.querySelector('#road-live-body') && roadKey(s) !== roadDrawn) roadRead();
+        roadDrawn = roadKey(s);
+        if (s.holdings && s.holdings.length) closeClock();
+        const moved = root.querySelector('#strat-moved');
+        if (moved) {
+          paintKeep(moved, depsKey(s) === drawnDeps ? '' : `<p class="hint strat-moved">${STRAT_MOVED} <button type="button" class="btn sm" data-strat-reload>Reload</button></p>`);
+          const again = moved.querySelector('[data-strat-reload]');
+          if (again) again.onclick = () => render();
+        }
+      }, STRATEGY_POLL_MS, 'strat-stale');
+    }
   }
+
+  // What the strategy page's poll reads again (its money and its books' state), and how often.
+  const LIVE_PARTS = ['deployments', 'book_totals', 'past_deployments', 'holdings', 'holdings_books', 'backtest_checks'];
+  const STRATEGY_POLL_MS = 60000;
+  const STRAT_MOVED = 'Its deployments changed since this page opened, so the Deploy panel may be behind.';
 
   return {viewStrategy};
 });
