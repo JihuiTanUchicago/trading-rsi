@@ -188,7 +188,11 @@ def _since_visit(cur, uid: int, visit: datetime, first: bool, recent: Dict,
             "books": {m: _since_book(m, *b) for m, b in recent.items()},
             "passed": _passed_since(cur, uid, visit),
             "autopilot": act["autopilot"], "runs": act["runs"], "own_sessions": bool(act.get("own_sessions")),
-            "spent": {**{k: credit_usd(v) for k, v in act["spent"].items()}, "card_charged": act.get("card_charged"),
+            # `week` only paces the strip's "Research pauses in ...", so it goes as the ledger holds it (credit_exact),
+            # as Billing's runway reads it: rounded to the cent first, $8.2449 paced as $8.24 put the strip's pause at
+            # "about 3 days" beside Billing's and the autopilot panel's "about 2 days" (walk 2026-10-31).
+            "spent": {**{k: credit_exact(v) if k == "week" else credit_usd(v) for k, v in act["spent"].items()},
+                      "card_charged": act.get("card_charged"),
                       **_bought(act.get("bought")), **_spent_readout(act["spent"], created_at)}
             if billing.configured() and act.get("spent") else None,
             "milestones": act.get("milestones") or {"passed": [], "live_ready": []},

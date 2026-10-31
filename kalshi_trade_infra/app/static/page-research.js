@@ -69,6 +69,11 @@ window.TauPage('research', (T) => {
     }
     return rsiLoop.req;
   }
+  // The card's Spend is what the sessions it counts took from credits (the server's runs_spent, each session's own Cost):
+  // the ones that ended, not one still going or one you stopped (rsi.recent_runs). The sessions listed under it
+  // and Billing count those too, and a card reading $5.79 over a list adding up to $7.99 said nothing of why (walk
+  // 2026-10-31).
+  const LOOP_SPEND_LEAVES = 'not counting sessions still going or stopped by you';
   async function renderResearchLoop(host, pol, tried) {
     if (!host) return;
     const reading = rsiLoopRead();
@@ -92,7 +97,7 @@ window.TauPage('research', (T) => {
     const delta = tr ? `<span class="rsi-score">${loopRate(tr.before.gate_reach_rate)} <span class="rsi-arrow">→</span> ${loopRate(tr.after.gate_reach_rate)}</span>` : '';
     const tag = tr ? (tr.better ? '<span class="rsi-tag">Improving</span>' : '<span class="rsi-tag quiet">Not improving yet</span>') : '<span class="rsi-tag quiet">Learning</span>';
     const perIdea = t.explored ? usd(t.cost_usd / t.explored) : '—';
-    const figs = `<dl class="figures measure loop-figs">${fig('Ideas tried', num(t.explored), { small: `${num(t.runs)} session${t.runs === 1 ? '' : 's'}${SEP}14 days` })}${fig('Reached the gate', num(t.gated), { small: `${loopRate(t.gate_reach_rate)} of ideas` })}${fig('Passed', num(t.passed), { small: t.holdout_passed ? `${num(t.holdout_passed)} held out` : 'every gate' })}${fig('Spend', usd(t.cost_usd), { small: `${perIdea} per idea` })}${fig('Killed by our pipeline', loopRate(t.pipeline_death_share), { small: 'of dropped ideas' })}</dl>`;
+    const figs = `<dl class="figures measure loop-figs">${fig('Ideas tried', num(t.explored), { small: `${num(t.runs)} session${t.runs === 1 ? '' : 's'}${SEP}14 days` })}${fig('Reached the gate', num(t.gated), { small: `${loopRate(t.gate_reach_rate)} of ideas` })}${fig('Passed', num(t.passed), { small: t.holdout_passed ? `${num(t.holdout_passed)} held out` : 'every gate' })}${fig('Spend', usd(t.cost_usd), { small: `${perIdea} per idea${SEP}${LOOP_SPEND_LEAVES}` })}${fig('Killed by our pipeline', loopRate(t.pipeline_death_share), { small: 'of dropped ideas' })}</dl>`;
     const trendP = tr
       ? `<p class="loop-trend">${tr.better ? 'Getting better.' : 'Not better yet.'} The newer ${num(tr.after.runs)} session${tr.after.runs === 1 ? '' : 's'} took ${loopRate(tr.after.gate_reach_rate)} of ${num(tr.after.explored)} ideas to the statistical gate, against ${loopRate(tr.before.gate_reach_rate)} of ${num(tr.before.explored)} before.</p>`
       : `<p class="loop-trend">Each session’s ideas are counted from first draft to final verdict. A before/after trend appears once there are 16 ideas to compare.</p>`;

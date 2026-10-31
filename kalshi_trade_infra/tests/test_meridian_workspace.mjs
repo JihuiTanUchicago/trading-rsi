@@ -6116,19 +6116,19 @@ test('a returning user reads what the time away cost, the paper forward-test pas
   const text = await strip({});
   // What it cost: its own row, never added to the paper book above it. With no word on whether a card was ever
   // charged (card_charged unknown), it never says "real money", nor who paid.
-  assert.match(text, /<dt>Cost<\/dt><dd><b>\$27\.45<\/b> of credits spent<span class="since-sub"> · \$7\.15 left · <a href="\/billing">Billing<\/a><\/span><\/dd>/);
+  assert.match(text, /<dt>Cost<\/dt><dd><b>\$27\.45<\/b> of credits spent on research, chat and autopilot check-ins<span class="since-sub"> · \$7\.15 left · <a href="\/billing">Billing<\/a><\/span><\/dd>/);
   // No card ever charged: the credits spent were free ones, and the row says the card is untouched.
   const free = await strip({since: {...since, spent: {...since.spent, card_charged: false}}});
-  assert.match(free, /of credits spent<span class="since-sub">\u00a0· free credits so far: your card hasn’t been charged\u00a0· \$7\.15 left\u00a0· /);
+  assert.match(free, /of credits spent on research, chat and autopilot check-ins<span class="since-sub">\u00a0· free credits so far: your card hasn’t been charged\u00a0· \$7\.15 left\u00a0· /);
   assert.doesNotMatch(free, /real money/);
-  assert.match(await strip({since: {...since, spent: {...since.spent, card_charged: true}}}), /of credits spent<span class="since-sub">\u00a0· real money\u00a0· /);
+  assert.match(await strip({since: {...since, spent: {...since.spent, card_charged: true}}}), /of credits spent on research, chat and autopilot check-ins<span class="since-sub">\u00a0· real money\u00a0· /);
   // A card charged while they were away says so, with the credits it bought (never netted with the spend).
   const reload = (extra) => strip({since: {...since, spent: {...since.spent, card_charged: true, ...extra}}});
-  assert.match(await reload({bought: 20, charges: 1, reloads: 1}), /<b>\$27\.45<\/b> of credits spent; auto-reload charged your card once for <b>\$20\.00<\/b> of credits<span class="since-sub">\u00a0· real money/);
+  assert.match(await reload({bought: 20, charges: 1, reloads: 1}), /<b>\$27\.45<\/b> of credits spent on research, chat and autopilot check-ins; auto-reload charged your card once for <b>\$20\.00<\/b> of credits<span class="since-sub">\u00a0· real money/);
   assert.match(await reload({bought: 60, charges: 3, reloads: 3}), /auto-reload charged your card 3 times for <b>\$60\.00<\/b> of credits/);
   assert.match(await reload({bought: 40, charges: 2, reloads: 2}), /auto-reload charged your card twice for <b>\$40\.00<\/b> of credits/);  // "twice", not "2 times"
-  assert.match(await reload({bought: 45, charges: 2, reloads: 1}), /spent; 2 card charges \(1 by auto-reload\) bought <b>\$45\.00<\/b> of credits/);
-  assert.match(await reload({bought: 25, charges: 1, reloads: 0}), /spent; you bought <b>\$25\.00<\/b> of credits/);
+  assert.match(await reload({bought: 45, charges: 2, reloads: 1}), /check-ins; 2 card charges \(1 by auto-reload\) bought <b>\$45\.00<\/b> of credits/);
+  assert.match(await reload({bought: 25, charges: 1, reloads: 0}), /check-ins; you bought <b>\$25\.00<\/b> of credits/);
   assert.doesNotMatch(text, /auto-reload charged|you bought/);
   assert.doesNotMatch(await reload({bought: 20, charges: 1, reloads: 1}), /\$7\.45|\$47\.45/);  // never netted or added
   // A loss guard's pauses are told in the Autopilot row (the engine's, not its moves), resumed ones too.
@@ -6162,12 +6162,12 @@ test('a returning user reads what the time away cost, the paper forward-test pas
   // away (walk 2026-10-31). Spent, it says so.
   const unspent = await strip({since: {...since, spent: {since: 0, week: 0, card_charged: true}}});
   assert.match(unspent, /<dt>Cost<\/dt><dd>No credits spent<span class="since-sub">\u00a0· \$7\.15 left\u00a0· <a href="\/billing">Billing<\/a><\/span><\/dd>/);
-  assert.match(await strip({since: {...since, spent: {...since.spent, card_charged: true}}}), /<b>\$27\.45<\/b> of credits spent<span class="since-sub">\u00a0· real money\u00a0· \$7\.15 left/);
+  assert.match(await strip({since: {...since, spent: {...since.spent, card_charged: true}}}), /<b>\$27\.45<\/b> of credits spent on research, chat and autopilot check-ins<span class="since-sub">\u00a0· real money\u00a0· \$7\.15 left/);
   assert.match(await strip({since: {...since, spent: {since: 0, week: 0, card_charged: true, bought: 20, charges: 1, reloads: 1}}}), /No credits spent; auto-reload charged your card once for <b>\$20\.00<\/b> of credits<span class="since-sub">\u00a0· real money/);
   // A spend that rounds to $0.00 but isn't nothing (one short call, the server's since_under_cent) says so, as Billing's
   // line for it does, not "No credits spent" beside a charge on the statement (walk 2026-10-31).
   const sliver = await strip({since: {...since, spent: {since: 0, week: 0.004, since_under_cent: true}}});
-  assert.match(sliver, /<dt>Cost<\/dt><dd><b>Under \$0\.01<\/b> of credits spent/);
+  assert.match(sliver, /<dt>Cost<\/dt><dd><b>Under \$0\.01<\/b> of credits spent on research, chat and autopilot check-ins/);
   assert.doesNotMatch(sliver, /No credits spent/);
   // The pause is read at Billing's pace (the server's pace_days), as the autopilot panel reads it: a two-day-old
   // account's $27.45 is $13.73 a day, so $6.15 above the floor lasts under a day, not "about 2 days" (over 7).

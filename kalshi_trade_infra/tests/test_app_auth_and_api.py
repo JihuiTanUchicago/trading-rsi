@@ -1693,6 +1693,23 @@ def test_since_your_last_visit_names_a_sliver_of_spend_and_billings_pace(monkeyp
     assert server._since_visit(None, 1, now, False, {}, created_at=datetime(2020, 1, 1))["spent"]["since_under_cent"] is False
 
 
+def test_since_your_last_visit_paces_its_pause_on_the_week_billing_paces(monkeypatch):
+    # Walk 2026-10-31: $2.885 above the research floor and $8.2449 spent in the week. Billing and the autopilot
+    # panel read 2.885 / (8.2449 / 7) = 2.449, "about 2 days"; the strip's week came rounded to $8.24, its 2.451
+    # read "about 3 days". The week (only ever a pace) goes as the ledger holds it; the spend shown stays cents.
+    from datetime import datetime
+    from app.web.routes.billing import runway_days
+    now = datetime(2026, 10, 31, 20, 0)
+    act = {"autopilot": {}, "runs": {}, "own_sessions": True, "spent": {"since": 4.6149, "week": 8.2449}}
+    monkeypatch.setattr(server.repo, "activity_since", lambda cur, uid, since, **k: act)
+    monkeypatch.setattr(server.repo, "passed_since", lambda cur, uid, since, **k: {"n": 0, "items": []})
+    monkeypatch.setattr(server.billing, "configured", lambda: True)
+    got = server._since_visit(None, 1, now, False, {}, created_at=datetime(2020, 1, 1))["spent"]
+    assert got["since"] == 4.61 and got["week"] == 8.2449
+    page = round(2.885 / (got["week"] / got["pace_days"]) * 10) / 10  # app.js sinceStrip's own sum
+    assert page == runway_days(3.885, 8.2449, 7.0, floor=True, stop_at=1.0) == 2.4
+
+
 def _capacity_ctx():
     from types import SimpleNamespace
     return server.Ctx(SimpleNamespace(cursor=lambda: object()), {"id": 7}, (), {}, {}, SimpleNamespace())

@@ -584,9 +584,10 @@
   // account in another tab, this tab only found out on its next read, up to 20s on a polled page and not at all on
   // one with no poll (a strategy page). api() compares the reply's account with the tab's (accountMoved) and reloads
   // into the new one. One ask at a time; a failed one says nothing, and the next return to the tab asks again.
-  let whoAsk = null;
+  let whoAsk = null, whoAt = Date.now();  // the boot just read /api/me itself
   const askWho = () => {
     if (whoAsk || !S.me || S.accountMoved) return;
+    whoAt = Date.now();
     whoAsk = api('/api/me', undefined, { keep: true }).then(meSettings).catch(() => {}).then(() => { whoAsk = null; });
   };
   // That read also carries the account's settings, which another tab or device may have changed: Settings kept showing
@@ -604,6 +605,15 @@
     askWho();
     if (hiddenAt && Date.now() - hiddenAt > WAKE_AWAY_MS) wake();
     hiddenAt = 0;
+  });
+  // A tab in view but not focused (two windows side by side) is never hidden, so it never got that visibilitychange:
+  // a sign-in to another account in the other window reached it only on its next read, or never on a page with no poll.
+  // Focusing the window asks the same once: the same read, one at a time, and none within FOCUS_ASK_MS of the last ask
+  // (a return to the tab fires both events, and focus flapping between two windows would ask on every click).
+  const FOCUS_ASK_MS = 15000;
+  window.addEventListener('focus', () => {
+    if (document.hidden || Date.now() - whoAt < FOCUS_ASK_MS) return;
+    askWho();
   });
   // SPA deploys only take effect on a full reload. Check the server's build hash on each
   // navigation (throttled); if it changed, offer a one-click reload instead of silent staleness.
@@ -2908,7 +2918,11 @@
     const paid = spent && (+spent.since >= 0.01 || spent.since_under_cent || charges) ? creditsPaid(spent.card_charged) : '';
     const bought = !charges ? '' : `; ${reloads === charges ? `auto-reload charged your card ${charges === 1 ? 'once' : charges === 2 ? 'twice' : num(charges) + ' times'} for`
       : reloads ? `${plural(charges, 'card charge', 'card charges')} (${num(reloads)} by auto-reload) bought` : 'you bought'} <b>${usd(spent.bought)}</b> of credits`;
-    const cost = spent ? `${+spent.since >= 0.01 ? `<b>${usd(spent.since)}</b> of credits spent` : spent.since_under_cent ? '<b>Under $0.01</b> of credits spent' : 'No credits spent'}${bought}<span class="since-sub">${paid ? SEP + paid : ''}${SEP}${usd(me.credit_balance || 0)} left${SEP}<a href="/billing">Billing</a></span>` : '';
+    // What the figure covers, said with it: every agent call (research, chat, the autopilot's check-ins), as Billing's
+    // "Agent usage" counts it. Beside the autopilot card's "Credits spent on research" below it, a bare "$4.61 of
+    // credits spent" read as the same figure with a different number (walk 2026-10-31).
+    const SPENT_ON = ' of credits spent on research, chat and autopilot check-ins';
+    const cost = spent ? `${+spent.since >= 0.01 ? `<b>${usd(spent.since)}</b>${SPENT_ON}` : spent.since_under_cent ? `<b>Under $0.01</b>${SPENT_ON}` : 'No credits spent'}${bought}<span class="since-sub">${paid ? SEP + paid : ''}${SEP}${usd(me.credit_balance || 0)} left${SEP}<a href="/billing">Billing</a></span>` : '';
     const row = (k, v, cls) => `<div class="since-row${cls ? ' ' + cls : ''}"><dt>${k}</dt><dd>${v}</dd></div>`;
     // The Money row leads with its window, as every paper figure on the dashboard does (PNL_WINDOW): beside the
     // autopilot card's "Since you started", its figures read as the same paper P&L.

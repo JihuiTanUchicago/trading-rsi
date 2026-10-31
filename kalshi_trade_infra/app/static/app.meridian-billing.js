@@ -409,7 +409,9 @@ window.TauPage('billing', (T) => {
       // A day whose only use was under a cent (one short chat) says so, as the 7-day split does, not a bare date.
       return `<tr class="ledger-day"><td colspan="3" data-lab="Day"><b>${ledgerDay(g.day)}</b><span class="day-sum">${[used >= 0.005 ? `${usd(used)} used` : -micros(g.rows.filter((r) => r.kind === 'usage')) > 0 ? 'under $0.01 used' : '', added ? `${usd(added, true)} credits` : ''].filter(Boolean).join(SEP)}</span></td></tr>`;
     };
-    const key = d.math ? `Last ${d.math.days} days, newest first. Each research line is one session’s model calls that day; open it to see the session. Lines are rounded to the cent so they add up to their day; the receipt has every call and every card charge, exactly.`
+    // A session's page shows its own total rounded half up; its lines here take the cents their day needs, so one
+    // read −$0.73 under a session whose page said $0.72 (walk 2026-10-31). The key says so; the receipt is exact.
+    const key = d.math ? `Last ${d.math.days} days, newest first. Each research line is one session’s model calls that day; open it to see the session. Lines are rounded to the cent so they add up to their day, so a session’s lines can be a cent off the cost its own page shows; the receipt has every call and every card charge, exactly.`
       : 'Newest first. The receipt has every line, with exact amounts.';
     return `${billMath(d.math)}<p class="hint ledger-key">${key}</p><div class="sheet"><table class="table stack t-dep t-ledger"><thead><tr><th>When</th><th>Item</th><th class="num">Amount</th></tr></thead><tbody>${
       days.map((g) => (g.day ? head(g) : '') + g.rows.map(line).join('')).join('')}</tbody></table></div>${d.ledger_cut ? '<p class="hint">Older days are in the receipt.</p>' : ''}`;
