@@ -96,6 +96,26 @@ def test_no_zero_padded_or_numbered_strategy_id_reaches_the_file(monkeypatch):
         assert not re.search(r"No\.\s*\d|#\d|\b0\d{4}\b|\b(42|7|9|12345)\b", cells), r
 
 
+def test_a_removed_deployments_trades_say_so_in_the_strategy_column(monkeypatch):
+    # A removed (stopped) deployment's trades sat under the same name as the strategy's current deployment. The
+    # strategy column marks them in words; strategy_title, the header and the column order are unchanged.
+    trades = [_row(1, deployment_removed=True), _row(2, deployment_removed=False), _row(3),
+              _row(4, strategy_id=None, title=None, deployment_removed=False)]
+    monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(trades)))
+    _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
+    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 15
+    assert [r[3] for r in rows[1:]] == ["Fade late spikes (removed deployment)", "Fade late spikes", "Fade late spikes", ""]
+    assert [r[4] for r in rows[1:]] == ["Fade late spikes", "Fade late spikes", "Fade late spikes", ""]
+    # Beside a same-titled strategy the plain-words tag stays, and the mark follows it.
+    made = datetime(2026, 10, 20, 9, 30)
+    twins = [_row(1, strategy_id=42, title="Fade", strategy_market="btc15m", strategy_created=made, deployment_removed=True),
+             _row(2, strategy_id=43, title="Fade", strategy_market="eth15m", strategy_created=made)]
+    monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(twins)))
+    _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
+    assert [r[3] for r in rows[1:]] == ["Fade (Bitcoin up or down in 15 minutes) (removed deployment)",
+                                        "Fade (Ethereum up or down in 15 minutes)"]
+
+
 @pytest.mark.parametrize("mode", [None, "", "all", "paper,live", "LIVE'"])
 def test_an_unknown_mode_is_refused(monkeypatch, mode):
     monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda *a: pytest.fail("no read for a bad mode"))
@@ -221,17 +241,45 @@ def test_each_mode_file_holds_only_that_users_trades_in_that_mode_and_adds_up(co
     assert not set(other_ids) & set(ids["paper"])  # another user's trades never appear
     assert all(r[4].startswith("'=1+1") for r in files["paper"])  # the guard holds on stored titles too
     # The strategy column is its stored title, never its id; a second strategy with that title, on the same
-    # market, made another day, is told apart by the day it was made.
-    assert {r[3] for r in files["paper"]} == {"'=1+1 paper"}
+    # market, made another day, is told apart by the day it was made. _book's deployments are removed (stopped), and
+    # the column says so.
+    assert {r[3] for r in files["paper"]} == {"'=1+1 paper (removed deployment)"}
     twin, twin_ids = _book(conn, a, "paper", [0.25])
     cur.execute("UPDATE app_strategies SET created_at='2026-10-01 08:00:00' WHERE id=%s", (twin,))
     cur.execute("UPDATE app_strategies SET created_at='2026-10-02 08:00:00' WHERE id=%s", (first,))
     _, rows = _parse(server.trades_csv(server.Ctx(conn, {"id": a}, (), {"mode": "paper"}, {}, None)))
     names = {int(r[14]): r[3] for r in rows[1:]}
-    assert names[twin_ids[0]] == "'=1+1 paper (Bitcoin up or down in 15 minutes, made Oct 1, 2026)"
-    assert {names[i] for i in paper_ids} == {"'=1+1 paper (Bitcoin up or down in 15 minutes, made Oct 2, 2026)"}
+    assert names[twin_ids[0]] == "'=1+1 paper (Bitcoin up or down in 15 minutes, made Oct 1, 2026) (removed deployment)"
+    assert {names[i] for i in paper_ids} == {"'=1+1 paper (Bitcoin up or down in 15 minutes, made Oct 2, 2026) (removed deployment)"}
     assert not any(re.search(r"No\.\s*\d|#\d|\b0\d{4}\b", r[3]) for r in rows[1:])
     assert repo.closed_trade_counts(cur, a) == {"paper": 4, "demo": 1}
+
+
+@db
+def test_a_removed_deployments_trades_are_told_apart_from_the_current_deployment_of_that_strategy(conn):
+    # Walk 2026-10-31: "Settlement drift" on paper, removed, then deployed on paper again: the file put both runs'
+    # trades under "Settlement drift". The removed run's rows now say so, in the strategy column; the current run's
+    # keep the bare name; strategy_title and the columns stay as they were, and no id is shown.
+    from app import repository as repo
+
+    cur = conn.cursor()
+    uid = repo.upsert_google_user(cur, "test:" + uuid.uuid4().hex, "r@example.com", "R", None)["id"]
+    sid, old_ids = _book(conn, uid, "paper", [1.5, -0.5])  # its deployment removed (stopped)
+    now_dep = repo.create_deployment(cur, uid, sid, "btc15m", "paper")
+    try:
+        new_id = repo.insert_closed_position(cur, now_dep, uid, "paper", "TEST-" + uuid.uuid4().hex[:8], "yes", 3, 0.4,
+                                             0.05, 1.0, 0.0, 1.75, "settled", datetime(2026, 10, 26, 12, 0))
+        rows = repo.closed_trades_for_export(cur, uid, "paper", 10)
+        assert {r["id"]: r["deployment_removed"] for r in rows} == {old_ids[0]: True, old_ids[1]: True, new_id: False}
+        _, got = _parse(server.trades_csv(server.Ctx(conn, {"id": uid}, (), {"mode": "paper"}, {}, None)))
+        assert got[0] == billing_routes.TRADES_CSV_HEADER
+        names = {int(r[14]): (r[3], r[4]) for r in got[1:]}
+        assert names == {old_ids[0]: ("'=1+1 paper (removed deployment)", "'=1+1 paper"),
+                         old_ids[1]: ("'=1+1 paper (removed deployment)", "'=1+1 paper"),
+                         new_id: ("'=1+1 paper", "'=1+1 paper")}
+        assert not any(re.search(r"\b%d\b" % d, r[3]) for r in got[1:] for d in (now_dep, sid))
+    finally:
+        cur.execute("UPDATE app_deployments SET status='stopped' WHERE id=%s", (now_dep,))
 
 
 @db

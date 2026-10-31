@@ -20,7 +20,7 @@
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, glueTarget, compactCondition, marketSpot, MKT_GONE, vsHtml, spotListNote,
     EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreNoBtc, hotWhen, hotSpotNote, hotPriceWord,
-    waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday,
+    waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince,
     sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER, apPillLabel, apAgo, apEvery, FOCUS_WORDS,
     creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount, exitWord, AP_FOCUS, KIND_LABEL, runwayLabel,
     paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote
@@ -1770,7 +1770,8 @@
   // at the sync's next pass, so it is offered disabled with the server's reason (resume_block), which
   // the row's status line also says.
   const resumeButton = (d, why = resumeBlock(d)) => `<button class="btn sm" data-dep="${d.id}" data-act="resume"${why ? ` disabled title="${esc(why)}"` : ''}>Resume<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book${why ? ': ' + esc(why) : ''}</span></button>`;
-  function deploymentSlip(d, regs, controls) {
+  // `reloaded`: the dashboard's demo book was reloaded, so a demo row says its figure counts from its first demo trade.
+  function deploymentSlip(d, regs, controls, reloaded = false) {
     const exp = d.backtest && d.backtest.out_of_sample;
     // Realized beside what the backtest's unseen-data average per trade says the same trades should
     // have made: the comparable number, not the backtest's own total over a different trade count.
@@ -1791,7 +1792,7 @@
         <div class="sub-fig">${depSizing(d)}${d.status !== 'running' && (d.status_why || d.status_reason) ? SEP + fundsLinked(esc(d.status_why || d.status_reason)) : ''}</div>${idle ? `<div class="sub-fig dep-idle">${esc(idle.why)}</div>` : ''}${demoRowLine(d)}${btCheckLine(d.backtest_check)}${depInstant(d)}${roadLine(d, liveOpen())}</td>
       <td data-lab="Market"><span class="tick">${esc(marketFull(d.market))}</span></td>
       <td data-lab="Status">${idle ? `<span class="mk quiet">${idle.tag}</span> ${modeTag}` : d.status === 'running' ? modeTag : `${mark(d.status, live)} ${modeTag}`}</td>
-      <td class="num" data-lab="Realized">${realizedCell(d)}${spark(d.curve, regs && regs[d.mode], d.closed_trades, d.mode)}</td>
+      <td class="num" data-lab="Realized">${realizedCell(d)}${demoRowSince(d, reloaded) ? `<div class="sub-fig dep-since">${demoRowSince(d, reloaded)}</div>` : ''}${spark(d.curve, regs && regs[d.mode], d.closed_trades, d.mode)}</td>
       <td class="num" data-lab="Unrealized">${d.unrealized_pnl == null ? `<span class="sub-fig">${+d.open_positions ? NOT_MARKED : 'None open'}</span>` : markFig(d.oldest_mark_ts, money(d.unrealized_pnl))}${d.unrealized_pnl != null && d.open_positions ? `<div class="sub-fig">est.${markOld(d.oldest_mark_ts) ? ' ' + markedAt(d.oldest_mark_ts) : ''}${markedOf(d.marked_open, d.open_positions) ? `${SEP}${markedOf(d.marked_open, d.open_positions)} marked` : ''}</div>` : ''}</td>
       <td class="num" data-lab="Trades">${num(d.closed_trades)}${d.open_positions ? `<div class="sub-fig">+${num(d.open_positions)} open</div>` : ''}</td>
       <td class="num" data-lab="Backtest estimate" title="${d.void_no_record ? PACE_TIP_VOID : d.backtest_only ? PACE_TIP_LATER : PACE_TIP}">${pace == null ? (d.backtest_only ? '\u2014' : PACE_HELD(d)) : d.closed_trades ? `${usd(pace * d.closed_trades, true)}<div class="sub-fig">same ${num(d.closed_trades)} trade${d.closed_trades === 1 ? '' : 's'}</div>` : `<span class="sub-fig bt-per-trade"><span class="amt">${usd(pace, true)}</span> a trade, on average</span>`}</td>
@@ -2273,7 +2274,7 @@
       const dashDeps = [...d.deployments].sort((a, b) => depRank(a) - depRank(b)).slice(0, DASH_ROWS);
       const more = (n, what) => n > DASH_ROWS ? `<a class="stub-all" href="/deploy">See all ${num(n)} ${what} on Deploy \u2192</a>` : '';
       const deps = d.deployments.length
-        ? deploymentTable(dashDeps.map((x) => deploymentSlip(x, regs, true)).join(''), true) + more(d.deployments.length, 'deployments') + depsBookNote(d)  // same controls as Deploy
+        ? deploymentTable(dashDeps.map((x) => deploymentSlip(x, regs, true, !!(d.demo && +d.demo.before_reload))).join(''), true) + more(d.deployments.length, 'deployments') + depsBookNote(d)  // same controls as Deploy
         : `<div id="deps-empty" data-on="${S.me.user && S.me.user.autopilot ? 1 : 0}">${depsEmpty(S.me.user && S.me.user.autopilot)}</div>`;
       // An open position says what it would sell for now and the gain in it ("+$0.48" alone read as
       // banked), or its cost with its fee (Deploy's "Cost + fee") until the engine's first price.
@@ -2427,6 +2428,8 @@
       const active = running.filter((x) => !depIdle(x)), idle = running.length - active.length;
       const live = active.filter((x) => x.mode === 'live'), liveIdle = running.filter((x) => x.mode === 'live' && depIdle(x)).length;
       const runDemo = active.some((x) => x.mode === 'demo'), runPaper = active.some((x) => x.mode === 'paper');
+      // A demo deployment listed but none running (paused) is still a demo book: Money read "Paper money only" over it.
+      const demoPaused = !runDemo && demoDeps.some((x) => x.status !== 'stopped');
       // Open positions per book, never one count across books. A book with none is left out, except
       // live while live trading is on (or a live deployment is listed), so "0 live" reads as a fact. A
       // no-break space keeps each "3 paper" whole when the figure wraps on a phone.
@@ -2443,7 +2446,7 @@
         fig('Open positions', openSplit) +
         // Money says plainly what runs: "PAPER · nothing on live money" read oddly (walk 2026-10-30). A live deployment
         // listed but not running (paused) keeps "nothing running" on live money: it may still hold live positions.
-        fig('Money', live.length ? '<span class="mk live">Live</span>' : runDemo ? `${runPaper ? '<span class="mk">Paper</span> ' : ''}<span class="mk dep">Demo</span>` : '<span class="mk">Paper</span>', { small: live.length ? `${live.length} on live money` : liveIdle ? liveIdleCount(liveIdle) : liveDeps.length ? 'Nothing running on live money' : runDemo ? (runPaper ? 'Paper and demo only, nothing live' : 'Demo only, nothing live') : 'Paper money only, nothing live' }));
+        fig('Money', live.length ? '<span class="mk live">Live</span>' : runDemo || demoPaused ? `${runPaper || (demoPaused && paperDeps.length) ? '<span class="mk">Paper</span> ' : ''}<span class="mk dep">Demo</span>` : '<span class="mk">Paper</span>', { small: live.length ? `${live.length} on live money` : liveIdle ? liveIdleCount(liveIdle) : liveDeps.length ? 'Nothing running on live money' : runDemo ? (runPaper ? 'Paper and demo only, nothing live' : 'Demo only, nothing live') : demoPaused ? `${runPaper ? 'Paper running, demo paused' : paperDeps.length ? 'Paper and demo paused' : 'Demo paused'}, nothing live` : 'Paper money only, nothing live' }));
       const regs = curveRegs(d.deployments);
       paintKeep(root.querySelector('#deps'), d.deployments.length ? deploymentTable(pausedFirst(d.deployments).map((x) => deploymentSlip(x, regs, true)).join(''), true)
         : `<div class="empty"><h3>Nothing deployed</h3><p>${passedN === 0 ? 'Nothing has passed yet. A strategy goes on the board once it passes every test in a research session, paper first.' : 'Open a passed strategy and deploy it here. Paper first: it trades the live market with paper money.'}</p>${S.me && S.me.user && S.me.user.autopilot ? '<p>Autopilot is on: strategies that pass every research test deploy here on their own, on paper.</p>' : ''}${apNudge('Rather not pick strategies yourself?', 'and it deploys the ones that pass, on paper.')}${passedN === 0 ? '<a class="btn" href="/research?new=1">Start a research session</a>' : '<a class="btn" href="/strategies?status=passed">See passed strategies</a>'}</div>`);

@@ -20,10 +20,11 @@ import pytest
 pytestmark = pytest.mark.skipif(os.getenv("APP_TEST_MYSQL") != "1", reason="needs APP_TEST_MYSQL=1 and a MySQL")
 
 TODAY = datetime(2026, 10, 26, 9, 0)
-# The read the export made before (position_repository.closed_trades_for_export).
+# The read the export made before (position_repository.closed_trades_for_export), with whether the deployment was
+# removed (the strategy column marks a removed deployment's trades), as the join gives it.
 OLD_EXPORT_SQL = """
     SELECT p.id, p.mode, p.ticker, p.side, p.qty, p.entry_price, p.entry_fee, p.exit_price, p.exit_fee,
-           p.pnl, p.close_reason, p.opened_at, p.closed_at, d.strategy_id, s.title
+           p.pnl, p.close_reason, p.opened_at, p.closed_at, d.strategy_id, s.title, d.status='stopped' AS deployment_removed
     FROM app_positions p
     LEFT JOIN app_deployments d ON d.id=p.deployment_id
     LEFT JOIN app_strategies s ON s.id=d.strategy_id
