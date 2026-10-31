@@ -104,6 +104,20 @@ def test_an_open_position_of_a_deleted_strategy_is_named_and_says_nothing_settle
     assert out[1]["title"] == "Kept" and "deleted" not in (out[1]["why"] or "")
 
 
+def test_an_open_position_of_an_untitled_strategy_is_not_called_deleted():
+    # Walked 2026-10-31: a strategy saved with an empty title, still trading on paper, had its open position read
+    # "Deleted strategy · ... Its strategy was deleted, so Tau no longer sells or settles this position."
+    spec = {"exit": {"take_profit": None, "stop_loss": None}}
+    rows = [{"id": 1, "deployment_id": 15, "status": "open", "title": "", "side": "yes", "qty": 2, "entry_price": 0.5},
+            {"id": 2, "deployment_id": 15, "status": "closed", "title": "  ", "side": "yes", "qty": 2, "entry_price": 0.5,
+             "exit_price": 1.0, "close_reason": "settled"},
+            {"id": 3, "deployment_id": 16, "status": "closed", "title": None, "side": "yes", "qty": 2, "entry_price": 0.5,
+             "exit_price": 1.0, "close_reason": "settled"}]
+    out = strategy_routes._with_why(rows, [{"id": 15, "spec": spec}])
+    assert [r["title"] for r in out] == ["Untitled strategy", "Untitled strategy", None]
+    assert all("deleted" not in (r.get("why") or "") for r in out)
+
+
 def test_the_deploy_board_passes_the_demo_key_back_to_its_rows(monkeypatch):
     paused = _dep(id=14, mode="demo", status_reason=DEMO_KEY_REASON)
     monkeypatch.setattr(dep_routes.book_memo, "BookMemo", lambda cur, uid: None)

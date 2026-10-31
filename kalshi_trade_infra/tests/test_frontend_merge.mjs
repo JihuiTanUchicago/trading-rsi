@@ -20,6 +20,7 @@ import {olderStepsCases} from './run_feed_older_cases.mjs';
 import {moneyPollCases} from './money_poll_frontend_cases.mjs';
 import {strategyPageCases} from './strategy_page_frontend_cases.mjs';
 import {marketNameCases} from './market_names_frontend_cases.mjs';
+import {rawCodeCases} from './raw_code_frontend_cases.mjs';
 import {strategyListCases} from './strategy_list_frontend_cases.mjs';
 import {strategyListParityCases} from './strategy_list_parity_frontend_cases.mjs';
 import {strategyMarketFilterCases} from './strategy_market_filter_frontend_cases.mjs';
@@ -271,6 +272,7 @@ runPageCases({name: 'Tau', frontend});
 moneyPollCases({name: 'Tau', frontend, stripe: () => ({stripe: STRIPE_STUB})});
 strategyPageCases({name: 'Tau', frontend, detailStrategy, strategyFrontend, postRequests});
 marketNameCases({name: 'Tau', frontend, detailStrategy, strategyFrontend});
+rawCodeCases({name: 'Tau', detailStrategy, strategyFrontend});
 strategyListCases({name: 'Tau', frontend, detailStrategy});
 strategyListParityCases({name: 'Tau', frontend, detailStrategy});
 strategyMarketFilterCases({name: 'Tau', frontend, detailStrategy});
@@ -420,9 +422,11 @@ test('the sidebar lists each holding with every figure instead of a clipped five
     // The server joins entry and exit with a plain " · "; drawn, each is SEP, so "·" ends a line and never starts one.
     ['Entered at 60¢: edge ≥ 2¢ after fees\u00a0· Holds to settlement']);
   // Each contract opens its market page (price, settlement rules, your positions in it), by its market's plain
-  // name (here the strategy's market, as no listed market covers these tickers); the ticker sits on a small line.
+  // name (here the strategy's market, as no listed market covers these tickers); under it, when it settles, as the
+  // dashboard's rows say it. The raw code is left to the market page, beside its Kalshi link.
   assert.match(list, /<a href="\/explore\?m=KXBTC15M-B">BTC 15-min up\/down<\/a>/); assert.match(list, /href="\/explore\?m=KXBTC15M-%3Cx%3E"/);
-  assert.match(list, /<div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTC15M-B<\/span><\/span><\/div>/);
+  assert.match(list, /<\/div><div class="sub-fig"><span data-close="2030-10-25T07:45:00Z" data-form="settles" data-cap="1">Settles /);
+  assert.doesNotMatch(list, /kalshi-ref/);
   assert.doesNotMatch(list, /<a [^>]*>KXBTC15M-B</);  // never the headline
 });
 
