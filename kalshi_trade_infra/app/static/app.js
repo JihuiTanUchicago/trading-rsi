@@ -575,8 +575,18 @@
   // They read now. A glance away and back (WAKE_AWAY_MS or less) reads nothing new.
   const WAKE_AWAY_MS = 5000;
   let hiddenAt = 0;
+  // Back on the tab at all, it also asks once who it is signed in as (/api/me, a read): after a sign-in to another
+  // account in another tab, this tab only found out on its next read, up to 20s on a polled page and not at all on
+  // one with no poll (a strategy page). api() compares the reply's account with the tab's (accountMoved) and reloads
+  // into the new one. One ask at a time; a failed one says nothing, and the next return to the tab asks again.
+  let whoAsk = null;
+  const askWho = () => {
+    if (whoAsk || !S.me || S.accountMoved) return;
+    whoAsk = api('/api/me', undefined, { keep: true }).catch(() => {}).then(() => { whoAsk = null; });
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
+    askWho();
     if (hiddenAt && Date.now() - hiddenAt > WAKE_AWAY_MS) wake();
     hiddenAt = 0;
   });

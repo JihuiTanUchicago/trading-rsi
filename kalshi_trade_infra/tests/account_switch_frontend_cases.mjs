@@ -85,4 +85,50 @@ export function accountSwitchCases({name, frontend}) {
       f.clearTimers();
     }
   });
+
+  // The tab coming back into view: one /api/me read, its reply checked like any other (X-Tau-Account). A tab left
+  // open while another signed in to another account found out only on its next read: up to 20s on a polled page,
+  // never on one with no poll (a strategy page).
+  const shown = (f, hidden) => { f.document.hidden = hidden; for (const [n, fn] of f.documentListeners) if (n === 'visibilitychange') fn(); };
+
+  test(`${name}: a tab shown again asks once who it is signed in as, and reloads when another tab changed account`, async () => {
+    let account = 7;
+    const f = frontend({session: sessionMap().store, fetchImpl: (path) => reply(path === '/api/me' ? {user: {id: account}} : {}, account)});
+    const asks = () => f.requests.filter((r) => r.path === '/api/me');
+    shown(f, true);
+    assert.equal(asks().length, 0, 'hiding the tab reads nothing');
+    shown(f, false); await settle();
+    assert.equal(asks().length, 1, 'shown again: one /api/me read');
+    assert.equal(asks()[0].options.method, undefined, 'a read, never a write');
+    assert.equal(f.reloads.length, 0, 'still this account: nothing happens');
+    // A glance away and back still asks (the sign-in elsewhere can be quick), one at a time.
+    shown(f, true); shown(f, false); shown(f, true); shown(f, false);
+    await settle();
+    assert.equal(asks().length, 2, 'one more read, not one per event while the first is out');
+    // Another tab signed in to account 8: the next return to this tab reloads into it at once, no poll needed.
+    account = 8;
+    shown(f, true); shown(f, false); await settle();
+    assert.equal(asks().length, 3);
+    assert.equal(f.reloads.length, 1, 'the tab reloads into the account now signed in');
+    // After that, no more asks.
+    shown(f, true); shown(f, false); await settle();
+    assert.equal(asks().length, 3);
+  });
+
+  test(`${name}: a failed or signed-out ask on return says nothing and the next return asks again`, async () => {
+    let fail = true;
+    const f = frontend({fetchImpl: (path) => (path === '/api/me' && fail ? Promise.reject(new TypeError('offline')) : reply({user: {id: 7}}, 7))});
+    shown(f, true); shown(f, false);
+    for (let i = 0; i < 4; i++) { await settle(); f.elapse(5000); }  // the read's own retries
+    assert.equal(f.reloads.length, 0);
+    fail = false;
+    const before = f.requests.filter((r) => r.path === '/api/me').length;
+    shown(f, true); shown(f, false); await settle();
+    assert.equal(f.requests.filter((r) => r.path === '/api/me').length, before + 1, 'asks again on the next return');
+    // Signed out (no account yet): no ask at all.
+    const g = frontend({fetchImpl: () => reply({}, null)});
+    g.S.me = null;
+    shown(g, true); shown(g, false); await settle();
+    assert.equal(g.requests.filter((r) => r.path === '/api/me').length, 0);
+  });
 }
