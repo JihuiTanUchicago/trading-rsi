@@ -994,3 +994,50 @@ test('Billing in one column: Tab and a screen reader follow Add credits up to wh
     assert.deepEqual(flowed.filter((s) => /#main|\bmain\b|#boardbody/.test(s)), [], `${file}: no reading-flow on a focus-target container`);
   }
 });
+
+// Second keyboard and screen-reader pass, 2026-10-31: four places where Tab or a screen reader read out of the order
+// shown. Each is fixed in the markup (or, for Skip, where it lands), and nothing moves on screen.
+test('Tau Research on a phone: the summary and sessions lead in the CSS order the markup now follows, the figure keeps no top rule', () => {
+  const all = rules(read('app.css'));
+  // page-research.js (researchFlow) puts #rengine then the sessions first in #main's markup: the same order as these.
+  assert.equal(decl(all, '#main.runs-first', 'display', PHONE), 'flex');
+  assert.equal(decl(all, '#main.runs-first > .rengine', 'order', PHONE), '-2');
+  assert.equal(decl(all, '#main.runs-first > .sect', 'order', PHONE), '-1');
+  // The figure sat right after the engine summary in the markup and drew no top rule; it now follows the form and
+  // still draws none, so the page looks as it did.
+  assert.equal(decl(all, '.rengine:has(.rsidisc.loop) + .pipefig', 'border-top'), '0');
+  assert.equal(decl(all, '#main.runs-first > .rengine:has(.rsidisc.loop) ~ .pipefig', 'border-top', PHONE), '0');
+  const js = read('page-research.js');
+  assert.match(js, /m\.insertBefore\(eng, lead\); m\.insertBefore\(sect, lead\);/);
+  assert.match(js, /mq\.addEventListener\('change', researchFlow\)/);
+  assert.match(js, /window\.matchMedia\('\(max-width: 760px\)'\)/);  // the same width as the CSS block above
+});
+
+test('Meridian Research: New session leads the markup, and its form still shows under the session at work', () => {
+  const all = rules(read('app.meridian.css'));
+  assert.equal(decl(all, '.research-page', 'display'), 'grid');
+  assert.equal(decl(all, '.research-page > .research-create', 'order'), '1');
+  assert.equal(decl(all, '.research-page > .research-history', 'order'), '2');
+  // Nothing else on the page is ordered, so the lede, the session at work and its card keep their places.
+  const ordered = all.filter((r) => /(^|[;{\s])order\s*:/.test(r.body)).flatMap(sels).filter((s) => /^\.research-page >/.test(s));
+  assert.deepEqual(ordered.sort(), ['.research-page > .research-create', '.research-page > .research-history']);
+  // The button keeps its place at the top right whatever its place in the markup.
+  assert.equal(decl(all, '.research-page .research-create > summary', 'position'), 'absolute');
+  assert.equal(decl(all, '.research-page .research-create > summary', 'top'), '16px');
+  assert.equal(decl(all, '.research-page .research-create > summary', 'right'), '0');
+});
+
+test('Meridian Overview: Skip landing on the status line draws no ring there, as on the h1', () => {
+  const all = rules(read('app.meridian.css'));
+  assert.equal(decl(all, '[tabindex="-1"]:focus', 'outline'), 'none');
+  const js = read('app.meridian.js');
+  assert.match(js, /h\.classList\.contains\('skip'\) \? skipStart\(\)/);
+});
+
+test('@-mention suggestions: the one highlighted is the one marked selected, in both themes', () => {
+  for (const file of ['app.css', 'app.meridian.css']) {
+    const all = rules(read(file));
+    assert.equal(decl(all, '.mention-opt[aria-selected="true"]', 'background'), decl(all, '.mention-opt.on', 'background'), file);
+    assert.equal(decl(all, '.mention-opt.on', 'background'), 'var(--stock-sunk)', file);
+  }
+});

@@ -1100,4 +1100,84 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
       assert.ok(td.querySelector('.day-sum').textContent.length > 0);
     }
   });
+
+  // Second keyboard and screen-reader pass, 2026-10-31: the @-mention suggestions under a post or a reply were a bare
+  // <div> of buttons at the end of <body>. A screen reader never heard them, yet Enter in the box picked the
+  // highlighted one. The box is a combobox over a listbox, the highlight its active descendant; the count is said once
+  // as the list opens (and again only if it changes), and Escape closes it, focus left in the box.
+  test(`${name}: @-mention suggestions are a listbox the box controls, said once by count, and Escape keeps focus in the box`, async () => {
+    const people = [{username: 'camc', name: 'Cam'}, {username: 'danap', name: ''}, {username: 'rileyrich', name: 'Rich'}];
+    const asked = [];
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/users/mention')) { asked.push(path); return response({users: /q=c\b/.test(path) ? people.slice(0, 1) : people}); }
+      return response({});
+    }, globals: {Event: class { constructor(type) { this.type = type; } }}});
+    for (const tag of ['textarea', 'input']) {
+      const box = f.document.createElement(tag);
+      box.getBoundingClientRect = () => ({left: 10, bottom: 40, width: 320});
+      box.setSelectionRange = () => {};
+      Object.defineProperty(box, 'selectionStart', {get: () => box.value.length});  // the caret at the end of what is typed
+      f.document.body.appendChild(box);
+      f.attachMention(box);
+      assert.equal(box.getAttribute('role'), 'combobox', tag);
+      assert.equal(box.getAttribute('aria-autocomplete'), 'list');
+      assert.equal(box.getAttribute('aria-expanded'), 'false');
+      assert.equal(box.getAttribute('aria-controls'), null);
+      const status = () => { f.elapse(100); const el = f.document.getElementById('sr-status'); return el ? el.textContent : ''; };
+      const quiet = () => { const el = f.document.getElementById('sr-status'); if (el) el.textContent = ''; };
+      const key = (k) => {
+        const e = {type: 'keydown', key: k, prevented: false, stopped: false};
+        e.preventDefault = () => { e.prevented = true; }; e.stopPropagation = () => { e.stopped = true; };
+        box.dispatchEvent(e); return e;
+      };
+      const type = async (v) => { box.value = v; box.dispatchEvent({type: 'input'}); await flush(); await flush(); };
+      const list = () => f.document.body.querySelectorAll('.mention-pop').filter((el) => el.isConnected).at(-1) || null;
+      quiet();
+      await type('Hi @');
+      const pop = list();
+      assert.ok(pop, tag);
+      assert.equal(pop.getAttribute('role'), 'listbox');
+      assert.ok(pop.getAttribute('aria-label'));
+      assert.match(pop.id, /^mention-list-\d+$/);
+      assert.equal(box.getAttribute('aria-expanded'), 'true');
+      assert.equal(box.getAttribute('aria-controls'), pop.id);
+      const opts = pop.querySelectorAll('.mention-opt');
+      assert.equal(opts.length, 3);
+      opts.forEach((o, i) => {
+        assert.equal(o.getAttribute('role'), 'option');
+        assert.equal(o.getAttribute('tabindex'), '-1');  // never a Tab stop: focus stays in the box
+        assert.equal(o.id, `${pop.id}-${i}`);
+        assert.equal(o.getAttribute('aria-selected'), String(i === 0));
+      });
+      assert.equal(box.getAttribute('aria-activedescendant'), `${pop.id}-0`);
+      assert.equal(status(), '3 people to mention. Up and down arrows to choose, Enter to pick.');
+      // The arrows move the highlight and the active descendant, and say no count again.
+      quiet();
+      assert.equal(key('ArrowDown').prevented, true);
+      const sel = list().querySelectorAll('.mention-opt').map((o) => o.getAttribute('aria-selected'));
+      assert.deepEqual(sel, ['false', 'true', 'false']);
+      assert.equal(box.getAttribute('aria-activedescendant'), `${pop.id}-1`);
+      assert.equal(status(), '');
+      // Another key with the same number of people says nothing; a different number says the new one, once.
+      await type('Hi @');
+      assert.equal(status(), '');
+      await type('Hi @c');
+      assert.equal(status(), '1 person to mention. Up and down arrows to choose, Enter to pick.');
+      // Escape closes the list, takes the box's popup attributes away, and goes no further (focus is left in the box).
+      box.focused = false;
+      const esc = key('Escape');
+      assert.equal(esc.prevented, true); assert.equal(esc.stopped, true);
+      assert.equal(list(), null);
+      assert.equal(box.getAttribute('aria-expanded'), 'false');
+      assert.equal(box.getAttribute('aria-controls'), null);
+      assert.equal(box.getAttribute('aria-activedescendant'), null);
+      assert.equal(box.focused, false);  // nothing moved focus out of the box
+      // Enter still picks the highlighted one, as before: the handle and a space, nothing else.
+      await type('Hi @');
+      key('Enter');
+      assert.equal(box.value, 'Hi @camc ');
+      assert.equal(box.getAttribute('aria-expanded'), 'false');
+    }
+    assert.ok(asked.every((p) => p.startsWith('/api/users/mention?q=')));
+  });
 }
