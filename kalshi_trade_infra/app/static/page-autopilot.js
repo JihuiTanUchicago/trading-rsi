@@ -303,7 +303,8 @@ window.TauPage('autopilot', (T) => {
         <p class="ap-focus" id="apf-focusline" hidden></p>
         <details class="apf-prefs"><summary>Model and markets</summary>
           <label class="field apf-model"><span>Autopilot model</span>
-            <select class="input" id="apf-model" aria-label="Autopilot model"></select></label>
+            <select class="input" id="apf-model" aria-label="Autopilot model" aria-describedby="apf-model-hint"></select></label>
+          <p class="hint" id="apf-model-hint" style="margin-top:4px">Runs the autopilot’s research and its chat replies. Its check-ins run on a set model.</p>
           <label class="field apf-model"><span>Markets it may trade</span>
             <select class="input" id="apf-focus" aria-label="Markets the autopilot may research and trade"></select></label>
         </details>
@@ -439,15 +440,22 @@ window.TauPage('autopilot', (T) => {
       sel.onchange = async () => {
         if (sel.disabled) return;
         const prev = sel.dataset.cur || '';
+        // Locking the select blurs it, and focus fell to the page under the panel after every change: it goes back
+        // to the select once Tau answers, beside the line saying it saved (a change said nothing where it was made).
+        const had = document.activeElement === sel;
         sel.disabled = true;
         const current = () => box.isConnected !== false && box.querySelector('#apf-focus') === sel;
         try {
           const r = await api('/api/autopilot/focus', { focus: sel.value ? sel.value.split(',') : [] });
           if (S.ap) S.ap.focus = r.focus;
-          if (current()) { apFocusOptions(sel, r.focus); apFocusPaint(box, r.focus); apLoadChat(box); }
+          if (current()) {
+            apFocusOptions(sel, r.focus); apFocusPaint(box, r.focus); apLoadChat(box);
+            apFlash(box, (r.focus || []).length ? `Saved: the autopilot’s new research and strategies stay on ${apFocusText(r.focus)}.`
+              : 'Saved: the autopilot may research and start strategies in any market.');
+          }
           paintDashAp();
         } catch (e) { if (current()) { sel.value = prev; apNote(box, e.message); } }
-        finally { if (current()) sel.disabled = false; }
+        finally { if (current()) { sel.disabled = false; refocus(sel, had); } }
       };
       apFocusOptions(sel, (S.ap && S.ap.focus) || []);
     })();
@@ -462,12 +470,26 @@ window.TauPage('autopilot', (T) => {
         .map((m) => `<option value="${esc(m.key)}"${m.key === cur ? ' selected' : ''}${m.available === false ? ' disabled' : ''}>${esc(m.label)}${m.available === false ? ' (coming soon)' : ''}</option>`).join('');
       sel.onchange = async () => {
         if (!current() || sel.disabled) return;
+        // As the market select: focus stays on it, and a change that saved says so (it said nothing).
+        const had = document.activeElement === sel;
         sel.disabled = true;
-        try { const r = await api('/api/autopilot/model', { model: sel.value }); if (current() && S.ap) S.ap.model = r.model; }
+        try {
+          const r = await api('/api/autopilot/model', { model: sel.value });
+          if (!current()) return;
+          if (S.ap) S.ap.model = r.model;
+          const m = (mdl.models || []).find((x) => x.key === r.model);
+          // A session already running keeps the model it started with.
+          apFlash(box, `Saved: the autopilot’s next research sessions and chat replies use ${m ? m.label : 'the model you picked'}.`);
+        }
         catch (e) { if (current()) { sel.value = (S.ap && S.ap.model) || cur; apNote(box, e.message); } }
-        finally { if (current()) sel.disabled = false; }
+        finally { if (current()) { sel.disabled = false; refocus(sel, had); } }
       };
     })();
+  }
+  // A control that was locked for a save gets focus back, unless the reader has moved it somewhere since.
+  function refocus(el, had) {
+    const a = document.activeElement;
+    if (had && el.isConnected !== false && (!a || a === document.body) && el.focus) el.focus({ preventScroll: true });
   }
   function apFocusOptions(sel, focus) {
     const cur = (focus || []).join(',');

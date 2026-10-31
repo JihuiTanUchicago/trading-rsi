@@ -588,8 +588,18 @@
   let whoAsk = null;
   const askWho = () => {
     if (whoAsk || !S.me || S.accountMoved) return;
-    whoAsk = api('/api/me', undefined, { keep: true }).catch(() => {}).then(() => { whoAsk = null; });
+    whoAsk = api('/api/me', undefined, { keep: true }).then(meSettings).catch(() => {}).then(() => { whoAsk = null; });
   };
+  // That read also carries the account's settings, which another tab or device may have changed: Settings kept showing
+  // what this tab read at its start, so the email switch said On after it was turned off elsewhere, and pressing the
+  // theme this tab showed did nothing while the account was saved in the other one (walk 2026-10-31). Settings' own
+  // fields are kept from it, and an open Settings page shows them (settingsSync).
+  function meSettings(me) {
+    const u = S.me && S.me.user, n = me && me.user;
+    if (!u || !n || n.id !== u.id) return;
+    u.email_opt_out = !!n.email_opt_out; u.ui_theme = n.ui_theme || 'tau';
+    if (/^\/settings(?:\/theme)?$/.test(location.pathname)) settingsSync();
+  }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     askWho();
@@ -1138,6 +1148,33 @@
   const themeName = (key) => (THEMES.find((t) => t.key === key) || THEMES[0]).name;
   // Set for the one reload after a saved switch, so the new theme's Settings says the switch took.
   const THEME_SAVED = 'tau_theme_saved';
+  const pageTheme = () => (window.__TAU_UI__ === 'meridian' ? 'meridian' : 'tau');
+  // The theme the account has saved: the page's own unless another tab or device changed it since.
+  const savedTheme = () => { const t = S.me && S.me.user && S.me.user.ui_theme; return t === 'meridian' || t === 'tau' ? t : pageTheme(); };
+  // An open Settings page shows the account's settings as last read (meSettings): a switch or theme changed in another
+  // tab or on another device shows its saved state and says so. A switch mid-save is left alone.
+  function settingsSync() {
+    const u = (S.me && S.me.user) || {};
+    const sw = root.querySelector('#email-optional');
+    if (sw && !sw.disabled && sw.checked === !!u.email_opt_out) {
+      const off = !!u.email_opt_out;
+      sw.checked = !off;
+      const state = root.querySelector('#email-state');
+      if (state) state.textContent = emailState(off, liveOpen());
+      flash('#email-flash', `Optional email is now ${off ? 'off' : 'on'}: it was changed in another tab or on another device.`);
+    }
+    const acct = savedTheme(), here = pageTheme(), opts = root.querySelectorAll('[data-theme]');
+    if (!opts.length) return;
+    opts.forEach((b) => {
+      const on = b.dataset.theme === acct;
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); b.setAttribute('tabindex', on ? '0' : '-1');
+    });
+    const note = root.querySelector('#theme-flash');
+    if (acct !== here && note && note.dataset.moved !== acct) {
+      note.dataset.moved = acct;
+      flash(note, `Your account’s theme is now ${themeName(acct)}: it was changed in another tab or on another device. Reload to see it, or pick ${themeName(here)} to keep this one.`);
+    }
+  }
   function emailSettings() {
     const u = (S.me && S.me.user) || {};
     const off = !!u.email_opt_out;
@@ -1200,7 +1237,7 @@
     };
   }
   async function viewSettings() {
-    const current = window.__TAU_UI__ === 'meridian' ? 'meridian' : 'tau';
+    const current = pageTheme();
     shell('/settings', ledeTitle('Settings', 'How Tau looks and works for you.'), `
       <section class="sect theme-settings"><div class="section-head"><h2>Theme</h2></div>
         <div class="theme-pick" role="radiogroup" aria-label="Theme">
@@ -1217,7 +1254,8 @@
     wireEmailSettings();
     root.querySelectorAll('[data-theme]').forEach((b) => (b.onclick = () => {
       const key = b.dataset.theme;
-      if (key === current) return;
+      // The theme the account has saved does nothing; this page's own, when another tab saved the other one, is saved.
+      if (key === savedTheme()) return;
       busy(b, async () => {
         // The account's theme is saved first: a signed-in page is served in the account's theme, so a
         // switch whose save failed reloaded straight back into this one, with no word why.
@@ -1247,6 +1285,7 @@
       const on = root.querySelector(`[data-theme="${current}"]`);
       if (on) { on.setAttribute('aria-describedby', 'theme-flash'); on.focus({ preventScroll: true }); }
     }
+    settingsSync();
   }
   // A Kalshi cash figure a shell's first read couldn't name without waiting on Kalshi (shell_reads.py) comes
   // pending: it reads Checking\u2026, never $0, and a figure the server read earlier shows only with its age.
@@ -3731,7 +3770,14 @@
       const f = box.querySelector('#apf-confirm'); if (f) { f.hidden = false; f.confirm.focus(); } return;
     }
     if (action === 'livetoggle') {
-      try { await api('/api/autopilot/live', { on: false }); } catch (err) { return apFlash(box, err.message, 'bad'); }
+      // It said nothing once it took (the button just went), and a second press while it was out sent it again.
+      const btn = e && (e.currentTarget || e.target);
+      if (btn && btn.disabled) return;
+      if (btn) btn.disabled = true;
+      try { await api('/api/autopilot/live', { on: false }); } catch (err) { if (btn) btn.disabled = false; return apFlash(box, err.message, 'bad'); }
+      // Turning it off stops new moves to real money; live strategies already running keep trading until paused or killed.
+      apFlash(box, 'Live autopilot is off: the agent won’t move strategies to real money on its own.'
+        + (S.ap && +S.ap.live_running && liveOpen() ? ' Strategies already trading live keep running; Kill pauses them.' : ''));
       refreshAutopilot(box);
     }
     if (action === 'kill') {
