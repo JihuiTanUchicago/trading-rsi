@@ -303,6 +303,8 @@
     // A 4xx with no words of Tau's own (an edge page in front of it): what to do, not just the code. A read
     // names no code either (it put "Tau couldn't do that (403)" over a section that hadn't loaded); a write's
     // line is unchanged.
+    // A write too big for what's in front of Tau (its own 413 says the same in words): reloading sends it again.
+    : status === 413 ? 'That’s too much to send at once. Make it smaller and try again.'
     : !write ? 'Tau couldn’t load this. Reload the page and try again.'
     : `Tau couldn't do that (${status}). Reload the page and try again.`;
   // A failure the page shows as an error goes to the operator's readout on /admin (boot.js sends it).

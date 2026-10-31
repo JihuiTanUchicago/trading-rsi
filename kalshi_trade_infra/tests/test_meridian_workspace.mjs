@@ -70,6 +70,7 @@ import {a11yCases} from './a11y_frontend_cases.mjs';
 import {trackRecordTrustCases} from './track_record_trust_frontend_cases.mjs';
 import {slippageEstimateCases} from './slippage_estimate_frontend_cases.mjs';
 import {newUserCases} from './new_user_frontend_cases.mjs';
+import {errorWordsCases} from './error_words_frontend_cases.mjs';
 import {sessionStateCases} from './session_state_frontend_cases.mjs';
 import {firstSessionCases} from './first_session_frontend_cases.mjs';
 import {checkinCadenceCases} from './checkin_cadence_frontend_cases.mjs';
@@ -6994,6 +6995,7 @@ newUserCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dash
 sessionStateCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend, dashboard: dashboardData});
 firstSessionCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus, storageFor: m => m});
 checkinCadenceCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend, dashboard: dashboardData});
+errorWordsCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy});
 
 test('a Share my P&L card lines its Paper and Live labels up at the top', () => {
   // Walk 2026-10-27: Paper's figure carries "on 17 trades" under it, so with the row aligned to the bottom

@@ -99,7 +99,7 @@ def google_callback(ctx: Ctx):
 
 def dev_login(ctx: Ctx):
     if not DEV_LOGIN:
-        raise ApiError(404, "Not found")
+        raise ApiError(404, "Tau couldn’t find that. Reload the page and try again.")  # server.NOT_FOUND's words
     email = ctx.query.get("email") or "jonathan@example.com"
     user = repo.upsert_google_user(ctx.cur, "dev:" + email, email, email.split("@")[0].title(), None)
     _start_session(ctx, user["id"])

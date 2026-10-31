@@ -98,9 +98,9 @@ def _older_runs(ctx: Ctx):
     try:
         before = int(ctx.query.get("before"))
     except (TypeError, ValueError):
-        raise ApiError(400, "Bad session id.")
-    if before <= 0:
-        raise ApiError(400, "Bad session id.")
+        before = 0
+    if before <= 0:  # it said "Bad session id."
+        raise ApiError(400, "Tau couldn’t load older sessions. Reload the page and try again.")
     runs = repo.list_runs(ctx.cur, ctx.uid, limit=repo.RUNS_LISTED + 1, before=before)
     more = len(runs) > repo.RUNS_LISTED
     runs = runs[:repo.RUNS_LISTED]

@@ -44,12 +44,27 @@ def _json_default(v):
     raise TypeError(type(v))
 
 
+# What a number field is called on its page, and how its bounds read there. A bad value answered with the body's
+# own key and Python's %g ("amount must be between 1 and 1e+06", walk 2026-10-31): the reader never typed
+# "amount", and 1e+06 is a million. A key not listed here reads as "a number".
+_NUM_WORDS = {
+    "amount": ("an amount", "$%s"),
+    "fee_multiplier": ("a fee multiplier", "%s×"),
+    "slippage_cents": ("a slippage", "%s¢"),
+    "stake": ("a stake", "$%s"),
+}
+
+
+def _bound(v: float, unit: str) -> str:
+    a = abs(v)
+    return ("-" if v < 0 else "") + unit % ("{:,.0f}".format(a) if float(a).is_integer() else "{:,}".format(a))
+
+
 def _num(body: Dict, key: str, lo: float, hi: float, default: Optional[float] = None) -> float:
     v = body.get(key, default)
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
-        raise ApiError(400, "%s must be a number" % key)
-    if not lo <= v <= hi:
-        raise ApiError(400, "%s must be between %g and %g" % (key, lo, hi))
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+        what, unit = _NUM_WORDS.get(key, ("a number", "%s"))
+        raise ApiError(400, "Enter %s between %s and %s." % (what, _bound(lo, unit), _bound(hi, unit)))
     return float(v)
 
 
