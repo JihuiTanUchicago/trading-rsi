@@ -70,6 +70,7 @@ window.TauPage('billing', (T) => {
       const note = root.querySelector('#blow'); if (note) paint(note, lowNote(d));
     };
     let shown = null;  // the read the page shows; the poll keeps its figures current
+    let arSync = null;  // the auto-reload controls follow a saved change the poll reads (set once they are drawn)
     // The estimate (or the autopilot's model) landing repaints the figures, as it does the dashboard card.
     apCostWatch.add(() => { if (gen !== S.gen) return false; if (shown) paintFigs(shown); });
     const load = async () => {
@@ -210,6 +211,17 @@ window.TauPage('billing', (T) => {
           if (had && had.isConnected && (!a || a === document.body) && had.focus) had.focus({ preventScroll: true });
         }
       };
+      // Changed in another tab or on another device, the poll reads the new saved auto-reload: the switch and amounts
+      // kept showing the old one, and a change of amount here sent that old on/off back with it (walk 2026-10-31). They
+      // show what is saved and say so, unless a save is out or an amount is being typed.
+      arSync = (f) => {
+        const now = { on: !!f.auto_reload, amount: f.autoreload_amount, threshold: f.autoreload_threshold };
+        if (arBox.disabled || [arAmt, arThr].includes(document.activeElement) || !arBox.isConnected) return;
+        if (now.on === arSaved.on && +now.amount === +arSaved.amount && +now.threshold === +arSaved.threshold) return;
+        arSaved = now;
+        arPaint(now.on, now.amount, now.threshold);
+        flash('#autorel-flash', `${now.on ? `Auto-reload is now on: it reloads ${usd(now.amount)} at ${usd(now.threshold)}.` : 'Auto-reload is now off.'} It was changed in another tab or on another device.`);
+      };
       arBox.onchange = saveAutoReload;
       arAmt.onchange = arThr.onchange = () => { if (arBox.checked) saveAutoReload(); };
       // A removed card redraws the list, and focus fell to the top of the page with no word that it went (walk
@@ -254,6 +266,7 @@ window.TauPage('billing', (T) => {
       if (f.balance !== was.balance) f = await api('/api/billing/figures?statement=1&tz=' + new Date().getTimezoneOffset(), undefined, cfg);
       if (gen !== S.gen || shown !== was) return;  // left, or a write's re-read drew the page meanwhile
       Object.assign(was, f);
+      if (arSync && 'auto_reload' in f) arSync(was);
       syncMeBilling(was);
       paintFigs(was);
       const ledger = root.querySelector('#bledger');

@@ -63,6 +63,7 @@ import {bookReconcileCases} from './book_reconcile_frontend_cases.mjs';
 import {demoReloadTruthCases} from './demo_reload_truth_frontend_cases.mjs';
 import {autopilotCostCases, billingCostCases} from './autopilot_cost_frontend_cases.mjs';
 import {settingsBillingCases} from './settings_billing_frontend_cases.mjs';
+import {settingsTruthCases} from './settings_truth_frontend_cases.mjs';
 import {researchFormCases} from './research_form_frontend_cases.mjs';
 import {spendTrustCases} from './spend_trust_frontend_cases.mjs';
 import {a11yCases} from './a11y_frontend_cases.mjs';
@@ -6349,6 +6350,7 @@ autopilotCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: 
 billingCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, billingPage, cardedBilling});
 staleMoneyCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard});
 settingsBillingCases({name: 'Tau', frontend, billingPage, cardedBilling});
+settingsTruthCases({name: 'Tau', frontend, current: 'tau', storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))}), billingPage, cardedBilling});
 unrealizedCellCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 unmarkedPositionCases({name: 'Tau', frontend});
 moneyAgreementCases({name: 'Tau', frontend});

@@ -64,6 +64,7 @@ import {bookReconcileCases} from './book_reconcile_frontend_cases.mjs';
 import {demoReloadTruthCases} from './demo_reload_truth_frontend_cases.mjs';
 import {autopilotCostCases, billingCostCases} from './autopilot_cost_frontend_cases.mjs';
 import {settingsBillingCases} from './settings_billing_frontend_cases.mjs';
+import {settingsTruthCases} from './settings_truth_frontend_cases.mjs';
 import {researchFormCases} from './research_form_frontend_cases.mjs';
 import {spendTrustCases} from './spend_trust_frontend_cases.mjs';
 import {a11yCases} from './a11y_frontend_cases.mjs';
@@ -6827,6 +6828,7 @@ autopilotCostCases({name: 'Meridian', frontend, dashboard: dashboardData, apStat
 billingCostCases({name: 'Meridian', frontend, dashboard: dashboardData, billingPage, cardedBilling});
 staleMoneyCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData});
 settingsBillingCases({name: 'Meridian', frontend, billingPage, cardedBilling});
+settingsTruthCases({name: 'Meridian', frontend, current: 'meridian', storageFor: m => m, billingPage, cardedBilling});
 unrealizedCellCases({name: 'Meridian', frontend, dashboard: dashboardData});
 unmarkedPositionCases({name: 'Meridian', frontend});
 moneyAgreementCases({name: 'Meridian', frontend});
