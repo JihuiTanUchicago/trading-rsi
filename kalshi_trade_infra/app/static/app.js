@@ -1228,7 +1228,7 @@
     if (!opts.length) return;
     opts.forEach((b) => {
       const on = b.dataset.theme === acct;
-      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); b.setAttribute('tabindex', on ? '0' : '-1');
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));  // both stay Tab stops (viewSettings)
     });
     const note = root.querySelector('#theme-flash');
     if (acct !== here && note && note.dataset.moved !== acct) {
@@ -1299,10 +1299,12 @@
   }
   async function viewSettings() {
     const current = pageTheme();
+    // Both themes are a Tab stop: with only the checked one (arrow keys to the other), a keyboard user on Tab, Enter and
+    // Space alone had no way to the other theme (walk 2026-10-31). The arrow keys still move between them.
     shell('/settings', boardTitle('Settings', 'How Tau looks and works for you.'), `
       <section class="sect"><div class="section-head"><h2>Theme</h2><p>Changes the whole interface</p></div>
         <div class="theme-pick" role="radiogroup" aria-label="Theme">
-          ${THEMES.map((t) => `<button type="button" class="theme-opt${t.key === current ? ' on' : ''}" role="radio" aria-checked="${t.key === current}" tabindex="${t.key === current ? 0 : -1}" data-theme="${t.key}">
+          ${THEMES.map((t) => `<button type="button" class="theme-opt${t.key === current ? ' on' : ''}" role="radio" aria-checked="${t.key === current}" tabindex="0" data-theme="${t.key}">
               <span class="theme-meta"><b>${esc(t.name)}</b><span>${esc(t.desc)}</span></span>
               <span class="theme-mark" aria-hidden="true">${ICON.check}</span>
             </button>`).join('')}

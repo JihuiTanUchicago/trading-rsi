@@ -2141,7 +2141,7 @@ body.landing-body .apf { display: none; }
 .loop-legend { font-size: 11.5px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .loop-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .loop-sect { margin-top: 14px; }
-.loop-sect h4 { margin: 0 0 2px; font-family: var(--f-nar); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+.loop-sect h3 { margin: 0 0 2px; font-family: var(--f-nar); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
 .rsidisc-body .loop-sub { font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
 .loop-list { list-style: none; margin: 0; padding: 0; }
 .loop-list li { display: grid; grid-template-columns: minmax(96px, 160px) 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--rule); font-size: 13px; line-height: 1.45; }
@@ -2494,7 +2494,8 @@ body.landing-body .apf { display: none; }
 .key-diff { margin: -4px 0 14px; font-size: 13px; line-height: 1.45; }
 
 /* Billing: in one column (phones, narrow windows), Add credits sits right under the balance, not below every ledger line. */
-@media (max-width: 1080px) { .bill-detail > aside { order: -1; } }
+/* Tab and a screen reader follow it there (reading-flow): they reached Add credits only after the last ledger line. */
+@media (max-width: 1080px) { .bill-detail { reading-flow: grid-order; } .bill-detail > aside { order: -1; } }
 .autorel-when { margin-top: 8px; line-height: 1.45; }
 /* The card list and the ledger are 3-4 short columns: the tables' 620px floor scrolled Amount out of the
    column beside Add credits (and the hot-markets rail) at desktop width. */

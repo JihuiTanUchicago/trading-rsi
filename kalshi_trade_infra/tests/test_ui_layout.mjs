@@ -980,3 +980,17 @@ test('Meridian: "needs you", "Open this market on Kalshi" and a figure\'s link a
   const all = rules(read('app.meridian.css'));
   for (const sel of ['.said a', '.hint a', '.sub-fig a:not(.csv-link)']) assert.equal(decl(all, sel, 'padding-block', COARSE), '14px', sel);
 });
+
+// Keyboard walk 2026-10-31 (Tab only, 390px and 1080px down): Billing stacks Add credits over the statement (order: -1),
+// but Tab and a screen reader reached it only after the last ledger line. reading-flow takes them in the order shown.
+// Never on #main or any other tabindex="-1" container: Chrome then skips everything inside it on Tab (Research's
+// phone layout, tried and dropped).
+test('Billing in one column: Tab and a screen reader follow Add credits up to where it shows, in both themes', () => {
+  for (const file of ['app.css', 'app.meridian.css']) {
+    const all = rules(read(file));
+    assert.equal(decl(all, '.bill-detail > aside', 'order', '@media (max-width: 1080px)'), '-1', file);
+    assert.equal(decl(all, '.bill-detail', 'reading-flow', '@media (max-width: 1080px)'), 'grid-order', file);
+    const flowed = all.filter((r) => /reading-flow\s*:/.test(r.body)).map((r) => r.sel);
+    assert.deepEqual(flowed.filter((s) => /#main|\bmain\b|#boardbody/.test(s)), [], `${file}: no reading-flow on a focus-target container`);
+  }
+});

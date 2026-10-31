@@ -410,7 +410,10 @@ window.TauPage('billing', (T) => {
       const used = cents ? cents.get(g) / 100 : -micros(g.rows.filter((r) => r.kind === 'usage'));
       const added = micros(g.rows.filter((r) => r.kind !== 'usage'));
       // A day whose only use was under a cent (one short chat) says so, as the 7-day split does, not a bare date.
-      return `<tr class="ledger-day"><td colspan="3" data-lab="Day"><b>${ledgerDay(g.day)}</b><span class="day-sum">${[used >= 0.005 ? `${usd(used)} used` : -micros(g.rows.filter((r) => r.kind === 'usage')) > 0 ? 'under $0.01 used' : '', added ? `${usd(added, true)} credits` : ''].filter(Boolean).join(SEP)}</span></td></tr>`;
+      // The day and its sum are one line to a screen reader too: "Fri, Oct 30$0.92 used" ran the date's 30 into the
+      // figure. A comma only it hears keeps them apart; the sum sits apart on screen already.
+      const sum = [used >= 0.005 ? `${usd(used)} used` : -micros(g.rows.filter((r) => r.kind === 'usage')) > 0 ? 'under $0.01 used' : '', added ? `${usd(added, true)} credits` : ''].filter(Boolean).join(SEP);
+      return `<tr class="ledger-day"><td colspan="3" data-lab="Day"><b>${ledgerDay(g.day)}</b>${sum ? '<span class="vh">, </span>' : ''}<span class="day-sum">${sum}</span></td></tr>`;
     };
     // A session's page shows its own total rounded half up; its lines here take the cents their day needs, so one
     // read −$0.73 under a session whose page said $0.72 (walk 2026-10-31). The key says so; the receipt is exact.
