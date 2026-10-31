@@ -1339,11 +1339,13 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     function paintLive() {
       host.classList.remove('is-quiet');
       const w = ['queued', 'running'].includes(runState) ? waitNow() : null, late = !!(w && w.overdue);
-      waitEl.hidden = !late;
-      if (late) waitEl.textContent = runWaitLine(w);
+      // A queued session's place in line (the server's `ahead`) is said from its first read, overdue or not.
+      const inLine = late || !!(runState === 'queued' && w && w.state === 'queued' && w.ahead != null);
+      waitEl.hidden = !inLine;
+      if (inLine) waitEl.textContent = runWaitLine(w);
       // An overdue run's wait line takes the phase line's place: a queued one's says what "Waiting for the
       // agent to start." said, and more; a silent one's last phase ("Working") sat over "No word from the agent".
-      if (late) { phaseEl.hidden = true; waitHidPhase = true; }
+      if (inLine) { phaseEl.hidden = true; waitHidPhase = true; }
       else if (waitHidPhase) { waitHidPhase = false; phaseEl.hidden = !['queued', 'running', 'paused'].includes(runState) || phaseStep; }
       if (late && runState === 'queued') { liveWrap.className = 'rsiobs-live is-stall'; liveText.textContent = lateLabel(w); return; }
       if (late) { host.classList.add('is-quiet'); liveWrap.className = 'rsiobs-live is-stall'; liveText.textContent = 'Silent ' + waitSpan(w.seconds); return; }

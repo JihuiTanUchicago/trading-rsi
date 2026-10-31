@@ -11,7 +11,7 @@ from tests.test_hot_endpoint_query_budget import _board_rows, _call, production 
 SPEC = specmod.validate({"side": "yes", "entry": {"min_edge": 0.03, "filters": [
     {"feature": "ret_5m", "op": "<", "value": -0.002}, {"feature": "z_score", "op": ">=", "value": 2}]},
     "exit": {"take_profit": 0.2, "stop_loss": 0.1}})
-ENTRY = "Entered at 41¢: the 5-minute return < −0.002, the z-score ≥ 2, edge ≥ 3¢ after fees"
+ENTRY = "Entered at 41¢: the 5-minute return < −0.20%, the z-score ≥ 2, edge ≥ 3¢ after fees"
 
 
 def _closed(reason, exit_price, **kw):
@@ -42,6 +42,18 @@ def test_an_open_trade_says_its_rule_and_how_it_will_exit():
     assert trade_why(pos, hold) == ("Entered at 41¢: fair value at or above the price after fees"
                                     " · Exits: sells if edge drops below −1¢, else settlement")
     assert trade_why(pos, specmod.validate({"side": "yes"})).endswith(" · Holds to settlement")
+
+
+def test_a_return_or_volatility_rule_reads_as_the_strategy_pages_percent():
+    # First-hour walk 2026-10-31: the book's line read "the 5-minute return > 0.002" beside the strategy page's
+    # "Only when the 5-minute return is above +0.20%" for the same rule.
+    spec = specmod.validate({"side": "no", "entry": {"min_edge": 0.06, "filters": [
+        {"feature": "ret_5m", "op": ">", "value": 0.002}, {"feature": "vol_60m", "op": "<=", "value": 0.0025},
+        {"feature": "ret_15m", "op": ">=", "value": 0}]}})
+    pos = {"status": "open", "entry_price": 0.37, "order_ref": None}
+    assert trade_why(pos, spec).startswith("Entered at 37¢: the 5-minute return > +0.20%, the 60-minute volatility ≤ 0.25%, "
+                                           "the 15-minute return ≥ 0%, edge ≥ 6¢ after fees")
+    assert "Only when the 5-minute return is above +0.20%." in specmod.describe(dict(spec, market="btc15m"))
 
 
 def test_without_the_strategy_spec_only_what_the_row_stores_is_said():

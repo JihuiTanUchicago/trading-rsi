@@ -319,9 +319,10 @@ def get_run(ctx: Ctx):
     _with_spent(ctx.cur, ctx.uid, [run])
     _mark_example([run])
     # How long it has waited for a research worker (or gone quiet), timed by the server so a reload
-    # doesn't restart the count; once overdue, how many queued sessions a worker takes first.
+    # doesn't restart the count; while queued, how many queued sessions a worker takes first (from the first
+    # read, not only once overdue: a first session said only "Queued" for 4 minutes, first-hour walk 2026-10-31).
     wait = _run_wait(run)
-    if wait and wait["overdue"] and wait["state"] == "queued":
+    if wait and wait["state"] == "queued":
         wait["ahead"] = repo.research_queue_ahead(ctx.cur, run["id"])
     run["wait"] = wait
     run["stop_reason"] = run_stop.stop_reason(run)  # why it stopped, for a session that ended with nothing to list

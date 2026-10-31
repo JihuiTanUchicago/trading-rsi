@@ -1080,11 +1080,13 @@
   // A run past the reaper's limit (the server's run.wait / agent_wait / review_wait, timed on the
   // server so a reload doesn't restart the count) is said plainly instead of under a spinner.
   const waitSpan = (s) => { const m = Math.max(1, Math.floor((+s || 0) / 60)); return m < 90 ? m + ' min' : Math.round(m / 60) + ' hr'; };
+  // A queued session says its place in the queue from its first read (the server's `ahead`), not only once it is
+  // overdue: a first session said only "Queued" for its first 4 minutes (first-hour walk 2026-10-31).
   function runWaitLine(w) {
     const t = waitSpan(w.seconds);
     if (w.state === 'queued') {
       const ahead = +w.ahead || 0;
-      return `Still waiting for a free research worker (${t}). ${ahead ? `${ahead === 1 ? '1 session is' : num(ahead) + ' sessions are'} ahead of it; it starts` : 'It’s next in line and starts'} when one frees up.`;
+      return `${w.overdue ? `Still waiting for a free research worker (${t})` : 'Waiting for a free research worker'}. ${ahead ? `${ahead === 1 ? '1 session is' : num(ahead) + ' sessions are'} ahead of it; it starts` : 'It’s next in line and starts'} when one frees up.`;
     }
     return `No word from the agent for ${t}. A session this quiet is normally interrupted and resumed from its last checkpoint.`;
   }
