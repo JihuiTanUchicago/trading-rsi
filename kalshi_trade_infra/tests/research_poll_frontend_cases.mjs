@@ -101,6 +101,35 @@ export function researchPollCases({name, frontend}) {
     f.clearTimers();
   });
 
+  // Keyboard and screen-reader walk, 2026-10-31: opened, the "Is research getting better?" card's sections ("Paper
+  // tournament" and the rest) were h4s under the page's h2 ("New research session" in Tau, the session at work in
+  // Meridian), a level a screen reader's heading list shows as missing. They are h3s.
+  test(`${name}: the research card's sections sit one level under the page's h2, with no heading level skipped`, async () => {
+    const board = {total: {runs: 3, explored: 12, gated: 3, gate_reach_rate: 0.25, passed: 1, holdout_passed: 0, cost_usd: 2, pipeline_death_share: 0.2},
+      days: [], trend: null, playbooks: [], scout: [{market: 'btc15m', best_what: 'Fade late YES', best_net_c: 1.2, best_z: 2.1}], fix_list: [], data_requests: [], paper: null,
+      tournament: {pooled: {trips: 31, target: 400, per_day: 2.5, days_to_target: 147.6, mean_return: -0.012}, book: {capital: 100, pnl: -1.25, trips: 40},
+        entrants: [{strategy_id: 42, market: 'btc15m', title: 'Fade: late YES', weight: 0.5, trips: 31, net_pnl: -2.4, p_positive: 0.07}, {strategy_id: 0, title: 'Cash', weight: 0.5}]}};
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/runs')) return response({runs: [run({id: 8})], counts, policy: null, totals: {tried: 9, passed: 1}, v: 'v1'});
+      if (path.startsWith('/api/research/scoreboard')) return response(board);
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path === '/api/research/context') return response({markets: []});
+      if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+      return response({});
+    }});
+    f.S.me.user.autopilot = false;
+    f.location.pathname = '/research';
+    await f.viewResearch(); await settle();
+    const card = f.root.querySelector('#rsimo');
+    assert.deepEqual(card.querySelectorAll('.loop-sect h3').map((h) => h.textContent), ['Paper tournament', 'Where it looks next']);
+    assert.equal(card.querySelectorAll('h4').length, 0);
+    // The heading before the card, in document order, is an h2 (or the h1), so an h3 skips nothing.
+    const all = f.root.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    const first = all.findIndex((h) => h.textContent === 'Paper tournament');
+    assert.ok(first > 0 && +all[first - 1].tag.slice(1) <= 2, `${all[first - 1].tag} ${all[first - 1].textContent} before it`);
+    f.clearTimers();
+  });
+
   // Walked 2026-10-27 at 390px and 1280px: the loop card's paper line said "On paper against the live book ... 37 round
   // trips"; the tournament's book read "$10,000.00", its average "-9.0%" with a hyphen beside the "−$18.40" figures,
   // and a book with nothing in it "$0.00 over 0 trades"; Tau's headline said "Hypotheses tested" over "of ideas tested".

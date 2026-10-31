@@ -103,12 +103,12 @@ export function settingsCases({name, frontend, current, storageFor, cardWallOpts
     assert.equal(hasFocus(stale, mine), false); assert.equal(mine.getAttribute('aria-describedby'), null);
   });
 
-  test(`${name}: the theme radios have one tab stop, the checked one, and the arrow keys move between them`, async () => {
+  test(`${name}: both theme radios are a Tab stop (Tab, Enter and Space reach the other theme), and the arrow keys move between them`, async () => {
     const f = frontend();
     await f.viewSettings();
     const [first, second] = f.root.querySelectorAll('[data-theme]');
     const mine = f.root.querySelector(`[data-theme="${current}"]`), theirs = f.root.querySelector(`[data-theme="${other}"]`);
-    assert.equal(mine.getAttribute('tabindex'), '0'); assert.equal(theirs.getAttribute('tabindex'), '-1');
+    assert.equal(mine.getAttribute('tabindex'), '0'); assert.equal(theirs.getAttribute('tabindex'), '0');
     for (const [from, key, to] of [[first, 'ArrowDown', second], [first, 'ArrowRight', second], [second, 'ArrowDown', first], [first, 'ArrowUp', second], [second, 'ArrowLeft', first]]) {
       from.focus(); from.focused = false; to.focused = false;
       let stopped = false;

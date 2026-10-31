@@ -4033,11 +4033,11 @@ test('Billing statement: a heading per day, one line per session a day that link
   assert.match(main, /<p class="hint ledger-key">Last 30 days, newest first\./);
   const rows = f.root.querySelectorAll('.t-ledger tbody tr').map((r) => r.innerHTML);
   assert.equal(rows.length, 6);  // two day headings and four lines
-  assert.match(rows[0], /<td colspan="3" data-lab="Day"><b>[A-Z][a-z]{2}, Jan 15<\/b><span class="day-sum">\$12\.95 used\u00a0· \+\$25\.00 credits<\/span><\/td>/);
+  assert.match(rows[0], /<td colspan="3" data-lab="Day"><b>[A-Z][a-z]{2}, Jan 15<\/b><span class="vh">, <\/span><span class="day-sum">\$12\.95 used\u00a0· \+\$25\.00 credits<\/span><\/td>/);
   assert.match(rows[1], /<time datetime="2026-01-15T08:50:00Z">\d\d:\d\d–\d\d:\d\d/);  // the span of the session's calls
   assert.match(rows[1], /Research session<div class="sub-fig"><a href="\/research\/108">&lt;b&gt;Fade&lt;\/b&gt; the open<\/a>\u00a0· Claude Opus 4\.6\u00a0· 57 model calls<\/div>[\s\S]*−\$12\.95/);
   assert.match(rows[2], /Auto-reload<div class="sub-fig">Card charged \$26\.38: \$25\.00 credits plus the 5\.5% purchase fee\u00a0· Stripe ref <span class="ref">pi_3Synthetic&lt;x&gt;<\/span><\/div>[\s\S]*\+\$25\.00/);
-  assert.match(rows[3], /<b>[A-Z][a-z]{2}, Jan 14<\/b><span class="day-sum">\$0\.01 used\u00a0· \+\$10\.00 credits<\/span>/);
+  assert.match(rows[3], /<b>[A-Z][a-z]{2}, Jan 14<\/b><span class="vh">, <\/span><span class="day-sum">\$0\.01 used\u00a0· \+\$10\.00 credits<\/span>/);
   assert.match(rows[4], /Autopilot check-in<div class="sub-fig">Claude Haiku 4\.5\u00a0· 3 model calls<\/div>/);
   assert.doesNotMatch(rows[4], /href=/);  // a check-in has no session page
   assert.match(rows[5], /Added credits<div class="sub-fig">Card charged \$10\.55: \$10\.00 credits plus the 5\.5% purchase fee\u00a0· Stripe ref <span class="ref">pi_3SyntheticTopup<\/span>/);
@@ -4093,7 +4093,7 @@ test('Billing puts Add credits right under the balance in one column, and says w
   const detail = f.root.querySelector('.bill-detail');
   assert.ok(detail && detail.querySelector('aside #topup-btn'));
   const css = readFileSync(new URL('../app/static/app.css', import.meta.url), 'utf8');
-  assert.match(css, /@media \(max-width: 1080px\) \{ \.bill-detail > aside \{ order: -1; \} \}/);
+  assert.match(css, /@media \(max-width: 1080px\) \{ \.bill-detail \{ reading-flow: grid-order; \} \.bill-detail > aside \{ order: -1; \} \}/);
   assert.match(f.root.innerHTML, /The <a href="\/research">research form<\/a> shows what a session usually costs before you start\./);
 });
 

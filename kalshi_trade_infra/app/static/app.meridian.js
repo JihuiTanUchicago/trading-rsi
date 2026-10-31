@@ -1210,7 +1210,7 @@
     if (!opts.length) return;
     opts.forEach((b) => {
       const on = b.dataset.theme === acct;
-      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); b.setAttribute('tabindex', on ? '0' : '-1');
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));  // both stay Tab stops (viewSettings)
     });
     const note = root.querySelector('#theme-flash');
     if (acct !== here && note && note.dataset.moved !== acct) {
@@ -1281,10 +1281,12 @@
   }
   async function viewSettings() {
     const current = pageTheme();
+    // Both themes are a Tab stop: with only the checked one (arrow keys to the other), a keyboard user on Tab, Enter and
+    // Space alone had no way to the other theme (walk 2026-10-31). The arrow keys still move between them.
     shell('/settings', ledeTitle('Settings', 'How Tau looks and works for you.'), `
       <section class="sect theme-settings"><div class="section-head"><h2>Theme</h2></div>
         <div class="theme-pick" role="radiogroup" aria-label="Theme">
-          ${THEMES.map((t) => `<button type="button" class="theme-opt${t.key === current ? ' on' : ''}" role="radio" aria-checked="${t.key === current}" tabindex="${t.key === current ? 0 : -1}" data-theme="${t.key}">
+          ${THEMES.map((t) => `<button type="button" class="theme-opt${t.key === current ? ' on' : ''}" role="radio" aria-checked="${t.key === current}" tabindex="0" data-theme="${t.key}">
               <span class="theme-meta"><b>${esc(t.name)}</b></span>
               <span class="theme-mark" aria-hidden="true">${ICON.check}</span>
             </button>`).join('')}
@@ -1780,12 +1782,15 @@
         <g class="chart-reading" aria-hidden="true"><line x1="${px}" x2="${px}" y1="${T}" y2="${H - B}" stroke="var(--rule-2)" stroke-dasharray="2 3"/><circle cx="${px}" cy="${py}" r="3" fill="var(--ink)"/>
           <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="26" fill="var(--stock-raised)" stroke="var(--rule-2)"/><text x="${boxX + 8}" y="${boxY + 17}">${esc(label)}</text></g></g>`;
     }).join('') : '';
+    // The axis labels are drawn for the eye: in the paper chart (a group, its days focusable) a screen reader read them
+    // as loose figures, "$0 $15 $30 Oct 11 Oct 18", between the chart's name, which states its low, high and end, and its days.
+    // An img chart's labels are its name's already (a backtest's, the track record's): those are left as drawn.
     return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="${options.paper ? 'group' : 'img'}" aria-label="${esc(plain(options.label || backtestName))}">
       ${cx ? `<rect x="${cx}" y="${T}" width="${W - R - cx}" height="${H - T - B}" fill="var(--stock-raised)"/>
               <line x1="${cx}" x2="${cx}" y1="${T}" y2="${H - B}" stroke="var(--ink-3)" stroke-dasharray="4 4"/>
               ${unseenLabel(cx, W - R, T - 10, options.cutLabel, dev ? L + 112 + 'Kalshi dev (real)'.length * 6 + 8 : 0)}` : ''}
       <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--rule-2)"/>
-      ${reference}${ticks}${zeroTick}${dates}${endLabel}
+      ${options.paper ? `<g aria-hidden="true">${reference}${ticks}${zeroTick}${dates}${endLabel}</g>` : `${reference}${ticks}${zeroTick}${dates}${endLabel}`}
       <polyline points="${line(curve)}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/>
       ${dev ? `<polyline points="${line(dev)}" fill="none" stroke="var(--l-accent, #F05A28)" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>` : ''}
       ${legend}

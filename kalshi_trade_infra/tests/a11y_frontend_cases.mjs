@@ -1075,4 +1075,29 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     assert.deepEqual(said('stop'), ['Remove Live drift, live book', 'Remove Live drift, paper book']);
     f.clearTimers();
   });
+
+  // Keyboard and screen-reader walk of the main flows, 2026-10-31 (ARIA snapshots, both themes, 390px and 1366px): each day
+  // of Billing's statement was one row read "Fri, Oct 30$0.92 used" (the date's 30 run into the figure) and "Wed, Oct
+  // 21+$5.00 credits". The date and its sum are apart to a screen reader too, by a comma only it hears.
+  test(`${name}: a statement day's date and its sum are read apart, never as one run-together number`, async () => {
+    const at = (h) => `2026-01-15T${h}:00:00Z`, before = '2026-01-12T12:00:00Z';
+    const f = billingPage(cardedBilling({
+      math: {days: 30, start: 10, bought: 5, purchases: 1, other: 0, usage: 0.4, end: 14.6},
+      ledger: [
+        {kind: 'usage', amount: -0.3, memo: 'Chat', item: 'Chat', calls: 1, created_at: at('12'), first_at: at('12'), day: '2026-01-15'},
+        {kind: 'usage', amount: -0.1, memo: 'Chat', item: 'Chat', calls: 1, created_at: at('11'), first_at: at('11'), day: '2026-01-15'},
+        {kind: 'topup', amount: 5, memo: 'Credits bought', created_at: before, day: '2026-01-12'},
+      ]}));
+    await f.viewBilling(); await flush();
+    const days = f.root.querySelectorAll('.t-ledger tr.ledger-day td').map((td) => td.textContent);
+    assert.equal(days.length, 2);
+    assert.match(days[0], /^\S.*\d, \$0\.40 used$/);
+    assert.match(days[1], /^\S.*\d, \+⁠?\$5\.00 credits$/);
+    for (const d of days) assert.doesNotMatch(d, /\d[+−-]?⁠?\$/, d);
+    // On screen the comma is not drawn: it is visually hidden text, and the sum keeps its own span.
+    for (const td of f.root.querySelectorAll('.t-ledger tr.ledger-day td')) {
+      assert.equal(td.querySelector('.vh').textContent, ', ');
+      assert.ok(td.querySelector('.day-sum').textContent.length > 0);
+    }
+  });
 }
