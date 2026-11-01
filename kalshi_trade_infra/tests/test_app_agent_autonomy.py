@@ -415,3 +415,25 @@ def test_an_angle_that_names_its_market_is_only_tested_there(monkeypatch):
     agent.act(None, USER, {"type": "research", "idea": "Order-flow imbalance near expiry"}, True)
     agent.act(None, USER, {"type": "research", "market": "btc_daily", "idea": "Another angle on overreaction."}, True)
     assert [r[0] for r in rec["runs"]] == [None, None]
+
+
+def test_a_bitcoin_data_angle_is_not_run_on_weather_or_sports_once_bitcoin_is_closed(monkeypatch):
+    """Prod 2026-11-01 runs 4889-4916: with every Bitcoin market closed by long-term memory, reviews still
+    proposed Deribit-options and order-flow angles, and the picker ran them on weather highs and NBA spreads,
+    which have neither feature."""
+    assert agent.needs_crypto_data("Options-implied edge: Deribit smile rescaled to realized vol (opt_rv_p_yes)")
+    assert agent.needs_crypto_data("Order-flow microstructure: taker flow imbalances (flow_imb_60s)")
+    assert not agent.needs_crypto_data("Calibrated NWS forecast vs market disagreement on the settling day")
+    ready = ["btc15m", "btc_daily", "high_ny", "nba_game"]
+    assert agent._keys_for_angle("opt_rv_p_yes edge", ready, ["btc15m", "high_ny"], {}) == ["btc15m"]
+    assert agent._keys_for_angle("NWS forecast lag", ready, ["btc15m", "high_ny"], {}) == ["btc15m", "high_ny"]
+    rec = _capture(monkeypatch)
+    monkeypatch.setattr(agent.repo, "list_runs", lambda cur, uid, limit=30: [])
+    monkeypatch.setattr(agent, "_researchable_keys", lambda cur: ready)
+    monkeypatch.setattr(agent, "closed_markets", lambda cur, uid, keys: {k: [] for k in keys if k.startswith("btc")})
+    text, pid = agent.act(None, USER, {"type": "research", "market": "high_ny",
+                                       "idea": "Options-implied edge: Deribit smile (opt_rv_p_yes)"}, True)
+    assert pid is None and "needs Bitcoin data" in text and rec["runs"] == []
+    agent.act(None, USER, {"type": "research", "market": "high_ny",
+                           "idea": "Calibrated NWS forecast vs market on the settling day"}, True)
+    assert [r[0] for r in rec["runs"]] == ["high_ny"]

@@ -962,10 +962,28 @@ def _named_markets(idea: str, keys: List[str]) -> List[str]:
     return out
 
 
+# Prod 2026-11-01, after weather and sports reopened: reviews kept proposing Bitcoin-data angles ("Options-implied
+# edge: Deribit smile ... opt_rv_p_yes", "Order-flow microstructure: flow_imb_60s"), and with every Bitcoin market
+# closed the picker ran them on weather highs and NBA spreads, which carry neither feature (runs 4889-4916).
+_CRYPTO_DATA = re.compile(r"\bopt_\w+|\bderibit\b|\boptions?[- ]implied\b|\bimplied vol|\bvol(?:atility)? smile\b"
+                          r"|\bflow_imb|\btaker (?:flow|vol)|\border[- ]flow\b|\bbrti\b|\bbitcoin\b|\bbtc\b", re.I)
+
+
+def needs_crypto_data(idea: str) -> bool:
+    """True when an angle rests on data only the crypto markets carry (options surface, trade flow, the index)."""
+    return bool(_CRYPTO_DATA.search(idea or ""))
+
+
+def _crypto_keys(keys: List[str]) -> List[str]:
+    from app.research import rsi
+    return [k for k in keys if rsi.family(k).startswith("crypto")]
+
+
 def _keys_for_angle(idea: str, ready: List[str], keys: List[str], blocked: Dict[str, str]) -> List[str]:
     """The pick's choices for an angle: when it names its market ("BTC dailies") only those, even past
-    a cooldown (anywhere else every idea dies as wrong_fit), never one with a run already going."""
-    named = _named_markets(idea, ready)
+    a cooldown (anywhere else every idea dies as wrong_fit), never one with a run already going. An
+    angle on crypto-only data is kept to the crypto markets the same way."""
+    named = _named_markets(idea, ready) or (_crypto_keys(ready) if needs_crypto_data(idea) else [])
     return ([k for k in named if k in keys]
             or [k for k in named if not blocked.get(k, "").startswith("a research line is already running")]
             or keys)
@@ -4592,6 +4610,11 @@ def act(cur, user: Dict, action: Dict, autopilot: bool, dataset_fn=backtest.data
                             MARKETS[k].customer_label for k in sorted(named or exh) if k in MARKETS)), None
             if market in exh:
                 market = None  # the picker below chooses a market that isn't exhausted
+            if needs_crypto_data(idea) and not [k for k in _crypto_keys(scoped) if k not in exh]:
+                # Customer words: the autopilot panel shows this line as its last move.
+                return ("I didn’t start that: this angle needs Bitcoin data (options prices or trade flow) that only "
+                        "the Bitcoin markets have, and every kind of idea has already been tried there. I’ll pick an "
+                        "angle the other markets can test."), None
         if autopilot and not sid:
             blocked = _research_blocked_markets(cur, user_id)
             if market is None or market in blocked:
