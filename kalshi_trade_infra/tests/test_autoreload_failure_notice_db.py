@@ -97,7 +97,13 @@ def test_a_failing_card_rings_the_bell_once_and_billing_says_why_until_it_is_fix
     assert mail["Destination"] == {"ToAddresses": [address]}
     text = mail["Message"]["Body"]["Text"]["Data"]
     assert ("Auto-reload couldn't add $25.00 in credits. That card has expired. Add a current card and try again.\n\n"
-            "Research pauses when your credits run out.") in text and "/billing\n" in text
+            "Research pauses when your credits run out.") in text
+    # The email opens Billing at its notice of this failure, as the bell does (bell.shown_link); Billing's top was a
+    # screen above it on a phone. Unnamed, Billing shows the newest failure, which is this one (asserted below).
+    from app.adapters.ses import notify
+    from app.services import bell as bell_rules
+    assert "  %s%s\n" % (notify.PUBLIC_URL, bell_rules.shown_link("reload_failed", "/billing")) in text
+    assert "/billing#autorel-fail\n" in text
     assert not any(s in text for s in ("req_Z9", "pm_fail", customer, "pi_", "reload-%s" % uid, "list price"))
     bell = server.notifications(ctx())
     # Stored as /billing; the bell opens it at Billing's notice of that failure, by its own id (bell.shown_link).
@@ -106,6 +112,7 @@ def test_a_failing_card_rings_the_bell_once_and_billing_says_why_until_it_is_fix
                                        for i in bell["items"])
 
     state = server.billing_state(ctx())
+    assert state["reload_failed"]["notice"] == only["id"]  # what the email's link opens: the failure it told
     assert state["reload_failed"]["text"] == "It couldn’t add $25.00 in credits. That card has expired. Add a current card and try again."
     # The balance is at the trigger because of it, so /api/me carries it too (the dashboard's Needs you and
     # the research form name the card), and the autopilot poll reads the same text.

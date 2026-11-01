@@ -9,6 +9,7 @@ from typing import Dict, Iterable, List, Optional, Set
 from app import repository as repo
 from app.adapters.ses import notify
 from app.services import customer_text
+from app.trading import markets
 from app.web.http import ApiError, Ctx, _body_id, _int_param, _int_query
 from app.web.routes.strategies import _later_verdicts
 from data_pipeline.common import get_db_conn
@@ -231,16 +232,36 @@ def create_community_post(ctx: Ctx):
     pid = repo.create_post(cur, ctx.uid, body or _default_share_text(kind, snapshot), kind, snapshot, image_id)
     author = customer_text.display_name((repo.get_user(cur, ctx.uid) or {}).get("name"), "A trader")
     told = _notify_mentions(cur, ctx.uid, author, body, post_link(pid))
-    _email_community_post_async(ctx.uid, author, body or _default_share_text(kind, snapshot), pid, told)
+    _email_community_post_async(ctx.uid, author, body or _default_share_text(kind, snapshot), pid, told,
+                                share_line(snapshot))
     return {"id": pid}
 
 
+# A shared card's book as its mark reads (page-community.js postSnapshot: Live, Demo, Paper).
+_BOOK_MARK = {"live": "Live", "demo": "Demo", "paper": "Paper"}
+
+
+def share_line(snap: Optional[Dict]) -> Optional[str]:
+    """What a shared strategy or deployment is, as its card in the feed heads it: the kind, the title, the market's
+    long name (markets.customer_name, never its key) and, for a deployment, its book. None for a note or a P&L
+    share: the P&L card's figures need the card's own notes (each book apart, net of what), so the email leaves
+    them to the feed rather than quote a figure without them."""
+    if not snap or snap.get("kind") not in ("strategy", "deployment"):
+        return None
+    parts = [str(snap.get("title") or "Untitled strategy").strip()[:120], markets.customer_name(snap.get("market"))]
+    if snap["kind"] == "deployment":
+        parts.append(_BOOK_MARK.get(snap.get("mode"), "Paper"))
+    return "%s: %s" % (snap["kind"].capitalize(), " · ".join(parts))
+
+
 def _email_community_post_async(author_uid: int, author: str, preview: str, pid: int,
-                                skip: Iterable[int] = ()) -> None:
+                                skip: Iterable[int] = (), shared: Optional[str] = None) -> None:
     """Email opted-in users about a new post, with a link to it, off the request thread so posting
     stays snappy. `skip`: users its mention email already told about this post (one email per post).
+    `shared`: share_line of what the post shares, if anything.
     Cooldown + opt-out are enforced per recipient; SES sandbox silently no-ops unverified sends."""
     skip = set(skip)
+    extra = {"shared": shared} if shared else {}
     def run():
         conn = None
         try:
@@ -249,7 +270,7 @@ def _email_community_post_async(author_uid: int, author: str, preview: str, pid:
             recipients = [r for r in repo.community_email_recipients(cur, author_uid) if r["id"] not in skip]
             for r in recipients:
                 notify.community_post_notice(r["email"], r.get("name"), author, preview, notify.unsubscribe_url(r["id"]),
-                                             notify.page_url(post_link(pid)))
+                                             notify.page_url(post_link(pid)), **extra)
             repo.mark_community_emailed(cur, [r["id"] for r in recipients])  # cooldown applies even to sandbox-skipped
         except Exception as e:
             print("[community] post email dispatch failed: %r" % e, flush=True)

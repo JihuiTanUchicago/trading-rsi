@@ -159,3 +159,66 @@ def test_a_bad_unsubscribe_link_points_at_the_settings_switch():
     _, page = account_routes.unsubscribe(SimpleNamespace(cur=None, query={"u": "7", "t": "forged"}))
     assert "isn't valid, so nothing changed" in page and "href='/settings'" in page
     assert "reply to one" not in page
+
+
+class _Now:  # runs the new-post dispatch on this thread
+    def __init__(self, target, daemon):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+
+def _post_email(monkeypatch, mails, snap, body=""):
+    """A share posted through create_community_post, its new-post email rendered by the real template."""
+    from app.web.routes import community
+    monkeypatch.setattr(community, "_post_snapshot", lambda cur, uid, kind, ref: snap)
+    monkeypatch.setattr(community.repo, "recent_posts_count", lambda cur, uid, since: 0)
+    monkeypatch.setattr(community.repo, "create_post", lambda *a: 5)
+    monkeypatch.setattr(community.repo, "get_user", lambda cur, uid: {"name": "Bob"})
+    monkeypatch.setattr(community, "get_db_conn", lambda: SimpleNamespace(cursor=lambda: None, close=lambda: None))
+    monkeypatch.setattr(community.repo, "community_email_recipients",
+                        lambda c, uid: [{"id": 3, "email": "c@x.invalid", "name": "Cat"}])
+    monkeypatch.setattr(community.repo, "mark_community_emailed", lambda c, ids: None)
+    monkeypatch.setattr(community.threading, "Thread", _Now)
+    del mails[:]
+    community.create_community_post(SimpleNamespace(cur=None, uid=1, body={"kind": snap["kind"], "ref_id": 9, "body": body},
+                                                    query={}, params=()))
+    [m] = mails
+    return m.body
+
+
+@pytest.mark.parametrize("market,series", [("btc_daily", "KXBTCD"), ("btc15m", "KXBTC15M"), ("eth15m", "KXETH15M"),
+                                           ("high_ny", "KXHIGHNY"), ("nfl_game", "KXNFLGAME")])
+def test_a_share_email_names_what_is_shared_by_the_markets_long_name(monkeypatch, mails, market, series):
+    """A share with no words of its own read only “Sharing a strategy.”: nothing said which strategy, or on what.
+    The email now heads it as its card does: kind, title, the market's long name (never its key or series), book."""
+    from app.trading import markets
+    label = markets.customer_name(market)
+    assert label != "an unlisted market"
+    strat = _post_email(monkeypatch, mails, {"kind": "strategy", "id": 9, "title": "Late-day fade", "market": market,
+                                             "status": "passed", "pnl": 4.21, "trades": 64})
+    assert "  “Sharing a strategy.”\n\n  Strategy: Late-day fade · %s\n\n" % label in strat
+    bodies = [strat]
+    for mode, mark in (("live", "Live"), ("demo", "Demo"), ("paper", "Paper")):
+        dep = _post_email(monkeypatch, mails, {"kind": "deployment", "id": 9, "title": "Home dogs", "market": market,
+                                               "mode": mode, "realized_pnl": -3.38, "closed_trades": 4})
+        assert "  “Sharing a deployment.”\n\n  Deployment: Home dogs · %s · %s\n\n" % (label, mark) in dep
+        bodies.append(dep)
+    for body in bodies:
+        assert market not in body and series not in body and "$X" not in body
+        assert "$" not in body  # a figure without its card's notes is left to the feed
+    words = _post_email(monkeypatch, mails, {"kind": "strategy", "id": 9, "title": "Fade", "market": market}, body="Look")
+    assert "  “Look”\n\n  Strategy: Fade · %s\n\n" % label in words
+
+
+def test_a_pnl_share_or_a_note_email_quotes_no_figure_and_names_no_card(monkeypatch, mails):
+    body = _post_email(monkeypatch, mails, {"kind": "pnl", "paper_pnl": 12.5, "demo_pnl": 3.0, "live_pnl": -1.25,
+                                            "paper_trades": 3, "demo_trades": 1, "live_trades": 1})
+    assert "“Sharing my results so far.”\n\nRead it and join in:" in body and "$" not in body
+
+
+def test_a_perps_mismatch_alert_says_position_mismatch_as_settings_names_it(mails):
+    notify.perps_alert("a@x.invalid", watch.MISMATCH, "Kalshi holds 3 KXBTCPERP-USD contracts that no Tau order filled")
+    notify.perps_alert("a@x.invalid", "unheard-of", "Something")
+    assert [m.subject for m in mails] == ["Tau: Bitcoin perps position mismatch alert", "Tau: Bitcoin perps safety alert"]

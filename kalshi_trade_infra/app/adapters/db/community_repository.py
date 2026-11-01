@@ -175,10 +175,12 @@ def post_exists(cur, post_id: int) -> bool:
 
 
 def post_author(cur, post_id: int) -> Optional[Dict]:
-    """The post's author (user_id, email, email_opt_out, name) plus a short body preview, for
-    reply notifications."""
+    """The post's author (user_id, email, email_opt_out, name) plus the post's words as `preview`, for
+    reply notifications. Whole (at most 2,000 characters): the email cuts it, after its marks read as plain words,
+    with an ellipsis (notify._plain). LEFT(body, 140) cut it here first, so a long post's quote stopped mid-word
+    with nothing to say it went on ("…in the band the mark”)."""
     cur.execute(
-        """SELECT p.user_id, u.email, u.email_opt_out, u.name, LEFT(p.body, 140) AS preview
+        """SELECT p.user_id, u.email, u.email_opt_out, u.name, p.body AS preview
            FROM app_posts p JOIN app_users u ON u.id=p.user_id WHERE p.id=%s""",
         (post_id,),
     )
