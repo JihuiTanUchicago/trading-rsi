@@ -20,6 +20,7 @@ from app.trading import engine
 from app.adapters.stripe import billing
 from app.research import agent, sandbox
 from app import repository as repo
+from app.services import research_notice
 from data_pipeline.common import get_db_conn
 
 CONCURRENCY = int(os.getenv("APP_AGENT_CONCURRENCY", "4"))
@@ -85,7 +86,10 @@ def agent_loop(worker_id: str, skip_research: bool = False) -> None:
                     if _STOPPING.is_set():
                         time.sleep(IDLE_SECONDS)  # shutting down: claim nothing new
                         continue
-                    repo.fail_abandoned_runs(conn.cursor(), ABANDONED_AFTER)
+                    reap_cur, stopped = conn.cursor(), []
+                    repo.fail_abandoned_runs(reap_cur, ABANDONED_AFTER, stopped=stopped)
+                    for rid in stopped:  # a session the reaper stopped for good rings the bell once
+                        research_notice.ring(reap_cur, rid)
                     run = repo.claim_run(conn, worker_id, skip_research=skip_research)
                     if run is None:
                         time.sleep(IDLE_SECONDS)

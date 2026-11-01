@@ -108,6 +108,11 @@ export function bellCases({name, frontend, detailStrategy}) {
     // Every unread one counted in the parts: as before.
     assert.equal(await sum({unread: 6, unread_kinds: {deployed: 4, comment: 2}, unread_kinds_of: 100}),
       '6 new: 4 strategies put on paper\u00a0· 2 comments');
+    // Finished research sessions are named, not counted among "others" (services.research_notice).
+    assert.equal(await sum({unread: 5, unread_kinds: {deployed: 2, research_done: 2, comment: 1}, unread_kinds_of: 100}),
+      '5 new: 2 strategies put on paper\u00a0· 2 research sessions finished\u00a0· 1 comment');
+    assert.equal(await sum({unread: 4, unread_kinds: {research_done: 1, comment: 3}, unread_kinds_of: 100}),
+      '4 new: 1 research session finished\u00a0· 3 comments');
   });
 
   test(`${name}: a notice about a strategy no longer in the list says so as text, and a big count is grouped`, async () => {

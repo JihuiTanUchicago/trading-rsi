@@ -56,6 +56,7 @@ from app.services import research_screen
 from app.services import demo_record
 from app.services import gate_explain
 from app.services import customer_text
+from app.services import research_notice
 from app.research.agent_market_data import AgentMarketData, DataScope
 from app.research.agent_knowledge import AgentKnowledge
 from app.research.agent_news import AgentNews
@@ -3142,7 +3143,8 @@ def run_research(
         log("done", "%d of %d hypotheses passed every gate%s." % (
             total_passed, explored(), " (%d dropped on research data)" % ckpt["dropped_n"] if ckpt["dropped_n"] else ""),
             {"passed": total_passed, "tried": explored(), "dropped": ckpt["dropped_n"]})
-        repo.finish_run(cur, run_id, "succeeded", None, explored(), total_passed, tot_in, tot_out)
+        if repo.finish_run(cur, run_id, "succeeded", None, explored(), total_passed, tot_in, tot_out):
+            research_notice.ring(cur, run_id)  # the bell, once: only the call that ended the run says so
         print(research_outcome_line(run_id, user_id, market, "succeeded", explored(), total_passed,
                                     tot_in, tot_out, choice.model_id, verdicts, timing=timing()), flush=True)
     except Superseded:
@@ -3175,8 +3177,10 @@ def run_research(
         msg = (public_message(e) if isinstance(e, LLMError) else "The session hit an unexpected error and stopped.")
         cur = _reconnect(conn, cur)  # the error may have been the drop itself — heal it so we can record the outcome
         log("step" if no_data else "error", msg)
-        repo.finish_run(cur, run_id, "stopped" if no_data else "failed", msg[:2000],
-                        explored(), 0, usage.input_tokens, usage.output_tokens)
+        if repo.finish_run(cur, run_id, "stopped" if no_data else "failed", msg[:2000],
+                           explored(), 0, usage.input_tokens, usage.output_tokens):
+            # The row keeps 0 passed for a run that ended on an error; the ideas that passed before it are saved.
+            research_notice.ring(cur, run_id, ckpt["total_passed"])
         print(research_outcome_line(run_id, user_id, market, "stopped" if no_data else "failed", explored(), 0,
                                     usage.input_tokens, usage.output_tokens, choice.model_id, verdicts,
                                     type(e).__name__, timing=timing()), flush=True)

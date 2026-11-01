@@ -120,7 +120,8 @@ def _has_progress(checkpoint: Optional[Dict[str, Any]]) -> bool:
         checkpoint.get("chunks_done") or checkpoint.get("tried") or checkpoint.get("chunk"))
 
 
-def fail_abandoned_runs(cur, stale_after: timedelta, max_resumes: int = MAX_RESUMES) -> int:
+def fail_abandoned_runs(cur, stale_after: timedelta, max_resumes: int = MAX_RESUMES,
+                        stopped: Optional[List[int]] = None) -> int:
     """A run whose worker stopped heart-beating (crash, deploy restart, a frozen step the watchdog
     reaps) is RECLAIMED, not discarded, when it's a research run that made real progress and still
     has resume budget: re-queued so a worker picks it up and resumes from its checkpoint (the
@@ -130,7 +131,10 @@ def fail_abandoned_runs(cur, stale_after: timedelta, max_resumes: int = MAX_RESU
 
     Leak-safe: re-queuing only flips status/worker/resume_count — it never touches the gatekeeper
     ledger. The checkpoint's gate cursor (written atomically with each chunk's judging) is what makes
-    the resume itself honest; this function just routes a reaped run to that path or to failure."""
+    the resume itself honest; this function just routes a reaped run to that path or to failure.
+
+    `stopped`, when given, gets the id of each research run this call stopped for good (its UPDATE
+    took the row out of 'running'), so the caller can ring the bell once for it (services.research_notice)."""
     stale_cut = now_utc() - stale_after
     cur.execute(
         "SELECT id, kind, resume_count, checkpoint_json FROM app_agent_runs "
@@ -176,6 +180,8 @@ def fail_abandoned_runs(cur, stale_after: timedelta, max_resumes: int = MAX_RESU
                    WHERE id=%s AND status='running' AND heartbeat_at < %s""",
                 (msg, tried_n, passed_n, now_utc(), r["id"], stale_cut),
             )
+            if cur.rowcount and stopped is not None and r["kind"] == "research":
+                stopped.append(int(r["id"]))
             reaped += cur.rowcount
     return reaped
 
@@ -209,13 +215,17 @@ def run_worker(cur, run_id: int) -> Optional[str]:
 def finish_run(
     cur, run_id: int, status: str, error: Optional[str] = None, tried: int = 0, passed: int = 0,
     input_tokens: int = 0, output_tokens: int = 0,
-) -> None:
+) -> bool:
+    """Record a running run's end. True when this call ended it: the UPDATE only takes a row that is
+    still 'running', so of two calls for one run (a finish retried, a worker racing the reaper) one
+    returns True, and only that one may say so (the bell's notice, services.research_notice)."""
     cur.execute(
         """UPDATE app_agent_runs SET status=%s, error=%s, hypotheses_tried=%s, strategies_passed=%s,
              input_tokens=%s, output_tokens=%s, finished_at=%s
            WHERE id=%s AND status='running'""",
         (status, error, tried, passed, input_tokens, output_tokens, now_utc(), run_id),
     )
+    return cur.rowcount == 1
 
 
 def cancel_run(cur, user_id: int, run_id: int) -> bool:
@@ -389,6 +399,22 @@ def get_run(cur, user_id: int, run_id: int) -> Optional[Dict]:
                   brief AS by_autopilot
            FROM app_agent_runs WHERE id=%s AND user_id=%s""",
         (run_id, user_id),
+    )
+    return cur.fetchone()
+
+
+def finished_run(cur, run_id: int) -> Optional[Dict]:
+    """What the bell's session notice reads of one run: its owner, kind, market, how it ended
+    (status, run_forever, error, out_of_credits as list_runs reads it) and its counts. One row by primary key;
+    the log probe runs only for a finished run-until-stopped session, through idx_events_run_kind."""
+    cur.execute(
+        """SELECT r.id, r.user_id, r.kind, r.market, r.status, r.run_forever, r.brief AS by_autopilot,
+                  r.hypotheses_tried, r.strategies_passed, r.error,
+                  CASE WHEN r.status='succeeded' AND r.run_forever=1 THEN EXISTS(
+                    SELECT 1 FROM app_agent_events e WHERE e.run_id=r.id AND e.kind='step' AND e.message LIKE %s)
+                  ELSE 0 END AS out_of_credits
+           FROM app_agent_runs r WHERE r.id=%s""",
+        (OUT_OF_CREDITS_STEP + "%", run_id),
     )
     return cur.fetchone()
 
