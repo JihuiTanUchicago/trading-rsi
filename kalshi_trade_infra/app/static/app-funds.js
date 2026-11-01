@@ -281,6 +281,39 @@ window.TauPage('funds', (T) => {
         else if (row && row.focus && free) { row.setAttribute('tabindex', '-1'); row.focus(); }
       } catch (err) { if (gen === S.gen) flash('#lflash', errText(err), 'bad'); }
     }));
+    // An amount typed in Paper or Demo's box before the session ran out is kept for this tab (sessionStorage, as
+    // Research's idea and Community's post are) and put back when the same account comes back to Funds: a 401 sends the
+    // reader to sign in, and the box came back empty (walk 2026-11-01). It only sits in its box: nothing is sent until
+    // the reader presses. The page's first draw puts it back; a later full draw (a write's re-read, which draws the
+    // forms empty) forgets it, and so do clearing the box and signing out (forgetDrafts). Never a key's fields.
+    const AMOUNT_DRAFT = 'tau_funds_draft';
+    let amountsDrawn = false;
+    const keepAmounts = (host) => {
+      const uid = S.me && S.me.user ? S.me.user.id : null, first = !amountsDrawn;
+      amountsDrawn = true;
+      let kept = {};
+      try {
+        if (!first) sessionStorage.removeItem(AMOUNT_DRAFT);
+        const d = first ? JSON.parse(sessionStorage.getItem(AMOUNT_DRAFT) || 'null') : null;
+        if (d && d.uid === uid && d.amounts && typeof d.amounts === 'object') kept = d.amounts;
+      } catch (e) { /* storage off or unreadable: no draft */ }
+      const forms = [...host.querySelectorAll('#paper, #demo')].filter((f) => f.querySelector('input[name=amount]'));
+      const save = () => {
+        const amounts = {};
+        forms.forEach((f) => { const v = String(f.querySelector('input[name=amount]').value || '').trim(); if (v) amounts[f.id] = v.slice(0, 20); });
+        try { if (Object.keys(amounts).length) sessionStorage.setItem(AMOUNT_DRAFT, JSON.stringify({ uid, amounts })); else sessionStorage.removeItem(AMOUNT_DRAFT); }
+        catch (e) { /* private mode or full: the box still works */ }
+      };
+      forms.forEach((f) => {
+        const box = f.querySelector('input[name=amount]'), v = kept[f.id];
+        if (typeof v === 'string' && /^\d{1,6}(?:\.\d{1,2})?$/.test(v) && !box.value) {
+          box.value = v;
+          // Paper's buttons name the amount they move (syncPaper), as they do once it's typed.
+          if (typeof Event === 'function' && box.dispatchEvent) box.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        f.addEventListener('input', save);
+      });
+    };
     // `got`: the page's own answer with a key's cash filled in (fillCash); else /api/funds is read.
     const load = async (cfg, got) => {
       const d = got || await api('/api/funds', undefined, cfg);
@@ -480,6 +513,7 @@ window.TauPage('funds', (T) => {
       if (dvc) dvc.onclick = () => armed(dvc, 'Confirm remove', () => holdFocus('#kalshi-dev [name="key_id"]', () => busy(dvc, async () => {
         try { await api('/api/kalshi-dev-key/delete', {}); S.me.kalshi_dev_connected = false; const fresh = await refreshed(load()); flash('#kdflash', 'Demo key removed. Tau deleted its copy; delete the key on demo.kalshi.co too if you’re done with it.' + (fresh ? '' : BEHIND), 'good'); } catch (err) { flash('#kdflash', err.message, 'bad'); }
       })));
+      keepAmounts(host);
       if (!got) fillCash(d);  // every fresh read: the first, a visit's, the poll's and a write's
       return d;
     };

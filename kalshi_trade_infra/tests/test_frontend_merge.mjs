@@ -66,6 +66,7 @@ import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
 import {badConnectionCases} from './bad_connection_frontend_cases.mjs';
 import {accountSwitchCases} from './account_switch_frontend_cases.mjs';
 import {staleTabCases} from './stale_tab_frontend_cases.mjs';
+import {tabTrustCases} from './tab_trust_frontend_cases.mjs';
 import {deployErrorCases} from './deploy_errors_frontend_cases.mjs';
 import {liveHonestCases} from './live_honest_frontend_cases.mjs';
 import {freshWalkCases} from './fresh_walk_frontend_cases.mjs';
@@ -6431,6 +6432,8 @@ flakyNetworkCases({name: 'Tau', frontend});
 badConnectionCases({name: 'Tau', frontend});
 accountSwitchCases({name: 'Tau', frontend});
 staleTabCases({name: 'Tau', frontend, theme: 'tau', pagesKey: 'tauPages'});
+tabTrustCases({name: 'Tau', frontend, theme: 'tau', detailStrategy, fundsData: () => funds(),
+  storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k)})});
 deployErrorCases({name: 'Tau', frontend, strategyFrontend, detailStrategy, postRequests});
 liveHonestCases({name: 'Tau', frontend, strategyFrontend, detailStrategy, dashboard: emptyDashboard});
 freshWalkCases({name: 'Tau', frontend, dashboard: emptyDashboard});
