@@ -6125,7 +6125,9 @@ const MARKET_PAGE = {ticker: 'KXBTCD-26OCT2617-T113499.99', series: 'KXBTCD', ti
     {mode: 'paper', strategy_id: 4, title: 'Daily close drift', side: 'no', qty: 10, entry_price: 0.44, cost: 4.5, unrealized: 0.8, mark_ts: '2026-10-26T10:59:00Z', status: 'open', market_close_time: '2026-10-26T21:00:00Z'}],
   closed: [{mode: 'paper', strategy_id: null, title: null, side: 'no', qty: 8, entry_price: 0.7, cost: 5.68, status: 'closed', pnl: 0.24, exit_price: 0.75, close_reason: 'take_profit', market_close_time: '2026-10-26T21:00:00Z'}]}};
 // Escaped for the patterns below: a zone with no short name reads "GMT+9" (Asia/Tokyo), and its "+" is a quantifier.
-const readerZone = new Intl.DateTimeFormat(undefined, {timeZoneName: 'short'}).formatToParts(new Date()).find((p) => p.type === 'timeZoneName').value
+// The zone the page's times fall in (all on Oct 26), not today's: a US reader's zone reads PDT then and PST after
+// DST ends, so a zone taken from the run's clock failed this test from Nov 1 on in America/Los_Angeles.
+const readerZone = new Intl.DateTimeFormat(undefined, {timeZoneName: 'short'}).formatToParts(new Date(MARKET_PAGE.as_of)).find((p) => p.type === 'timeZoneName').value
   .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('a market page says what its price is, how it settles and when, and the reader’s positions by money book', async () => {

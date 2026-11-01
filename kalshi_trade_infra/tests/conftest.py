@@ -177,6 +177,9 @@ def _fresh_server_shared_cache():
     if server is not None:
         server._SHARED.clear()
         server._LAST_DREAM.clear()
+        # The Deploy board's road to live, kept per (user id, strategies, deployments): fake ids repeat across tests,
+        # and a test that reads the cache whole (test_paper_checks) found another test's user 7 still in it.
+        server._ROADS.clear()
     # The position sums the polled pages keep (services.book_memo) are per user id, and fake cursors reuse ids.
     book_memo = sys.modules.get("app.services.book_memo")
     if book_memo is not None:
@@ -195,3 +198,33 @@ def _fresh_server_shared_cache():
             kalshi_dev._queue.clear()
             kalshi_dev._queued.clear()
     yield
+    _wait_for_requests_in_flight()
+
+
+def _wait_for_requests_in_flight(limit_s=10.0):
+    """A test's web server answers on its own threads, and a handler writes its access line ("[app] GET /billing
+    200 11ms ...") and its perf row only after the client has the whole response. The test can end, and the next
+    one start, first: the line then lands in the next test's capsys (test_configure_market_data parsed it as its
+    JSON report). Wait until no thread is still inside a request (Handler._timed), so it ends with its test."""
+    import sys
+    import threading
+    import time
+
+    server = sys.modules.get("app.server")
+    if server is None:
+        return
+    timed = server.Handler._timed.__code__
+    me = threading.get_ident()
+    deadline = time.monotonic() + limit_s
+
+    def in_request(frame):
+        while frame is not None:
+            if frame.f_code is timed:
+                return True
+            frame = frame.f_back
+        return False
+
+    while any(in_request(f) for ident, f in sys._current_frames().items() if ident != me):
+        if time.monotonic() > deadline:
+            break
+        time.sleep(0.002)
