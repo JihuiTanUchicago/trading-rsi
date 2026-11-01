@@ -489,13 +489,13 @@ def billing_receipt(ctx: Ctx):
 
 TRADE_MODES = ("paper", "demo", "live")
 TRADES_CSV_MAX_ROWS = 50000  # about 7MB; a cap, so one request can't read an unbounded book
-TRADES_CSV_HEADER = ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "market",
-                     "kalshi_contract_code", "side", "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee",
-                     "realized_pnl", "close_reason"]
+TRADES_CSV_HEADER = ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
+                     "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
+                     "close_reason", "market"]
 # The file's last column was each trade's internal position id (walk 2026-11-01): no column carries an id now. A trade
-# is told apart by its Kalshi contract and its times. The contract's code (KXSOL15M-26NOV011815-00) carries the raw
-# series key, so its column says what it is, the exchange's code for the contract, and the market column beside it
-# names the market in words (markets.contract_customer_name), as the pages do: the column was a bare "ticker".
+# is told apart by its Kalshi contract (ticker) and its times. The ticker carries the raw series key
+# (KXSOL15M-26NOV011815-00), so the market column names the market in words (markets.contract_customer_name), as the
+# pages do. It comes last: every column a reader already reads keeps its header and its place.
 
 
 def _close_said(r: Dict) -> str:
@@ -604,9 +604,9 @@ def trades_csv(ctx: Ctx):
             name = market[mkey] = contract_customer_name(r["ticker"], r.get("strategy_market"))
         row([
             _iso_utc(r["closed_at"]), _iso_utc(r["opened_at"]), r["mode"],
-            _strategy_cell(names, r), r.get("title") or "", name, r["ticker"], r["side"], int(r["qty"]),
+            _strategy_cell(names, r), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
             _dec(r["entry_price"]), _dec(r["exit_price"]), _dec(r["entry_fee"]), _dec(r["exit_fee"]),
-            _dec(r["pnl"]), close])
+            _dec(r["pnl"]), close, name])
     if cut:
         row(["# Only the newest %d trades are in this file; older ones are not." % TRADES_CSV_MAX_ROWS])
     fname = "tau-trades-%s-%s.csv" % (mode, repo.now_utc().strftime("%Y%m%d"))

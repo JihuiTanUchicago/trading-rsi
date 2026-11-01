@@ -31,7 +31,7 @@ STRIKE = 98.0
 def _csv_rows_are(lines, closed):
     """The file's rows are exactly `closed` (the book's closed rows), each told by when it closed, its contract, its
     size and its P&L: the file carries no position id."""
-    said = sorted((r["closed_at_utc"], r["kalshi_contract_code"], r["contracts"], r["realized_pnl"]) for r in lines)
+    said = sorted((r["closed_at_utc"], r["ticker"], r["contracts"], r["realized_pnl"]) for r in lines)
     return said == sorted((c["closed_at"].strftime("%Y-%m-%dT%H:%M:%SZ"), c["ticker"], str(int(c["qty"])),
                            "%.4f" % float(c["pnl"])) for c in closed)
 
