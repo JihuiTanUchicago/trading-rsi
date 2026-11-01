@@ -244,13 +244,16 @@ def _last_dream(cur, uid: int) -> Optional[Dict]:
 RUN_EVENTS_PAGE = 200
 
 
-def _run_events_page(cur, run_id: int, before: int = 0) -> Tuple[List[Dict], bool, List[Dict]]:
+def _run_events_page(cur, run_id: int, before: int = 0) -> Tuple[List[Dict], bool, List[Dict], Optional[int]]:
     """(the newest RUN_EVENTS_PAGE lines older than `before`, or of all when 0, oldest first; whether older
-    ones remain; on a first read (no `before`), the older lines _run_tally counts): one statement, which reads
-    one line more than it sends, to know."""
+    ones remain; on a first read (no `before`), the older lines _run_tally counts, and how many lines the session
+    has logged in all, else None): one statement, which reads one line more than it sends, to know."""
     rows = repo.run_events(cur, run_id, 0, RUN_EVENTS_PAGE + 1, before, not before)
+    lines = next((int(r["lines_all"]) for r in rows if r.get("lines_all") is not None), None)
+    for r in rows:
+        r.pop("lines_all", None)
     page = [r for r in rows if not r.get("tally")]
-    return page[-RUN_EVENTS_PAGE:], len(page) > RUN_EVENTS_PAGE, [r for r in rows if r.get("tally")]
+    return page[-RUN_EVENTS_PAGE:], len(page) > RUN_EVENTS_PAGE, [r for r in rows if r.get("tally")], lines
 
 
 def _run_tally(rows: List[Dict], before_id: int) -> Dict:
@@ -299,7 +302,7 @@ def _run_tally(rows: List[Dict], before_id: int) -> Dict:
 def _earlier_run_events(ctx: Ctx, run: Dict, before: int) -> Dict:
     """"Show earlier steps": the RUN_EVENTS_PAGE lines before `before`, as the first page sends its own, and
     whether more remain. The page counted them already (_run_tally), so nothing else is sent."""
-    rows, more, _ = _run_events_page(ctx.cur, run["id"], before)
+    rows, more, _, _ = _run_events_page(ctx.cur, run["id"], before)
     fell_at = uncleared_passes_at(ctx.cur, ctx.uid, run["id"]) if rows else []
     return {"events": customer_text.event_rows(_with_gate_lines(rows, len(fell_at), fell_at)), "more": more}
 
@@ -358,9 +361,10 @@ def get_run(ctx: Ctx):
     if after > 0:
         events = repo.run_events(ctx.cur, run["id"], after)
     else:
-        events, more, older = _run_events_page(ctx.cur, run["id"])
+        events, more, older, lines = _run_events_page(ctx.cur, run["id"])
         if more:
-            earlier = _run_tally(older, events[0]["id"])
+            # `lines`: every line the session has logged, so the page can say how many there are past its newest.
+            earlier = dict(_run_tally(older, events[0]["id"]), lines=lines)
     out = {
         "run": run,
         "events": customer_text.event_rows(_with_gate_lines(events, len(fell_at), fell_at)),

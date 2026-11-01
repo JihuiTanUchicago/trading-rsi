@@ -728,20 +728,23 @@ def test_a_long_sessions_first_read_sends_one_page_inside_the_poll_budget(produc
 
     page = research.RUN_EVENTS_PAGE
     newest = [{"id": 5000 - i, "kind": "thinking", "message": "x" * 300, "data_json": '{"block": 1}',
-               "created_at": datetime(2026, 10, 25), "tally": 0} for i in range(page + 1)]
+               "created_at": datetime(2026, 10, 25), "tally": 0, "lines_all": 3801} for i in range(page + 1)]
     older = [{"id": 10 + i, "kind": "hypothesis" if i % 2 else "verdict", "message": None if i % 2 else "DROPPED \"Idea\"",
               "data_json": None if i % 2 else json.dumps({"title": "Idea %d" % i, "status": "abandoned"}),
-              "created_at": datetime(2026, 10, 24), "tally": 1} for i in range(600)]
+              "created_at": datetime(2026, 10, 24), "tally": 1, "lines_all": None} for i in range(600)]
     short = _call("get_run", 10.0, params=("41",), query={"after": "0"})  # a session with no lines
     log = []
     out = server.get_run(_ctx(log, 10.0, query={"after": "0"}, params=("41",),
-                              extra={"0 AS tally FROM app_agent_events": newest + older}))
+                              extra={"0 AS tally, (SELECT COUNT(*) FROM app_agent_events": newest + older}))
     events = [(s, p) for s, p in log if "app_agent_events" in s and "LIKE 'Dreaming:" not in s]
     assert len(events) == 1, events
     sql, args = events[0]
     assert "FORCE INDEX (idx_events_run)" in sql and "ORDER BY id DESC LIMIT %s" in sql and "UNION ALL" in sql
     assert "thinking" not in sql.split("UNION ALL")[1]  # the tally names the kinds it reads; thinking is never one
-    assert args[:2] == (41, page + 1) and args[-1] == page  # one line more than it sends; the tally below those it sends
+    assert args[:3] == (41, 41, page + 1) and args[-1] == page  # one line more than it sends; the tally below those it sends
+    # The session's count of lines rides the page's own rows (one index-only count, in this statement), for the page's total.
+    assert "COUNT(*) FROM app_agent_events FORCE INDEX (idx_events_run) WHERE run_id=%s" in sql.split("UNION ALL")[0]
+    assert out["earlier"]["lines"] == 3801 and not any("lines_all" in e for e in out["events"])
     assert len(out["events"]) == page and [e["id"] for e in out["events"]] == sorted(e["id"] for e in newest)[1:]
     assert not any("tally" in e for e in out["events"])
     assert out["earlier"]["before"] == out["events"][0]["id"]

@@ -122,12 +122,26 @@ def test_a_pause_opens_at_since_deploying_and_a_failed_reload_at_billings_notice
     rows = [_row(5, "paused", "/strategies/13", read=False), _row(4, "paused", "/strategies/13"),
             _row(3, "reload_failed", "/billing"), _row(2, "passed", "/strategies/13"), _row(1, "comment", "/community#post-4")]
     out = bell.grouped(rows)
-    assert [(n["link"], n["more"]) for n in out] == [("/strategies/13#since-deploying", 1), ("/billing#autorel-fail", 0),
+    assert [(n["link"], n["more"]) for n in out] == [("/strategies/13#since-deploying", 1), ("/billing?notice=3#autorel-fail", 0),
                                                      ("/strategies/13", 0), ("/community#post-4", 0)]
     # Only the plain page link takes the part: anything else is left as stored.
     assert bell.shown_link("paused", "/strategies/13#x") == "/strategies/13#x"
     assert bell.shown_link("paused", None) is None
     assert bell.shown_link("reload_failed", "/billing?x=1") == "/billing?x=1"
+    # A pause's strategy is its own page; Billing tells its failed reloads apart only by the notice.
+    assert bell.shown_link("paused", "/strategies/13", 5) == "/strategies/13#since-deploying"
+    assert bell.shown_link("reload_failed", "/billing") == "/billing#autorel-fail"
+
+
+def test_each_failed_reload_notice_opens_billing_at_its_own_failure_not_the_newest():
+    # Every "Auto-reload couldn't add…" line opened /billing#autorel-fail, the newest failure's banner (walk 2026-11-01).
+    rows = [_row(9, "reload_failed", "/billing", read=False), _row(8, "passed", "/strategies/2"), _row(7, "reload_failed", "/billing"),
+            _row(6, "comment", "/community#post-4"), _row(5, "reload_failed", "/billing")]
+    links = [n["link"] for n in bell.grouped(rows) if n["kind"] == "reload_failed"]
+    assert links == ["/billing?notice=9#autorel-fail", "/billing?notice=7#autorel-fail", "/billing?notice=5#autorel-fail"]
+    # A run of them in a row still groups by the stored link, under the newest one's.
+    run = bell.grouped([_row(9, "reload_failed", "/billing"), _row(8, "reload_failed", "/billing")])
+    assert [(n["link"], n["more"]) for n in run] == [("/billing?notice=9#autorel-fail", 1)]
 
 
 def test_the_bell_says_when_older_notices_are_past_its_lines(monkeypatch):

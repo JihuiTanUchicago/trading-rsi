@@ -89,6 +89,24 @@ def last_credit_at(cur, user_id: int, kind: str):
     return row["t"] if row else None
 
 
+def reload_failure(cur, user_id: int, notice_id: int, kind: str) -> Optional[Dict]:
+    """One of the user's failed auto-reload notices (`kind`, by its id) and what came after it, for Billing opened from
+    that notice in the bell: {id, body, created_at, ok_at, next_at}, where ok_at is when the first auto-reload after it
+    went through and next_at when the next failure was told (None when none has). One statement, only when Billing is
+    opened from a notice: the row by primary key, the next success off idx_credit_user_kind_time, the next notice off
+    idx_notif_user_kind. None when it isn't the user's notice of that kind."""
+    cur.execute(
+        "SELECT n.id, n.body, n.created_at, "
+        "(SELECT MIN(c.created_at) FROM app_credit_ledger c WHERE c.user_id=n.user_id AND c.kind='autoreload' "
+        "AND c.created_at>n.created_at) AS ok_at, "
+        "(SELECT m.created_at FROM app_notifications m WHERE m.user_id=n.user_id AND m.kind=n.kind AND m.id>n.id "
+        "ORDER BY m.id LIMIT 1) AS next_at "
+        "FROM app_notifications n WHERE n.id=%s AND n.user_id=%s AND n.kind=%s",
+        (int(notice_id), user_id, kind),
+    )
+    return cur.fetchone()
+
+
 def credit_totals(cur, user_id: int, since) -> Dict[str, Dict[str, float]]:
     """Each ledger kind's all-time total and row count, and its total since `since`:
     {kind: {"all": usd, "n": rows, "since": usd, "n_since": rows}}. The kinds' "all" add up to

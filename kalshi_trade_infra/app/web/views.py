@@ -3,6 +3,7 @@ gate lines, the billing gate, a run's wait), so app.server and the route modules
 verbatim from app.server, which re-imports every name."""
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -11,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from app import repository as repo
 from app import worker
 from app.adapters.kalshi import kalshi_account
+from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.services import customer_text, gate_explain
 from app.services.deploy_rows import (  # noqa: F401  (moved; views keeps the names for the pages and tests)
@@ -235,6 +237,31 @@ def _spec_sizing(row: Dict) -> Dict:
     spec = row.get("spec")
     sizing = spec.get("sizing") if isinstance(spec, dict) else None
     return sizing if isinstance(sizing, dict) else {}
+
+
+# A spec field that is an internal id (strategy_id, experiment_id, run_id, model_id, ids...): never shown.
+_ID_FIELD = re.compile(r"(?:^|_)ids?$", re.I)
+# Spec fields that name markets by their registry key: one ("market", a leg's "market") or a list ("pool").
+_MARKET_FIELDS, _MARKET_LIST_FIELDS = frozenset({"market"}), frozenset({"pool"})
+
+
+def spec_for_customer(spec):
+    """A strategy's spec as its page shows it (the JSON under "Machine spec"): each market by its long name
+    (customer_name, the registry's customer_label; "an unlisted market" for a key the registry doesn't list), a model
+    identifier in any value by its customer name, and no internal id field. The page showed the stored spec, so a
+    catalog market read "market": "kxhighchi" (walk 2026-11-01). Display only: the stored spec, which the engine
+    trades and the pre-registration hashes, is unchanged and still sent as `spec`."""
+    def shown(v, key=None):
+        if isinstance(v, dict):
+            return {k: shown(x, k) for k, x in v.items() if not _ID_FIELD.search(str(k))}
+        if isinstance(v, list):
+            return [shown(x, key) for x in v]
+        if isinstance(v, str):
+            if key in _MARKET_FIELDS or key in _MARKET_LIST_FIELDS:
+                return customer_name(v)
+            return customer_text.MODEL_ID.sub(lambda m: catalog.label_for_model_id(m.group(0)), v)
+        return v
+    return shown(spec) if isinstance(spec, dict) else {}
 
 
 def _usd(v: float) -> str:

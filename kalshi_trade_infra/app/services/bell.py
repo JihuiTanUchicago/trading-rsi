@@ -13,7 +13,9 @@ same. Replies and mentions name who the rest are from (`from`, `from_more`), fro
 
 A notice opens its page at what it is about (`link`, as shown; the stored link is unchanged and is what groups):
 a pause at the strategy's Since deploying, where each book's pause and its reason are listed, and a failed
-auto-reload at Billing's notice of it. Either page falls back to its heading when that part isn't there."""
+auto-reload at Billing's notice of it. Either page falls back to its heading when that part isn't there.
+A failed auto-reload's link names its own notice (?notice=<id>), so Billing says what that failure was and what
+came after it: every "Auto-reload couldn't add…" line opened the newest failure's banner, whichever was pressed."""
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -26,9 +28,10 @@ _FROM = {"comment": re.compile(r"^(.+) replied to your post\.$", re.S),
          "mention": re.compile(r"^(.+) mentioned you in a (?:post|reply)\.$", re.S)}
 FROM_NAMED = 3  # names a group lists before "and N others"
 
-# Where a notice opens, by kind: an element id on its page that pageArrived (both bundles) gives focus to.
-_ARRIVE = {"paused": (re.compile(r"^/strategies/\d+$"), "#since-deploying"),
-           "reload_failed": (re.compile(r"^/billing$"), "#autorel-fail")}
+# Where a notice opens, by kind: an element id on its page that pageArrived (both bundles) gives focus to, and
+# whether the link names the notice itself (a page that tells its notices apart: Billing, each failed reload).
+_ARRIVE = {"paused": (re.compile(r"^/strategies/\d+$"), "#since-deploying", False),
+           "reload_failed": (re.compile(r"^/billing$"), "#autorel-fail", True)}
 
 
 def _who(kind: str, body: Optional[str]) -> Optional[str]:
@@ -37,10 +40,14 @@ def _who(kind: str, body: Optional[str]) -> Optional[str]:
     return m.group(1).strip() if m else None
 
 
-def shown_link(kind: str, link: Optional[str]) -> Optional[str]:
-    """The link as the bell opens it: the stored one, with the part of its page the notice is about."""
+def shown_link(kind: str, link: Optional[str], notice_id: Optional[int] = None) -> Optional[str]:
+    """The link as the bell opens it: the stored one, with the part of its page the notice is about, and for a
+    kind whose page tells its notices apart, which notice it is (`notice_id`, as ?notice=)."""
     rule = _ARRIVE.get(kind)
-    return link + rule[1] if rule and link and rule[0].match(link) else link
+    if not (rule and link and rule[0].match(link)):
+        return link
+    own = "?notice=%d" % int(notice_id) if rule[2] and notice_id is not None else ""
+    return link + own + rule[1]
 
 
 def grouped(rows: List[Dict], shown: int = SHOWN) -> List[Dict]:
@@ -65,7 +72,7 @@ def grouped(rows: List[Dict], shown: int = SHOWN) -> List[Dict]:
         if len(out) == shown:
             break
         keys.append(r.get("link"))
-        out.append({"id": r["id"], "kind": r["kind"], "body": r["body"], "link": shown_link(r["kind"], r.get("link")),
+        out.append({"id": r["id"], "kind": r["kind"], "body": r["body"], "link": shown_link(r["kind"], r.get("link"), r.get("id")),
                     "created_at": r["created_at"], "read": r.get("read_at") is not None, "more": 0, "alike": True,
                     "from": [], "_others": [], "gone": bool(r.get("gone"))})
     for n in out:

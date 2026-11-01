@@ -156,6 +156,11 @@ def test_a_long_sessions_page_sends_its_newest_lines_counts_the_rest_and_pages_b
     # One statement reads the event table (besides the cached dream line), bounded.
     reads = [s for s in sql if "app_agent_events" in s and "LIKE 'Dreaming:" not in s]
     assert len(reads) == 1 and "LIMIT" in reads[0], reads
+    # That same statement counts every line the session logged (another session's lines left out), so the page can say
+    # how many there are past its newest: "Showing the latest 60 entries" gave no total (walk 2026-11-01).
+    cur.execute("SELECT COUNT(*) AS n FROM app_agent_events WHERE run_id=%s", (rid,))
+    assert first["earlier"]["lines"] == cur.fetchone()["n"] > len(first["events"])
+    assert not any("lines_all" in e for e in first["events"])
 
     # "Show earlier steps": a page at a time back to the first line; together they are the whole log.
     got, before, more = list(first["events"]), first["earlier"]["before"], True

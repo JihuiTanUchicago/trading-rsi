@@ -1072,7 +1072,7 @@ details > summary { cursor: pointer; font-family: var(--f-nar); font-size: 12px;
 details > summary::-webkit-details-marker { display: none; }
 details > summary::before { content: "›"; display: inline-block; margin-right: 6px; font-size: 16px; line-height: 1; color: var(--ink-3); }
 details[open] > summary::before { transform: rotate(90deg); }
-details.raw pre { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--stock); border: 1px solid var(--rule); padding: 12px; overflow: auto; }
+details.raw pre { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--stock); border: 1px solid var(--rule); padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tried { color: var(--ink-2); }
 
 .deploy { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start; margin-top: 8px; }
@@ -1671,7 +1671,7 @@ body.landing-body { background: #FBFBFA; }
 .autorel-edit[aria-expanded="true"] .chev svg { transform: rotate(180deg); }
 .autorel-config { margin-top: 10px; }
 /* A failed auto-reload, above the switch: the reason, then the way to the card form. */
-.autorel-fail { margin: 16px 0 0; }
+.autorel-fail, .autorel-was { margin: 16px 0 0; }
 .autorel-fail[hidden] { display: none; }
 .autorel-fail .btn { display: flex; width: fit-content; margin-top: 8px; }
 #topup-note { line-height: 1.5; }
@@ -2384,7 +2384,8 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
 .feedwrap .feed-from .notice { flex: 1 1 240px; margin: 0; }
 /* Show older posts, under the feed: centred, with a failed read's line under it. */
 .feedwrap .feed-more { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 8px 0 16px; }
-.feedwrap .feed-more:has(> [data-older][hidden]):not(:has(#older-flash > *)) { display: none; }
+.feedwrap .feed-more:has(> [data-older][hidden]):not(:has(#older-flash > *)):not(:has(> .feed-count:not([hidden]))) { display: none; }
+.feedwrap .feed-count { margin: 0; text-align: center; }
 .feedwrap .post.post-target { background: var(--signal-wash); box-shadow: 0 0 0 8px var(--signal-wash); }  /* posts sit flush; the wash reaches past the text */
 .community-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 44px; padding: 0 128px 12px 0; border-bottom: 1px solid var(--rule-2); }
 .feed-filter { display: flex; gap: 20px; }

@@ -472,7 +472,9 @@ def run_events(cur, run_id: int, after_id: int = 0, limit: int = 0, before_id: i
     those limit-1 that the page counts or reads a flag from: each hypothesis (its id and kind alone), each
     verdict (with its message and data), each skeptic's review, pause and resume, and the steps TALLY_STEPS
     names; never the thinking lines, usually most of a long session. Through idx_events_run_kind, bounded
-    by an index-only read of the newest limit-1 ids."""
+    by an index-only read of the newest limit-1 ids. The first read's page rows also carry `lines_all`, how many
+    lines the run has logged in all (an index-only count of idx_events_run, once, in the same statement), so a page
+    that shows only the newest can say how many there are."""
     if not limit:
         cur.execute(
             "SELECT id, kind, message, data_json, created_at FROM app_agent_events WHERE run_id=%s AND id>%s ORDER BY id",
@@ -481,14 +483,16 @@ def run_events(cur, run_id: int, after_id: int = 0, limit: int = 0, before_id: i
         rows = cur.fetchall()
     else:
         bounds = [("id>%s", after_id), ("id<%s", before_id)]
-        page = ("SELECT id, kind, message, data_json, created_at, 0 AS tally FROM app_agent_events "
+        lines_all = (", (SELECT COUNT(*) FROM app_agent_events FORCE INDEX (idx_events_run) WHERE run_id=%s) AS lines_all"
+                     if tally else "")
+        page = ("SELECT id, kind, message, data_json, created_at, 0 AS tally" + lines_all + " FROM app_agent_events "
                 "FORCE INDEX (idx_events_run) WHERE run_id=%s" + "".join(" AND " + sql for sql, v in bounds if v)
                 + " ORDER BY id DESC LIMIT %s")
-        args = [run_id, *(v for _, v in bounds if v), limit]
+        args = [*([run_id] if tally else []), run_id, *(v for _, v in bounds if v), limit]
         if tally:
             page = "(" + page + ") UNION ALL (" + (
                 "SELECT id, kind, CASE WHEN kind IN ('verdict','step') THEN message END, "
-                "CASE WHEN kind='verdict' THEN data_json END, created_at, 1 FROM app_agent_events "
+                "CASE WHEN kind='verdict' THEN data_json END, created_at, 1, NULL FROM app_agent_events "
                 "FORCE INDEX (idx_events_run_kind) WHERE run_id=%s "
                 "AND kind IN ('hypothesis','challenger','verdict','paused','resumed','step') "
                 "AND (kind<>'step' OR message LIKE %s OR message LIKE %s OR message LIKE %s) "

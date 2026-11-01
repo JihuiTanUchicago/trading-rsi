@@ -28,6 +28,7 @@ from app.web.views import (
     _past_deployment_out,
     _spec_sizing,
     demo_health_memo,
+    spec_for_customer,
 )
 from trading_core.domain.money import cents
 from trading_core.domain.slippage import paper_estimate
@@ -723,6 +724,8 @@ def get_strategy(ctx: Ctx):
         _stamp_row_instant_fills(lambda ids: sim, deps_out)
     out.update(
         spec=s["spec"], rules=specmod.describe(s["spec"]), gates=res.get("gates"), dataset=res.get("dataset"),
+        # The spec as the page shows it: markets by name, no internal id (`spec` stays as stored, for the code).
+        spec_shown=spec_for_customer(s["spec"]),
         recent_trades=res.get("recent_trades"),
         # The backtest columns' "too few trades to tell skill from luck" caution (display only): the app's
         # one noise level for a trade count, deliberately stricter than the gate's floor, which it names.

@@ -1065,7 +1065,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // A long session's page first reads only its newest lines; "Show earlier steps" reads the rest a page at a
     // time (olderAt: the first line here and how to read before it). A verdict or skeptic's review whose idea
     // sits on a page not read yet stands alone (strays) until that page is read, then moves onto its card.
-    let olderAt = null, strays = [], ended = false;
+    let olderAt = null, strays = [], ended = false, logged = null;
     const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 60;
     // The jump button is hidden only when it shows: each 2s poll of a live session set it hidden again.
     const toLatest = () => { log.scrollTop = log.scrollHeight; unseen = 0; if (!jump.hidden) jump.hidden = true; };
@@ -1088,10 +1088,15 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // The line over the log says which it shows: every entry since the session started, or only the latest (a long
     // session's first paint holds its earlier rows, and its first read sends only its newest lines). It said nothing,
     // and "Show 92 earlier entries" at the top was the only sign the log was cut (walk 2026-11-01).
+    // It gave no total (walk 2026-11-01). Every line read and only the first paint's oldest rows held: the entries in
+    // all, counted here. Earlier steps still on the server: how many lines the session has logged (the server's
+    // `earlier.lines`, counted in the first read's statement, plus each poll's since), as entries group lines (a train
+    // of thought is one entry; a verdict lands on its idea's card), so the server can't count entries it hasn't sent.
     function paintSpan() {
       if (!span) return;
-      const shown = log.querySelectorAll('.ln').length;
-      const said = !shown ? '' : earlier || olderAt ? `Showing the latest ${num(shown)} entr${shown === 1 ? 'y' : 'ies'}; earlier ones open at the top.`
+      const shown = log.querySelectorAll('.ln').length, held = earlier ? earlier.filter((el) => el.classList && el.classList.contains('ln')).length : 0;
+      const said = !shown ? '' : olderAt ? `Showing the latest ${num(shown)} entr${shown === 1 ? 'y' : 'ies'}; earlier ones open at the top.${logged > 0 ? ` The session has logged ${num(logged)} lines in all.` : ''}`
+        : earlier ? `Showing the latest ${num(shown)} of ${num(shown + held)} entries; earlier ones open at the top.`
         : 'Showing every entry since the session started.';
       if (span.textContent !== said) span.textContent = said;
       span.hidden = !said;
@@ -1260,9 +1265,11 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       reveal: () => showEarlier(false),  // a jump to an older card shows the held rows first
       days: markDays,  // the day turned: the day lines worked out again (viewRun's dayWatch)
       // The server holds steps before the first one sent (its `earlier`): "Show earlier steps" reads them, `read(before)`.
-      older(before, read) { olderAt = before ? { before, read } : null; paintTop(); },
+      // `lines`: every line the session had logged by that read (the server's earlier.lines), for the line over the log.
+      older(before, read, lines) { olderAt = before ? { before, read } : null; logged = +lines > 0 ? +lines : null; paintTop(); },
       push(events) {
         if (!events || !events.length) return;
+        if (logged != null) logged += events.length;  // a poll's new lines, since the count
         const ph = log.querySelector('.log-empty'); if (ph) ph.remove();
         const stick = first || atBottom();
         appended = 0;
@@ -2050,7 +2057,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         }
       }
       stream.push(d.events);
-      if (pre) stream.older(pre.before, (before) => api(`/api/runs/${id}?before=${before}`).then((x) => { markGone(x && x.events); return x; }));
+      if (pre) stream.older(pre.before, (before) => api(`/api/runs/${id}?before=${before}`).then((x) => { markGone(x && x.events); return x; }), pre.lines);
       stream.state(active ? r.status : 'done', r.wait, active ? '' : runDoneText(r));
       if (pre) obs.seen(pre.kinds, pre.dreamed);
       obs.push(d.events, r.status, r);

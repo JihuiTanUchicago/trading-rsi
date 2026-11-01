@@ -487,6 +487,34 @@ export function communityCases({name, frontend}) {
     f.clearTimers();
   });
 
+  test(`${name}: the feed says it shows the newest posts, where the page stops listing, and when every post is listed`, async () => {
+    // It said nothing past its posts, and at 300 posts Show older posts went away with older ones still there (walk 2026-11-01).
+    let all = many(45, 400);
+    const f = patched(frontend({fetchImpl: (path, options) => {
+      if (path === '/api/strategies') return response({strategies: []});
+      if (path.startsWith('/api/community') && !(options && options.method)) {
+        const q = new URLSearchParams(path.split('?')[1] || '');
+        return response({posts: all.slice(0, Math.min(+(q.get('limit') || 30), 300))});
+      }
+      return response({});
+    }}));
+    f.location.pathname = '/community';
+    await f.viewCommunity(); await settle();
+    const count = f.root.querySelector('#feed-count'), older = f.root.querySelector('[data-older]');
+    assert.equal(count.textContent, 'Showing the newest 30 posts.'); assert.equal(count.hidden, false);
+    await older.onclick(); await settle();
+    assert.equal(count.textContent, 'No older posts. All 45 are listed.'); assert.equal(count.hidden, false);
+    // 330 posts: ten presses reach the most the page lists, and it says so as the button goes.
+    all = many(330, 400);
+    for (let i = 0; i < 9; i++) { await older.onclick(); await settle(); }
+    assert.equal(f.root.querySelectorAll('#feed .post').length, 300);
+    assert.equal(older.hidden, true);
+    assert.equal(count.textContent, 'Showing the newest 300 posts, the most this page lists.');
+    f.root.querySelector('.feed-filter .chip[data-feed="mine"]').onclick(); await settle();
+    assert.equal(count.textContent, 'Showing the newest 30 of your posts.');
+    f.clearTimers();
+  });
+
   test(`${name}: a sent reply puts focus back in its thread's reply box, and a new post takes focus where it landed`, async () => {
     let count = 1, posts = [post(11, {comments: count})];
     const replies = [{body: 'First', author: 'Ana', username: 'ana', created_at: '2026-10-17T10:00:00Z'}];

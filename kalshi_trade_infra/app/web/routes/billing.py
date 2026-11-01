@@ -130,11 +130,35 @@ def _reload_failed(cur, uid: int) -> Optional[Dict]:
         if ok_at is not None and ok_at > note["created_at"]:  # a tie keeps the failure: hiding one is worse
             return None
         # Stored straight ("couldn't"), as the email says it; the pages write an apostrophe curly.
-        return {"at": note["created_at"],
-                "text": customer_text.grouped_dollars(customer_text.curly(billing.reload_failed_text(note["body"])))}
+        return {"at": note["created_at"], "notice": note["id"], "text": _reload_failed_words(note["body"])}
     except Exception as e:  # noqa: BLE001
         print("[billing] auto-reload failure read failed for user %s: %r" % (uid, e), flush=True)
         return None
+
+
+def _reload_failed_words(body: str) -> str:
+    """A failure notice's words as Billing shows them (billing.reload_failed_text, its apostrophes curly and its
+    dollars grouped): the notice's own words, never written anew."""
+    return customer_text.grouped_dollars(customer_text.curly(billing.reload_failed_text(body)))
+
+
+def _reload_notice(cur, uid: int, notice_id: int, shown: Optional[Dict]) -> Optional[Dict]:
+    """Billing opened from one failed auto-reload's bell notice (?notice=, bell.shown_link) that isn't the failure its
+    banner shows (`shown`, _reload_failed): {at, text, ok_at, next_at}, when it failed and what it said, and when an
+    auto-reload first went through after it or the next failure was told. Every one of those notices opened the
+    newest failure's banner, so an older one ("couldn't add $25.00") landed on another's words ("$1,000.00").
+    None for that same failure, or for a notice that isn't the user's failed auto-reload. A readout: a failed read is None."""
+    if notice_id <= 0 or (shown and shown.get("notice") == notice_id):
+        return None
+    try:
+        row = repo.reload_failure(cur, uid, notice_id, billing.RELOAD_FAILED_KIND)
+    except Exception as e:  # noqa: BLE001
+        print("[billing] auto-reload notice read failed for user %s: %r" % (uid, e), flush=True)
+        return None
+    if not row:
+        return None
+    return {"at": row["created_at"], "text": _reload_failed_words(row["body"]), "ok_at": row.get("ok_at"),
+            "next_at": row.get("next_at")}
 
 
 def reload_failed_now(cur, uid: int, reads: billing.Reads) -> Optional[str]:
@@ -170,6 +194,16 @@ def billing_state(ctx: Ctx):
             cards = billing.list_cards(cust["stripe_customer_id"])
         except billing.StripeError:
             cards, cards_unread = [], True
+    # Opened from a failed auto-reload's bell notice: that failure, when it isn't the one the banner shows. Only
+    # then is the key sent, so a plain read keeps the figures poll's shape.
+    if state["configured"] and cust:
+        try:
+            notice_id = int(str(ctx.query.get("notice") or "0"))
+        except ValueError:
+            notice_id = 0
+        was = _reload_notice(ctx.cur, ctx.uid, notice_id, state["reload_failed"])
+        if was:
+            state["reload_notice"] = was
     return dict(state, cards=cards, cards_unread=cards_unread, **_statement(ctx.cur, ctx.uid, since, _statement_tz(ctx, since), totals, balance, ctx.user.get("created_at")))
 
 

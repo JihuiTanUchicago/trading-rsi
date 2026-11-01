@@ -737,10 +737,14 @@ window.TauPage('strategy', (T) => {
     const gatesHtml = (gs) => gs && gs.length ? `<ul class="gates">${gs.map((g) => `<li class="${g.ok ? 'ok' : 'no'}">${g.ok ? ICON.check : ICON.cross}<span>${esc(gateName(g.name))}<small>needs ${esc(g.threshold)}</small></span><span class="v">${typeof g.value === 'number' && /\$|drawdown|money/i.test(g.name + g.threshold) ? usd(g.value) : rpFig(g.value)}</span></li>`).join('')}</ul>` : `<p class="hint">${hasExp ? (passedAll ? 'Its checks were the held-out tests on data it never saw, and it passed every one: see Verdict above.'
       : 'Its checks were the held-out tests on data it never saw: Verdict, above, says which it missed.')
       : 'No gate results recorded for this strategy. Gates only run for finalists that made money in testing.'}</p>`;
+    // The backtest keeps its latest 12 later-period trades (backtest.py recent_trades) of the period's N (out_of_sample.trades):
+    // the table listed 12 under "Most recent later-period trades" with no word of how many there were (walk 2026-11-01).
+    const tradesShown = (s.recent_trades || []).length, tradesAll = oos ? +oos.trades || 0 : 0;
+    const tradesOf = tradesShown && tradesAll > tradesShown ? `<p class="hint">The latest ${num(tradesShown)} of its ${num(tradesAll)} later-period trades.</p>` : '';
     // Opened is on the page's 24-hour clock, with its date and zone (LOG_STAMP): it read "11:21 PM EDT" beside "21:36 EDT".
     const trades = (s.recent_trades || []).length ? `<table class="table stack"><thead><tr><th>Opened</th><th>Market</th><th>Position</th><th class="num">Entry${perpetual ? ' (USD)' : ''}</th><th class="num">Exit${perpetual ? ' (USD)' : ''}</th><th class="num">P&amp;L</th></tr></thead><tbody>
         ${s.recent_trades.map((t) => `<tr><td data-lab="Opened">${t.opened ? esc(dateFmt(new Date(t.opened.replace('Z', ':00Z')), LOG_STAMP)) : '—'}</td><td class="pos-name" data-lab="Market">${esc(contractName(t.ticker, s.market))}</td><td data-lab="Position">${t.side ? esc(t.side.toUpperCase()) : '—'} ×${num(t.qty)}</td><td class="num" data-lab="Entry">${tradePrice(t.entry, perpetual)}</td><td class="num" data-lab="Exit">${tradePrice(t.exit, perpetual)} <small class="hint">${esc(exitWord(t.reason, t.exit))}</small></td><td class="num ${tone(t.pnl)}" data-lab="P&amp;L">${usd(t.pnl, true)}</td></tr>`).join('')}
-      </tbody></table>` : `<p class="hint">No later-period trades (${laterQual}) to show.</p>`;
+      </tbody></table>${tradesOf}` : `<p class="hint">No later-period trades (${laterQual}) to show.</p>`;
     const activeDeps = restricted ? [] : s.deployments.filter((d) => d.status !== 'stopped');
     // Stopped deployments can still hold positions; the server refuses the delete until they close.
     const delBlock = restricted ? null : (s.delete_block || null);
@@ -766,9 +770,10 @@ window.TauPage('strategy', (T) => {
           </dl>
           <p class="rp-sub" style="margin-top:8px">${perpetual ? 'The agent only saw the research partition. ' + PERPS_SCENARIO : (splitOnly ? (noPass ? 'The rule was fit on data before the split date; there’s no record that the data after it was held out. ' : 'The rule was fit on data before the split date; the data after it picked the rule, so none of it is held out. ') : 'The agent only ever saw data before the held-out date. ') + "Every simulated fill pays the ask or bid plus Kalshi’s taker fee — results are net of fees or they do not count."}</p></div>` : '';
     // What it does, in plain words: the paper's first section. It sat inside the Methodology fold,
-    // which a phone opens closed, under the pre-registration, so the rule took digging to find.
+    // which a phone opens closed, under the pre-registration, so the rule took digging to find. Its JSON is the server's
+    // spec_shown (markets by name, no internal id): the stored spec showed "market": "kxhighchi" (walk 2026-11-01).
     const ruleBlock = `${(s.rules || []).length ? `<ul class="rules">${s.rules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-          <details class="raw"><summary>Exact machine spec (JSON)</summary><pre>${esc(JSON.stringify(s.spec, null, 2))}</pre></details>`;
+          <details class="raw"><summary>Machine spec (JSON)</summary><pre>${esc(JSON.stringify(s.spec_shown || {}, null, 2))}</pre></details>`;
     const methodologyBody = rp.methodology + dataBlock + (perpetual && !s.dataset ? `<p class="hint">${PERPS_SCENARIO}</p>` : '');
     const resultsBody = rp.results
       + `<div class="paper-sub">${perpetual ? '<h4 class="paper-h">Perpetual research scenario</h4>' : hasExp ? '<h4 class="paper-h">Backtest &amp; Kalshi demo replay</h4>' : ''}
