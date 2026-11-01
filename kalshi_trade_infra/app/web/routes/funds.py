@@ -87,8 +87,8 @@ def funds(ctx: Ctx):
     # open at cost, the dashboard's paper figure. Books are never added together.
     open_pos = repo.user_positions(cur, ctx.uid, "open")
     paper = _open_book(open_pos, "paper")
-    # The paper balance and the newest LEDGER_LISTED history entries, in one read.
-    ledger, balance = repo.ledger_rows_with_balance(cur, ctx.uid)
+    # The paper balance, the newest LEDGER_LISTED history entries and how many the history holds, in one read.
+    ledger, balance, entries = repo.ledger_rows_with_balance(cur, ctx.uid)
     kalshi.update(_open_book(open_pos, "live"), realized_pnl=cents(realized["live"][0]),
                   closed_trades=int(closed.get("live", 0)))
     return {
@@ -97,7 +97,7 @@ def funds(ctx: Ctx):
                   # Beside realized_pnl, never in place of it: the dashboard's paper estimate for the same figure
                   # (trading_core.domain.slippage). None before a closed paper trade; live and demo never carry one.
                   "slippage_estimate": paper_estimate(PAPER, realized["paper"][0], fills.get(PAPER)),
-                  "ledger": ledger},
+                  "ledger": ledger, "ledger_total": entries},
         "demo": {"capital": de["capital"], "equity": de["equity"], "realized": de["realized"],
                  "before_reload": de["before_reload"], "closed_trades": int(closed.get("demo", 0)),
                  **_open_book(open_pos, "demo")},

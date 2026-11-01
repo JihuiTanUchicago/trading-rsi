@@ -101,19 +101,25 @@ def ledger_rows(cur, user_id: int, limit: int = LEDGER_LISTED) -> List[Dict]:
     return cur.fetchall()
 
 
-def ledger_rows_with_balance(cur, user_id: int, limit: int = LEDGER_LISTED) -> Tuple[List[Dict], float]:
-    """(ledger_rows, paper_balance) in one statement, for Funds: the balance (the whole ledger's sum, computed once)
-    rides each listed row; with no row listed the ledger is empty and sums to 0."""
+def ledger_rows_with_balance(cur, user_id: int, limit: int = LEDGER_LISTED) -> Tuple[List[Dict], float, int]:
+    """(ledger_rows, paper_balance, entries) in one statement, for Funds: the balance (the whole ledger's sum, computed
+    once) and how many entries the whole ledger holds ride each listed row; with no row listed the ledger is empty, sums
+    to 0 and holds none. The count is what Funds' history says it lists the latest of ("The latest 50 of 4,281
+    entries."): it said "The latest 50 entries." over a six-month ledger with nothing saying how many there were
+    (walk 2026-11-01). Index-only, on idx_ledger_user_time, the range the balance already reads."""
     cur.execute(
-        "SELECT id, kind, amount, memo, created_at, (SELECT COALESCE(SUM(amount),0) FROM app_ledger WHERE user_id=%s) AS balance_all "
+        "SELECT id, kind, amount, memo, created_at, (SELECT COALESCE(SUM(amount),0) FROM app_ledger WHERE user_id=%s) AS balance_all, "
+        "(SELECT COUNT(*) FROM app_ledger WHERE user_id=%s) AS entries_all "
         "FROM app_ledger WHERE user_id=%s ORDER BY id DESC LIMIT %s",
-        (user_id, user_id, limit),
+        (user_id, user_id, user_id, limit),
     )
     rows = cur.fetchall()
     balance = float(rows[0]["balance_all"]) if rows else 0.0
+    entries = int(rows[0]["entries_all"]) if rows else 0
     for r in rows:
         r.pop("balance_all", None)
-    return rows, balance
+        r.pop("entries_all", None)
+    return rows, balance, entries
 
 
 def ledger_rows_before(cur, user_id: int, before: int, limit: int = LEDGER_LISTED) -> List[Dict]:

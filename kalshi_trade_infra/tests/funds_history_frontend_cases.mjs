@@ -35,7 +35,9 @@ export function fundsHistoryCases({name, frontend, fundsData}) {
     }
     if (path === '/api/funds') {
       const ids = Array.from({length: state.top - state.floor + 1}, (_, k) => state.top - k);
-      return response({...fundsData(), paper: {cash: 1234.56, equity: 1240.06, realized_pnl: 12.5, closed_trades: 40, open_positions: 0, ledger: ids.slice(0, 50).map(entry)}});
+      // ledger_total: how many entries the whole history holds (walk 2026-11-01); state.noTotal, an older server's answer.
+      return response({...fundsData(), paper: {cash: 1234.56, equity: 1240.06, realized_pnl: 12.5, closed_trades: 40, open_positions: 0, ledger: ids.slice(0, 50).map(entry),
+        ...(state.noTotal ? {} : {ledger_total: ids.length})}});
     }
     return response({});
   };
@@ -56,7 +58,8 @@ export function fundsHistoryCases({name, frontend, fundsData}) {
     await f.viewFunds(); await settle();
     const figs = f.root.querySelector('#ffigs').innerHTML;
     assert.deepEqual(ids(f), page(160, 50).map((r) => r.id));
-    assert.match(f.root.querySelector('.ledger-how').textContent, /The latest 50 entries\.$/);
+    // It says how many the history holds: "The latest 50 entries." over 160 left the reader guessing (walk 2026-11-01).
+    assert.match(f.root.querySelector('.ledger-how').textContent, /The latest 50 of 160 entries\.$/);
     assert.ok(button(f), 'a "Show older entries" button under the newest 50');
     assert.equal(plain(button(f).innerHTML), 'Show older entries');
     // No entry id where the customer reads: the button names none, nor does any row's markup outside its memo.
@@ -66,7 +69,7 @@ export function fundsHistoryCases({name, frontend, fundsData}) {
     await click(f);
     assert.deepEqual(state.asked, ['/api/funds/ledger?before=111'], 'the 50 before the oldest one shown');
     assert.deepEqual(ids(f), page(160, 100).map((r) => r.id), 'the older 50 are listed under the newest, in order');
-    assert.match(f.root.querySelector('.ledger-how').textContent, /The latest 100 entries\.$/);
+    assert.match(f.root.querySelector('.ledger-how').textContent, /The latest 100 of 160 entries\.$/);
     // Each older row is drawn as a newest-page row is, with its phone labels.
     for (const tr of rows(f)) assert.deepEqual(tr.children.map((td) => td.attributes['data-lab']), ['When', 'What', 'Amount']);
     assert.match(rows(f)[50].innerHTML, /Sold 5 YES [^<]* at 50¢ \(take profit, #110\)/);
@@ -88,6 +91,7 @@ export function fundsHistoryCases({name, frontend, fundsData}) {
     assert.deepEqual(ids(f), page(160, 100).map((r) => r.id));
     state.top = 163; await poll(); await settle();
     assert.deepEqual(ids(f), page(163, 103).map((r) => r.id));
+    assert.match(f.root.querySelector('.ledger-how').textContent, /The latest 103 of 163 entries\.$/, 'the poll moves the count with the rows');
     assert.ok(!state.asked.some((p) => p !== '/api/funds/ledger?before=111'), 'the poll never asks for an older page');
 
     await click(f);
@@ -104,6 +108,15 @@ export function fundsHistoryCases({name, frontend, fundsData}) {
     assert.equal(rows(f).length, 163);
     assert.equal(state.asked.length, 3);
     f.clearTimers(); same.clearTimers();
+  });
+
+  test(`${name}: an older server's answer without the history's count says only how many are listed`, async () => {
+    const f = frontend({fetchImpl: server({top: 160, floor: 1, asked: [], noTotal: true})});
+    f.location.pathname = '/funds';
+    await f.viewFunds(); await settle();
+    assert.match(f.root.querySelector('.ledger-how').textContent, /The latest 50 entries\.$/);
+    assert.ok(button(f));
+    f.clearTimers();
   });
 
   test(`${name}: a paper history that fits the newest page offers no older one`, async () => {

@@ -814,10 +814,11 @@ def test_funds_and_its_older_history_page_stay_in_their_query_budget(production)
     assert not repeats and len(log) <= BUDGET["funds"], "funds sent %d statements (budget %d):\n  %s" % (
         len(log), BUDGET["funds"], "\n  ".join(s for s, _ in log))
     # Its history is the newest page alone, as before the older pages: one read, LEDGER_LISTED rows, with the paper
-    # balance (the whole ledger's sum) riding it.
+    # balance (the whole ledger's sum) and how many entries the history holds riding it, never a statement of their own.
     pages = [(s, p) for s, p in log if s.startswith("SELECT id, kind, amount, memo, created_at")]
     assert pages == [("SELECT id, kind, amount, memo, created_at, (SELECT COALESCE(SUM(amount),0) FROM app_ledger WHERE user_id=%s) "
-                      "AS balance_all FROM app_ledger WHERE user_id=%s ORDER BY id DESC LIMIT %s", (7, 7, server.repo.LEDGER_LISTED))]
+                      "AS balance_all, (SELECT COUNT(*) FROM app_ledger WHERE user_id=%s) AS entries_all "
+                      "FROM app_ledger WHERE user_id=%s ORDER BY id DESC LIMIT %s", (7, 7, 7, server.repo.LEDGER_LISTED))]
     assert not [s for s, _ in log if s.startswith("SELECT COALESCE(SUM(amount),0) AS b FROM app_ledger")], log
     # Each key's id in one statement, never its encrypted bytes.
     keys = [s for s, _ in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]

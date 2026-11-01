@@ -400,7 +400,11 @@ window.TauPage('funds', (T) => {
       const accounts = keyless ? paperSec + `<details class="panel funds-connect" id="connect-kalshi"><summary><span class="funds-connect-h">Connect Kalshi</span><span class="hint">For live money, or Kalshi’s demo sandbox. The autopilot trades paper, which needs neither.</span></summary>${liveSec}${demoSec}</details>`
         : liveSec + demoSec + paperSec;
       const hist = d.paper.ledger.concat(older), full = d.paper.ledger.length >= LEDGER_PAGE, done = paged && !olderMore;
-      const ledgerHow = `${LEDGER_HOW}${full && !done ? ` The latest ${num(hist.length)} entries.` : ''}`, ledgerBody = ledgerDays(hist);
+      // How many the history holds (the server's ledger_total, from the read that sums the balance): "The latest 50
+      // entries." sat over a six-month ledger of 4,281 with nothing saying how many there were (walk 2026-11-01). An
+      // older server sends none, and a count the listed rows have reached says only what is listed.
+      const ledgerAll = +d.paper.ledger_total || 0, ofAll = ledgerAll > hist.length ? ` of ${num(ledgerAll)}` : '';
+      const ledgerHow = `${LEDGER_HOW}${full && !done ? ` The latest ${num(hist.length)}${ofAll} entries.` : ''}`, ledgerBody = ledgerDays(hist);
       const ledgerMore = !full ? '' : done ? `<p class="hint ledger-end" tabindex="-1">${LEDGER_END}</p>` : '<button type="button" class="btn" id="ledger-older-btn">Show older entries</button>';
       const histSpots = [['#ledger-how', ledgerHow], ['#ledger-rows', ledgerBody], ['#ledger-older', ledgerMore]];
       const cashSpots = { 'live-ok': () => keyLine(k, 'live'), 'live-cell': () => cashCell(k), 'demo-ok': () => demoLine(kd) };

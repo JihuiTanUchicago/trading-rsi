@@ -133,12 +133,15 @@ def test_funds_key_ids_and_ledger_with_balance_say_what_the_single_reads_say(con
             k, d = repo.get_kalshi_key(cur, uid), repo.get_kalshi_dev_key(cur, uid)
             assert repo.kalshi_key_ids(cur, uid) == {"live": k["key_id"] if k else None, "demo": d["key_id"] if d else None}
             empty = repo.ledger_rows_with_balance(cur, uid)
-            assert empty == (repo.ledger_rows(cur, uid), repo.paper_balance(cur, uid)) and not empty[0] and empty[1] == 0.0
-            for i in range(repo.LEDGER_LISTED + 7 if live else 3):
+            assert empty == (repo.ledger_rows(cur, uid), repo.paper_balance(cur, uid), 0) and not empty[0] and empty[1] == 0.0
+            n = repo.LEDGER_LISTED + 7 if live else 3
+            for i in range(n):
                 repo.add_ledger(cur, uid, "deposit" if i == 0 else "trade", 1000 if i == 0 else -1.2345, "Row %d" % i)
-            rows, balance = repo.ledger_rows_with_balance(cur, uid)
+            rows, balance, entries = repo.ledger_rows_with_balance(cur, uid)
             assert rows == repo.ledger_rows(cur, uid) and balance == repo.paper_balance(cur, uid) and type(balance) is float
-            assert len(rows) == min(repo.LEDGER_LISTED, repo.LEDGER_LISTED + 7 if live else 3)
+            assert len(rows) == min(repo.LEDGER_LISTED, n)
+            # Every entry the user's ledger holds, never the page listed nor another account's (`other` has one).
+            assert entries == n and type(entries) is int
 
 
 def test_book_versions_say_what_each_version_says(conn):
