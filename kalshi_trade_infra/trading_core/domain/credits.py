@@ -52,3 +52,18 @@ def credit_exact(v) -> float:
     as well as shows: the page rounds it half up to the cent, as credit_cents does. Rounding it to
     four places first could round twice (0.10496 -> 0.105 -> $0.11 beside Billing's $0.10)."""
     return float(Decimal(str(v or 0)).quantize(LEDGER_PLACE, rounding=ROUND_HALF_UP)) + 0.0
+
+
+def research_week_usd(by_source: Dict[str, float], research) -> float:
+    """The week's research credits as the autopilot card shows them: Billing's two research parts ("your research
+    sessions" plus "autopilot research"), each as credit_split rounds it so the parts add up, summed. `by_source` is
+    the week's usage split (usage_by_source), `research` the week's research debits (credit_week's, the seeded
+    example left out). When the two parts don't make up `research` the figure is `research` to the cent. Moved from
+    app.web.routes.chat so the chat's account facts say the card's figure. Display only."""
+    if not research:
+        return 0.0  # no research debits this week: nothing to split
+    by = by_source
+    if abs(by["research"] + by["autopilot_research"] - research) > 1e-9:
+        return credit_usd(research)
+    split = credit_split(by)
+    return credit_usd(credit_cents(split["research"]) + credit_cents(split["autopilot_research"]))

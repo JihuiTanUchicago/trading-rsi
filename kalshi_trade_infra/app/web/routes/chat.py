@@ -35,7 +35,6 @@ from app.web.views import (
     demo_health_memo,
     known_kalshi_keys,
     shared_billing_reads,
-    credit_cents,
     credit_exact,
     credit_split,
     credit_usd,
@@ -45,6 +44,7 @@ from app.web.views import (
     _run_wait,
     _start_of_day_utc,
 )
+from trading_core.domain.credits import research_week_usd
 from trading_core.domain.money import cents
 from trading_core.domain.slippage import PAPER, paper_estimate
 
@@ -314,14 +314,10 @@ def _research_cents(credits: Dict) -> float:
     to the week), so the autopilot card's research is the sum of the two figures Billing shows. Rounded
     once, $40.936666 + $59.066899 read $100.00 on the card beside Billing's $40.94 and $59.07. The seeded
     example session is left out of research; it debits nothing, and if it ever did, the figure is the
-    research total to the cent."""
+    research total to the cent (trading_core.domain.credits.research_week_usd, which the chat's context reads too)."""
     if not credits["research"]:
-        return 0.0  # no research debits this week: nothing to split
-    by = credits["by_source"]
-    if abs(by["research"] + by["autopilot_research"] - credits["research"]) > 1e-9:
-        return credit_usd(credits["research"])
-    split = credit_split(by)
-    return credit_usd(credit_cents(split["research"]) + credit_cents(split["autopilot_research"]))
+        return 0.0  # no research debits this week: nothing to split (the split isn't read)
+    return research_week_usd(credits["by_source"], credits["research"])
 
 
 def _focus_list(tokens: List[str]) -> str:
