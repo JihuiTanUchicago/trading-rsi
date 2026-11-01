@@ -597,13 +597,18 @@
     const tick = paced(fn, ms, noteId && ((at, refreshing) => staleLine(noteId, at ? staleText(at, refreshing) : '', !refreshing)));
     const id = setInterval(() => { dayRoll(); if (!document.hidden && gen === S.gen) tick(); }, ms);
     S.timers.push(id);
-    wakers.add(() => { if (gen !== S.gen) return false; if (!document.hidden) tick(true); });
+    wakers.add(Object.assign(() => { if (gen !== S.gen) return false; if (!document.hidden) tick(true); }, { gen }));
   }
   // Back online: polls read now instead of sitting out their back-off (up to two minutes of old
   // figures), and a page or panel that failed to load tries again. A waker returns false once its
   // page is gone.
   const wakers = new Set();
   const wake = () => wakers.forEach((w) => { if (w() === false) wakers.delete(w); });
+  // A page's own waker, day watch or cost watch carries its page's gen (Object.assign(fn, { gen })) and goes when the
+  // page does. Each said it was done (returned false) only once called, on a wake or a day turn, so until then every
+  // page visited stayed in memory with its whole DOM: ~16,000 nodes and 1MB of heap a round of the main pages on a
+  // heavy account (walk 2026-11-01). Nothing is called here.
+  function dropGone() { [wakers, dayWatch, apCostWatch].forEach((set) => set.forEach((w) => { if (w.gen != null && w.gen !== S.gen) set.delete(w); })); }
   // A day a page names ("Today", "Yesterday", "Today (UTC)") is the day it drew on. When the reader's day or the UTC
   // day turns while the page is open, each dayWatch draws again from what the page already holds, with no read: a tab
   // left open past midnight said "Today" over yesterday's lines until a read changed something, and for good while its
@@ -788,6 +793,7 @@
     const was = focusKey(a0) || (a0 && a0 !== document.body && a0 === root.querySelector('main h1') ? PAGE_START_WAS : null);
     clearTimers();
     const gen = ++S.gen;
+    dropGone();
     window.scrollTo(0, 0);
     // On a phone the open autopilot panel fills the screen, so moving to a page closes it. Focus left in it (a
     // link in the panel, its X) goes with it, so the new page's heading takes focus (pageArrived leaves focus that
@@ -1053,6 +1059,7 @@
       list.querySelectorAll('.notif.unread').forEach((n) => n.classList.remove('unread'));
       list.querySelectorAll('.notif-new, .bell-sum, .bell-older-new').forEach((n) => n.remove());
       const c = head.querySelector('.bell-new'); if (c) c.remove();
+      drawn.head = drawn.list = null;
     };
     const onDoc = (e) => { if (!wrap.contains(e.target)) close(); };
     // A notice the server grouped (the same kind about the same page, in a row) says how many more it
@@ -1097,6 +1104,7 @@
       hold.innerHTML = d.items.map(item).join('');
       const added = [...hold.children];
       added.forEach((n) => list.insertBefore(n, foot));
+      drawn.list = null;
       const first = added[0];
       const old = foot.querySelector('.bell-older'); if (old) old.remove();  // they are listed now, as far as they go
       btn.textContent = BELL_MORE;
@@ -1107,14 +1115,22 @@
       foot.innerHTML = '<p class="bell-empty bell-end" tabindex="-1">No older notices.</p>';
       if (!first) foot.querySelector('.bell-end').focus({ preventScroll: true });
     };
+    // The minute's read (bellFresh) drew the bell again with the same list: each part is written only when it changed.
+    // drawn holds the head and list as last written; anything else that changes them (closing the list takes its new
+    // marks off, Show older notices adds lines, a list that didn't load) clears it, so the next paint writes them.
+    const drawn = { head: null, list: null };
     const paint = (d) => {
-      paints++; olderAt = d.older && d.next_before ? d.next_before : null;
-      dot.hidden = !d.unread;
-      trig.setAttribute('aria-label', d.unread ? `Notifications, ${num(d.unread)} unread` : 'Notifications');  // the dot alone is colour
-      head.innerHTML = '<b>Notifications</b>' + (d.unread ? `<span class="bell-new">${num(d.unread)} new</span>` : '');
+      olderAt = d.older && d.next_before ? d.next_before : null;
+      if (dot.hidden !== !d.unread) dot.hidden = !d.unread;
+      const label = d.unread ? `Notifications, ${num(d.unread)} unread` : 'Notifications';  // the dot alone is colour
+      if (trig.getAttribute('aria-label') !== label) trig.setAttribute('aria-label', label);
+      const headHtml = '<b>Notifications</b>' + (d.unread ? `<span class="bell-new">${num(d.unread)} new</span>` : '');
+      if (drawn.head !== headHtml) { drawn.head = headHtml; head.innerHTML = headHtml; }
       // Empty, it says what rings it: through a new user's first research session it said only "No notifications yet."
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
-      list.innerHTML = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
+      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
+      if (drawn.list === listHtml) return;
+      paints++; drawn.list = listHtml; list.innerHTML = listHtml;
     };
     // A list that didn't load still opens, says so and offers Try again; the next read (bellTick) fills it
     // too. It used to leave the bell dead for the rest of the visit: a tap did nothing and no dot ever came.
@@ -1129,7 +1145,7 @@
       else staleEl.innerHTML = '';
       staleEl.hidden = !(on && data);
     };
-    const unloaded = () => { paints++; olderAt = null; list.innerHTML = '<p class="bell-empty">Notifications didn\u2019t load just now. <button type="button" class="btn sm" data-bell-retry>Try again</button></p>'; };
+    const unloaded = () => { paints++; olderAt = null; drawn.list = null; list.innerHTML = '<p class="bell-empty">Notifications didn\u2019t load just now. <button type="button" class="btn sm" data-bell-retry>Try again</button></p>'; };
     // Focus goes into the list (its first notice, or the list itself when it is empty), so Tab and a
     // screen reader carry on from what just opened; Esc brings it back to the bell.
     const focusIn = () => (list.querySelector('a.notif') || menu).focus({ preventScroll: true });
@@ -1816,7 +1832,9 @@
       const at = (host && host.isConnected && host) || root.querySelector('#main') || document.body;
       const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), t = document.createElementNS(NS, 'text');
       svg.setAttribute('class', svgCls); svg.setAttribute('aria-hidden', 'true');
-      svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;visibility:hidden';
+      // Out of layout (display:none still resolves its text's font size): the hidden copy laid out in the page made the next
+      // read of a width lay out the whole page again, ~150ms each 15s poll on Meridian's Home on a phone (walk 2026-11-01).
+      svg.style.cssText = 'display:none';
       if (textCls) t.setAttribute('class', textCls);
       t.textContent = '0'; svg.appendChild(t); at.appendChild(svg);
       const px = parseFloat(getComputedStyle(t).fontSize); svg.remove();
@@ -2570,6 +2588,10 @@
   }
 
   // ---------- dashboard ----------
+  // The dashboard's date formats, built once (dateFmt keeps a formatter per options object): each open and closed
+  // position's "Expires" line built a formatter of its own on every 15s poll, ~100ms a poll on a phone at 115 positions.
+  const EXPIRES_AT = { dateStyle: 'medium', timeStyle: 'long', hourCycle: 'h23' };
+  const PAPER_DAY = { month: 'short', day: 'numeric', timeZone: 'UTC' }, PAPER_DAY_YEAR = { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' };
   async function viewDashboard() {
     shell('/', loading(120), loading(320));
     // The track record is its own read: asked for now, beside the board, instead of after the board
@@ -2686,7 +2708,7 @@
       const positions = (rows, closed) => rows.map((r) => {
         const name = contractName(r.ticker, depMarket(r));
         const close = r.market_close_time && new Date(r.market_close_time);
-        const expiry = close && Number.isFinite(close.getTime()) ? close.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' }) : '';
+        const expiry = close && Number.isFinite(close.getTime()) ? dateFmt(close, LOG_STAMP) : '';
         // An open row whose market has already closed says so under its expiry, in the words Tau's dashboard, Deploy and
         // the market page use. Walked 2026-10-30: a live position still held a day after its close read only "Oct 29,
         // 07:48 UTC" under Expiry, a date that read as still to come. Words only: the row, its book and figures are the server's.
@@ -2695,7 +2717,7 @@
         // "market · strategy · Demo" over a row that shows "market … Demo", whose words ran together ("minutesDemo") with
         // nothing between them. The grid still places each where it was (a space between grid items draws nothing).
         return `<tr class="${closed ? 'settled-position' : 'open-position'}">
-        <td class="name"><details class="position-details" data-position="${closed ? 'closed' : 'open'}-${esc(r.id)}"><summary aria-label="${esc(name)}${SEP}${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'Demo' : 'Paper'}${SEP}${esc(r.title)}">${ICON.chev}<span class="position-market">${esc(name)}</span> <span class="position-mode">${r.mode === 'live' ? '<span class="mk live">LIVE</span>' : r.mode === 'demo' ? 'Demo' : 'Paper'}</span> <span class="position-title vh">${esc(r.title)}</span></summary><div class="sub-fig">${kalshiRef(r.ticker)}${SEP}${esc(r.title)}<span class="position-opened">${closed ? 'Closed' : 'Opened'} ${when(closed ? r.closed_at : r.opened_at)}</span>${r.why ? `<span class="position-why">${sepLine(r.why)}</span>` : ''}${close && Number.isFinite(close.getTime()) ? `<span class="position-absolute">Expires ${esc(close.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long', hourCycle: 'h23' }))}</span>` : ''}${!closed && r.unrealized == null ? `<span class="position-mark-note">Unrealized: ${NOT_MARKED.toLowerCase()}</span>` : ''}</div></details></td>
+        <td class="name"><details class="position-details" data-position="${closed ? 'closed' : 'open'}-${esc(r.id)}"><summary aria-label="${esc(name)}${SEP}${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'Demo' : 'Paper'}${SEP}${esc(r.title)}">${ICON.chev}<span class="position-market">${esc(name)}</span> <span class="position-mode">${r.mode === 'live' ? '<span class="mk live">LIVE</span>' : r.mode === 'demo' ? 'Demo' : 'Paper'}</span> <span class="position-title vh">${esc(r.title)}</span></summary><div class="sub-fig">${kalshiRef(r.ticker)}${SEP}${esc(r.title)}<span class="position-opened">${closed ? 'Closed' : 'Opened'} ${when(closed ? r.closed_at : r.opened_at)}</span>${r.why ? `<span class="position-why">${sepLine(r.why)}</span>` : ''}${close && Number.isFinite(close.getTime()) ? `<span class="position-absolute">Expires ${esc(dateFmt(close, EXPIRES_AT))}</span>` : ''}${!closed && r.unrealized == null ? `<span class="position-mark-note">Unrealized: ${NOT_MARKED.toLowerCase()}</span>` : ''}</div></details></td>
         <td class="position-size-cell"><span class="position-size"><span class="position-side">${esc(r.side.toUpperCase())}</span><span aria-hidden="true"> × </span><span class="position-quantity"><span class="vh">Quantity </span>${esc(r.qty)}</span></span></td>
         <td class="position-expiry-cell">${expiry ? `<time class="position-expiry" datetime="${esc(close.toISOString())}">${esc(expiry)}</time>${pastClose ? `<span class="position-expired">${MKT_STATUS.closed}</span>` : ''}` : '<span class="unavailable" title="Expiry unavailable"><span aria-hidden="true">—</span><span class="vh">Expiry unavailable</span></span>'}</td>
         <td class="num position-entry">${cents(+r.entry_price)}</td>
@@ -2756,7 +2778,7 @@
       const periodPnl = periodCurve.length ? periodCurve[periodCurve.length - 1][1] : 0;
       // Its name reads the period in words ("from Oct 3 through Oct 31, 2026", not "2026-10-03") and the low and high
       // of the running total with their days, before where it ends: it said only the dates and the end.
-      const paperDay = (d, year) => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+      const paperDay = (d, year) => dateFmt(new Date(d + 'T12:00:00Z'), year ? PAPER_DAY_YEAR : PAPER_DAY);
       const paperRange = () => {
         if (!days.length) return '';
         let lo = 0, hi = 0;
@@ -2831,7 +2853,7 @@
     if (gen !== S.gen) return;
     poll(load, 15000, 'dash-stale');
     // Past midnight UTC the day figures say whose day they are ("Yesterday (UTC)") until a read brings today's.
-    dayWatch.add(() => { if (gen !== S.gen) return false; if (drawn) load(undefined, drawn, undefined, true).catch(() => {}); });
+    dayWatch.add(Object.assign(() => { if (gen !== S.gen) return false; if (drawn) load(undefined, drawn, undefined, true).catch(() => {}); }, { gen }));
     dashTrackRecord(trFirst);
   }
 
@@ -3493,7 +3515,7 @@
     // On with no status yet: still loading (an empty card), or its read failed. That card stayed empty for good,
     // with nothing to say why or to try again (failure walk 2026-10-31); it says so now, with Try again (a read).
     if (!d) {
-      host.className = 'apcard on';
+      if (host.className !== 'apcard on') host.className = 'apcard on';
       repaintKeep(host, () => S.apFailing ? `<div class="apcard-main">${notice(AP_CARD_UNREAD)}<button type="button" class="btn sm" data-apcard="again">Try again</button></div>` : '');
       const again = host.querySelector('[data-apcard="again"]');
       // Back, the card (named Autopilot) takes focus: the button went with the notice. The card itself, not its first
@@ -3536,7 +3558,8 @@
         : apReloadFailed(d) ? `Paused: ${AP_CARD_FIX}${apStillTrading(d)}`
         : `Paused: ${apFloorText()} <a href="/billing">Add credits</a> and it picks up on its own.${apStillTrading(d)}`)
       : d.idle ? apIdleHtml(d.idle, 'data-apcard="idle-focus"', d) + apMeanwhile(d) : esc(apStory(d)[0] || 'Autopilot is on.');
-    host.className = 'apcard on' + (m.cls ? ' ' + m.cls : '') + (d.billing_blocked ? ' warn' : '');
+    const cardCls = 'apcard on' + (m.cls ? ' ' + m.cls : '') + (d.billing_blocked ? ' warn' : '');
+    if (host.className !== cardCls) host.className = cardCls;
     repaintKeep(host, (open) => `<div class="apcard-main"><span class="apcard-kick"><span class="apf-dot" aria-hidden="true"></span>${esc(m.label)}</span>
         <p class="apcard-now">${now}</p>${apLastHtml(d.last_action)}${Array.isArray(d.focus) ? `
         <p class="ap-focus">${apFocusLine(d.focus, 'data-apcard="focus"')}</p>` : ''}
@@ -3985,8 +4008,10 @@
       // Before the first status read lands (or if it fails), go by the saved switch: an autopilot
       // user's pill read "Autopilot off" on every page load until then.
       const m = d ? (AP_MODE[d.mode] || AP_MODE.off) : (S.me && S.me.user && S.me.user.autopilot ? AP_PENDING_ON : AP_MODE.off);
-      box.className = 'apf' + (m.cls ? ' ' + m.cls : '');
-      box.dataset.shell = '';
+      // Written only when they change: the 20s status read set them each time, a DOM change (and a style pass) a read.
+      const cls = 'apf' + (m.cls ? ' ' + m.cls : '');
+      if (box.className !== cls) box.className = cls;
+      if (box.dataset.shell !== '') box.dataset.shell = '';
       const tip = d && d.autopilot ? (apStory(d)[0] || '') : '';
       const pill = `<button type="button" class="apf-pill" data-ap="toggle" aria-expanded="false" title="${esc(tip || 'Autonomous research and deployment. Existing strategies run independently.')}">
         <span class="apf-pill-label">${esc(apPillLabel(d, m))}</span>${ICON.chev || ''}</button>`;
@@ -4098,16 +4123,20 @@
     if (control) {
       const button = control.querySelector('[data-hot="toggle"]');
       if (button) {
-        button.setAttribute('aria-expanded', String(open));
-        button.setAttribute('aria-label', open ? 'Collapse hot markets' : 'Expand hot markets');
+        const label = open ? 'Collapse hot markets' : 'Expand hot markets';
+        if (button.getAttribute('aria-expanded') !== String(open)) button.setAttribute('aria-expanded', String(open));
+        if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
       } else control.innerHTML = toggle;
     }
-    keepFocus(rail, () => { rail.innerHTML = `${control ? '' : toggle}
+    // Drawn only when its markup changed: the rail's 30s read and every page change drew it again, rows and charts,
+    // with the same snapshot (painted keeps what was last written, as for a page's regions).
+    const html = `${control ? '' : toggle}
       <div class="hot-panel">
         <div class="hot-head"><div><span class="hot-kicker">Hot markets</span>${freshness}</div></div>
         <div class="hot-list">${rows}</div>
         <div class="hot-ft"><a href="/explore">See all markets →</a></div>
-      </div>`; });
+      </div>`;
+    if (painted.get(rail) !== html) { painted.set(rail, html); keepFocus(rail, () => { rail.innerHTML = html; }); }
     if (hotStaleText()) staleLine('hot-stale', hotStaleText(), true);  // a stale line drawn again with the rail says nothing itself either
     root.querySelectorAll('[data-hot="toggle"]').forEach((b) => b.onclick = () => {
       const next = !hotOpen(); localStorage.setItem('tau_hotrail', next ? '1' : '0');

@@ -235,7 +235,8 @@ window.TauPage('autopilot', (T) => {
     const pulse = box.querySelector('#apf-pulse');
     if (pulse) {
       pulse.hidden = false;
-      pulse.className = 'runpulse apf-pulse-row';
+      // Set only when it differs: the same class written on each 3s chat poll was still a DOM change a poll.
+      if (pulse.className !== 'runpulse apf-pulse-row') pulse.className = 'runpulse apf-pulse-row';
       // Past the reaper's limit the spinner would claim work nobody is doing; say how long instead.
       const w = d.agent_wait;
       // The pulse is a polite live region and this runs on every chat poll (3s): rewriting the same words

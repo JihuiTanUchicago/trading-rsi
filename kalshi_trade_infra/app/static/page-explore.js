@@ -232,7 +232,7 @@ window.TauPage('explore', (T) => {
     // Past the reader's midnight the price history's clock times take their date (priceChart), drawn again from the
     // points the page holds, with no read.
     const gen = S.gen;
-    if (!d.history_unavailable) dayWatch.add(() => { if (gen !== S.gen) return false; const w = root.querySelector('.pchart-wrap'); if (w) w.innerHTML = priceChart(d.points); });
+    if (!d.history_unavailable) dayWatch.add(Object.assign(() => { if (gen !== S.gen) return false; const w = root.querySelector('.pchart-wrap'); if (w) w.innerHTML = priceChart(d.points); }, { gen }));
     const pts = d.points.slice().reverse();  // newest first
     const PER = 25; let pg = 0;
     const rawEl = root.querySelector('#rawsect');
