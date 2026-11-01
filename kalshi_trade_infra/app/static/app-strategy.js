@@ -6,7 +6,7 @@ window.TauPage('strategy', (T) => {
   'use strict';
   const {
     actionLink, announce, api, ApiError, closeClock, liveClose, apWhenSpan, armed, BEHIND, boardTitle, bookName, btCheckLine, busy,
-    cents, chartWidth, CODE_RESEARCH_ONLY, contractLink, contractName, dateFmt, DEMO_BOOK, demoCashRead, demoHealthLine, DEP_DONE, depIdle,
+    cents, chartScale, chartWidth, CODE_RESEARCH_ONLY, contractLink, contractName, dateFmt, DEMO_BOOK, demoCashRead, demoHealthLine, DEP_DONE, depIdle,
     depActed, depSaid, depWrite, dirLabel, equityChart, esc, EXAMPLE_NOTE, EXAMPLE_TAG, exitWord, FEES_NET, fig, flash, fmt0, fold, fundsLinked,
     gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
@@ -123,7 +123,8 @@ window.TauPage('strategy', (T) => {
     if (valMean != null) bars.push(['Validation', valMean, 'var(--ink)']);
     if (holdMean != null) bars.push(['Holdout', holdMean, 'var(--signal)']);
     if (!bars.length) return `<div class="rp-empty">No validation or holdout average to compare.</div>`;
-    const W = 340, H = 180, T = 24, Bm = 30, L = 10, R = 10;
+    // The figure over a bar keeps inside the top at the size it's drawn (chartScale): at 200% text "+3.80%" lost its top.
+    const W = 340, H = 180, T = Math.round(24 * chartScale(11)), Bm = 30, L = 10, R = 10;
     const mags = bars.map((b) => b[1]);
     let lo = Math.min(0, ...mags), hi = Math.max(0, ...mags);
     if (hi - lo < 1e-4) { hi += 0.005; lo -= 0.005; }

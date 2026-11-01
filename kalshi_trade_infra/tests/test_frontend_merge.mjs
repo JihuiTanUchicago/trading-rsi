@@ -29,6 +29,7 @@ import {exploreParityCases} from './explore_parity_frontend_cases.mjs';
 import {countFormatCases} from './count_format_frontend_cases.mjs';
 import {largeAccountCases} from './large_account_frontend_cases.mjs';
 import {chartTrustCases} from './chart_trust_frontend_cases.mjs';
+import {chartTextCases} from './chart_text_frontend_cases.mjs';
 import {explorePageCases} from './explore_page_frontend_cases.mjs';
 import {exploreSpotListCases} from './explore_spot_list_frontend_cases.mjs';
 import {explorePollCases} from './explore_poll_frontend_cases.mjs';
@@ -288,6 +289,7 @@ chartTrustCases({name: 'Tau', frontend, detailStrategy, strategyFrontend, traces
   return hs.map((h, i) => f.hotRowHtml({t: 'KXBTCD-26OCT2717-T11' + i + '999.99', s: 'KXBTCD', ti: 'Bitcoin price?', su: '$113,000 or above', bid: .46, ask: .49, v24: 1200, h}));
 }});
 explorePageCases({name: 'Tau', frontend});
+chartTextCases({name: 'Tau', frontend, Element, cw: 7});
 trackRecordTrustCases({name: 'Tau', frontend, Element, dashboard: () => emptyDashboard()});
 researchFormCases({name: 'Tau', frontend});
 spendTrustCases({name: 'Tau', frontend});
@@ -3017,8 +3019,10 @@ for (const [label, view, endpoint, selector] of [['The dashboard', 'viewDashboar
     const svgs = [...html.matchAll(/<svg class="spark (up|down|flat)"[^>]*aria-label="([^"]*)"[^>]*>.*?<\/svg>/g)];
     assert.equal(svgs.length, 2, html);  // the one-trade deployment draws none
     const [up, down] = [svgs.find((m) => m[1] === 'up'), svgs.find((m) => m[1] === 'down')];
-    assert.equal(up[2], 'Paper cumulative P&amp;L, +$12.40 over 48 trades; low −$1.00, high +$500.00');
-    assert.equal(down[2], 'Live cumulative P&amp;L, −$3.00 over 2 trades; low −$3.00, high −$1.00');
+    // Its name says its period and its first figure too (2026-11-01): it said only where it ended, its low and its high.
+    const d9 = new Date(1760000000e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+    assert.equal(up[2], `Paper cumulative P&amp;L, +$12.40 over 48 trades on ${d9}; +$2.00 after the first; low −$1.00, high +$500.00`);
+    assert.equal(down[2], `Live cumulative P&amp;L, −$3.00 over 2 trades on ${d9}; −$1.00 after the first; low −$3.00, high −$1.00`);
     for (const m of svgs) {
       assert.match(m[0], /role="img"/); assert.match(m[0], /viewBox="0 0 80 24"/);
       assert.match(m[0], /<line class="spark-zero"/);

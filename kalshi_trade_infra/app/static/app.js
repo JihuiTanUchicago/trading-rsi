@@ -1764,13 +1764,34 @@
   // so "Simulated" and "Kalshi dev" read apart. Omitting it keeps the old chart.
   // Draw at the column's real width on a narrow screen: a 760-wide chart shrunk to a phone has 4px labels.
   const chartWidth = () => { const m = root.querySelector('#main'), w = m && m.clientWidth; return w > 0 && w < 760 ? Math.max(300, w) : 760; };
+  // How much larger a chart's labels are drawn than the size its room was measured at (`base`, in the chart's own
+  // units): 1 at the theme's sizes, about 2 for a reader at 200% text. The room a label takes (the y-axis gutter, the
+  // cut label's fit, a bar's figure above it) was set for 11px: at 200% text the strategy chart's "−$0.59" ran off its
+  // left edge and the market chart's "100¢" read "00¢" (walked 2026-11-01). Measured from a hidden copy of the chart's
+  // text in `host`, so the rules that style it there apply; never under 1, so a chart at the theme's sizes is drawn as
+  // before. The track record's charts don't ask for it.
+  const chartScale = (base = 11, host, svgCls = 'chart', textCls = '') => {
+    try {
+      const at = (host && host.isConnected && host) || root.querySelector('#main') || document.body;
+      const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), t = document.createElementNS(NS, 'text');
+      svg.setAttribute('class', svgCls); svg.setAttribute('aria-hidden', 'true');
+      svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;visibility:hidden';
+      if (textCls) t.setAttribute('class', textCls);
+      t.textContent = '0'; svg.appendChild(t); at.appendChild(svg);
+      const px = parseFloat(getComputedStyle(t).fontSize); svg.remove();
+      return px > base ? px / base : 1;
+    } catch (e) { return 1; }
+  };
   // The y-axis labels sit right-aligned in a 52-unit gutter left of the plot. A strategy page's chart over $1,000
   // ("$1,584.53") ran past the chart's left edge and read ",584.53" (walked 2026-10-30, a six-month account). With
-  // `fit` the gutter widens to the widest label (~6.5 units a character at the chart's 11px); a chart whose labels
-  // already fit keeps 52.
-  const tickGutter = (labels, fit) => (fit ? Math.max(52, Math.ceil(12 + 6.5 * Math.max(0, ...labels.map((t) => t.length)))) : 52);
+  // `fit` the gutter widens to the widest label (`cw` units a character: ~6.5 at the chart's 11px, times chartScale's k);
+  // a chart whose labels already fit keeps 52.
+  const tickGutter = (labels, fit, cw = 6.5) => (fit ? Math.max(52, Math.ceil(12 + cw * Math.max(0, ...labels.map((t) => t.length)))) : 52);
   function equityChart(curve, cutoffIso, devCurve, options = {}) {
     const W = options.width || 760, H = 236, R = 10, T = 30, B = 26;
+    // A `fit` chart (a strategy page's) makes room for its labels at the size they're drawn (chartScale); the track
+    // record's is drawn as it was.
+    const k = options.fit ? chartScale(11) : 1;
     // A null, NaN or Infinity point is left out (finitePts): one drew the whole line as "NaN,NaN".
     curve = finitePts(curve);
     if (curve.length < 2) return `<div class="empty"><p>Not enough trades to draw an equity curve.</p></div>`;
@@ -1791,10 +1812,16 @@
     const vals = all.map((p) => p[1]);
     let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
     if (hi - lo < 1) { hi += 0.5; lo -= 0.5; }
-    const LEVELS = [lo, (lo + hi) / 2, hi];
-    const L = tickGutter(LEVELS.map((v) => plain(usd(v))), options.fit);
-    const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
     const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+    const LEVELS = [lo, (lo + hi) / 2, hi];
+    // On a `fit` chart a middle tick that would sit on the $0 line is $0: a backtest between −$0.09 and +$0.04 put
+    // "−$0.02" on the break-even line and left $0 unsaid, so the curve read as crossing −$0.02 (walked 2026-11-01).
+    if (options.fit && lo < 0 && hi > 0 && Math.abs(y(LEVELS[1]) - y(0)) < 14 * k) LEVELS[1] = 0;
+    // At a larger text size (k > 1) a tick of $100 or more reads compact ("$1.6k", "−$412"), so the plot keeps its width;
+    // the chart's name still says every figure to the cent.
+    const tickUsd = (v) => (k > 1 && Math.abs(v) >= 99.5 ? `${v < 0 ? '−' : ''}$${Math.abs(v) >= 999.5 ? (Math.abs(v) / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : Math.round(Math.abs(v))}` : usd(v));
+    const L = tickGutter(LEVELS.map((v) => plain(tickUsd(v))), options.fit, 6.5 * k);
+    const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
     const cut = cutoffIso ? Date.parse(cutoffIso) / 1000 : null;
     const cx = cut && cut > t0 && cut < t1 ? x(cut) : null;
     // A 10,000-trade backtest drew every trade, a dozen points to a pixel (a 117KB line): past about two points a
@@ -1802,11 +1829,11 @@
     // axis, the labels and the name above still come from every point.
     const dense = Math.max(400, 2 * Math.round(W - L - R));
     const line = (c) => thinCurve(c, dense).map(([t, v]) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    const ticks = LEVELS.map((v) => `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`).join('');
+    const ticks = LEVELS.map((v) => `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${tickUsd(v)}</text>`).join('');
     // The grey line across the plot is $0, break-even: unlabelled, a curve that dipped under it read against ticks
     // like −$24.72 and $26.69, with nothing saying where it had gained or lost. It gets its own label unless a
     // tick already sits on it or so close the two would overlap.
-    const zeroTick = lo < 0 && hi > 0 && LEVELS.every((v) => Math.abs(y(v) - y(0)) >= 14) ? `<text class="chart-zero" x="${L - 8}" y="${y(0) + 4}" text-anchor="end">$0</text>` : '';
+    const zeroTick = lo < 0 && hi > 0 && LEVELS.every((v) => Math.abs(y(v) - y(0)) >= 14 * k) ? `<text class="chart-zero" x="${L - 8}" y="${y(0) + 4}" text-anchor="end">$0</text>` : '';
     // Each date on the axis once: a curve inside one day labels it at the start only, never "Oct 30 … Oct 30".
     // One date format per chart, made once: toLocaleDateString with options builds a new formatter on every call, and
     // the chart names every point's day (its readout boxes), so a phone at a quarter of desktop speed spent ~67ms of
@@ -1819,14 +1846,16 @@
     // names the clock too.
     const wordDay = t1 - t0 < 2 * 86400 ? (t) => dateFmt(new Date(t * 1000), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : day;
     const backtestName = `Cumulative profit and loss over the backtest${dev ? ', with a realized Kalshi demo-environment curve' : ''}${options.words ? `, ${curveWords(curve, (v) => usd(v, true), wordDay)}` : `; ends at ${plain(usd(curve[curve.length - 1][1], true))}`}`;
+    // The legend's second key starts past "Simulated" at the size it's drawn (k).
+    const k2 = Math.round(92 * k);
     const legend = dev ? `<g transform="translate(${L},${T - 12})">
         <line x1="0" x2="16" y1="0" y2="0" stroke="var(--ink)" stroke-width="2"/><text x="20" y="4" style="fill:var(--ink-2)">Simulated</text>
-        <line x1="92" x2="108" y1="0" y2="0" stroke="var(--l-accent, #F05A28)" stroke-width="2" stroke-dasharray="5 4"/><text x="112" y="4" style="fill:var(--ink-2)">Kalshi dev (real)</text>
+        <line x1="${k2}" x2="${k2 + 16}" y1="0" y2="0" stroke="var(--l-accent, #F05A28)" stroke-width="2" stroke-dasharray="5 4"/><text x="${k2 + 20}" y="4" style="fill:var(--ink-2)">Kalshi dev (real)</text>
       </g>` : '';
     return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(backtestName)}">
       ${cx ? `<rect class="chart-later" x="${cx}" y="${T}" width="${W - R - cx}" height="${H - T - B}" fill="var(--chart-later)"/>
               <line x1="${cx}" x2="${cx}" y1="${T}" y2="${H - B}" stroke="var(--ink-3)" stroke-dasharray="4 4"/>
-              ${unseenLabel(cx, W - R, T - 10, options.cutLabel, dev ? L + 112 + 'Kalshi dev (real)'.length * 7 + 8 : 0)}` : ''}
+              ${unseenLabel(cx, W - R, T - 10, options.cutLabel, dev ? L + k2 + 20 + 'Kalshi dev (real)'.length * 7 * k + 8 : L, k)}` : ''}
       <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--rule-2)"/>
       ${ticks}${zeroTick}
       <text x="${L}" y="${H - 6}">${day(t0)}</text>${day(t1) === day(t0) ? '' : `<text x="${W - R}" y="${H - 6}" text-anchor="end">${day(t1)}</text>`}
@@ -3535,12 +3564,13 @@
   }
   // The equity chart's label over its unseen-data window. `words` (longest first) names another window: a strategy
   // with no gatekeeper record has no unseen window, only the backtest's later slice, which its loose gate used to pick it.
-  const unseenLabel = (cx, right, y, words = [`LATER PERIOD${SEP}UNSEEN DATA →`, `LATER${SEP}UNSEEN →`, 'LATER →'], clearOf = 0) => {
+  const unseenLabel = (cx, right, y, words = [`LATER PERIOD${SEP}UNSEEN DATA →`, `LATER${SEP}UNSEEN →`, 'LATER →'], clearOf = 0, k = 1) => {
     // In the strategy page's words ("Later period (unseen data)"): it read "UNSEEN →" over that heading. Measured at about
-    // 7px a character in the chart’s 11px capitals: the full or short words in place right of the cut where they fit, else the short
-    // words pinned to the chart's right edge, clear of the demo-replay legend (clearOf, its right end) on a phone. Only
-    // where even those would run into the legend does it take the last, shortest words.
-    const room = right - cx - 8, wide = (t) => t.length * 7;
+    // 7px a character in the chart’s 11px capitals (times k at a larger text size, chartScale): the full or short words in
+    // place right of the cut where they fit, else the short words pinned to the chart's right edge, clear of the demo-replay
+    // legend (clearOf, its right end) on a phone, or else of the y-axis labels (the plot's left edge: at 200% text the pinned
+    // words ran over the top tick). Only where even those would run into them does it take the last, shortest words.
+    const room = right - cx - 8, wide = (t) => t.length * 7 * k;
     const inPlace = words.slice(0, 2).find((t) => room >= wide(t));
     if (inPlace) return `<text x="${cx + 8}" y="${y}" style="fill:var(--ink-2)">${inPlace}</text>`;
     const pinned = words.slice(1).find((t) => right - wide(t) >= clearOf) || words[words.length - 1];
@@ -4053,7 +4083,7 @@
     apExpanded, apFlash, apFloorText, apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, fundsLinked,
     apMarketNames, apQueued, apNudge, apReloadFailed, apShowFocus, apStale, apStillTrading, apStory, apSwitchOn, apEvery, apWhenSpan,
     apWeek, apOffCost, apSessionLine, apCostWatch, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, bookName, btCheckLine, bulkDeployable, pageLede,
-    busy, cardFormFail, cashAt, cashFig, cashNow, cashRead, catOrder, cents, chartWidth, clearTimers, clock, CLOCK, CLOCK_ZONE, LOG_STAMP, closeClock, liveClose,
+    busy, cardFormFail, cashAt, cashFig, cashNow, cashRead, catOrder, cents, chartScale, chartWidth, clearTimers, clock, CLOCK, CLOCK_ZONE, LOG_STAMP, closeClock, liveClose,
     clipWords, CODE_RESEARCH_ONLY, compact, contractLink, contractMarket, contractName, depIdle, kalshiRef, liveIdleCount, liveIdleShort, liveOpen, liveWaitMark, dateFmt, DEMO_BOOK, DEMO_WHAT, demoCashRead, demoHealthLine, demoKeyless, demoCapital, demoNoClose, demoPnl, FEES_NET, inBalance, openBasis, openCost, openFig,
     demoSpan, DEP_DONE, depActed, deploymentMode, dirLabel, equityChart, errText, esc, EXAMPLE_NOTE, EXAMPLE_TAG,
     exampleLine, exitWord, failText, feedMd, fig, fillLiveRow, flash, fmt0, fold, gl, glo, GLOSSARY, go,

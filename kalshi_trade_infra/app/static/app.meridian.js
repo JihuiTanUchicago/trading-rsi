@@ -1760,24 +1760,47 @@
   const chartWidth = () => { const m = root.querySelector('#main'), w = m && m.clientWidth; return w > 0 && w < 760 ? Math.max(300, w) : 760; };
   // The equity chart's label over its unseen-data window. `words` (longest first) names another window: a strategy
   // with no gatekeeper record has no unseen window, only the backtest's later slice, which its loose gate used to pick it.
-  const unseenLabel = (cx, right, y, words = [`Later period${SEP}unseen data →`, `Later${SEP}unseen →`, 'Later →'], clearOf = 0) => {
+  const unseenLabel = (cx, right, y, words = [`Later period${SEP}unseen data →`, `Later${SEP}unseen →`, 'Later →'], clearOf = 0, k = 1) => {
     // In the strategy page's words ("Later period (unseen data)"): it read "Unseen →" over that heading. Measured at about
-    // 6px a character in the chart’s 11px face: the full or short words in place right of the cut where they fit, else the short
-    // words pinned to the chart's right edge, clear of the demo-replay legend (clearOf, its right end) on a phone. Only
-    // where even those would run into the legend does it take the last, shortest words.
-    const room = right - cx - 8, wide = (t) => t.length * 6;
+    // 6px a character in the chart’s 11px face (times k at a larger text size, chartScale): the full or short words in place
+    // right of the cut where they fit, else the short words pinned to the chart's right edge, clear of the demo-replay legend
+    // (clearOf, its right end) on a phone, or else of the y-axis labels (the plot's left edge: at 200% text the pinned words ran
+    // over the top tick). Only where even those would run into them does it take the last, shortest words.
+    const room = right - cx - 8, wide = (t) => t.length * 6 * k;
     const inPlace = words.slice(0, 2).find((t) => room >= wide(t));
     if (inPlace) return `<text x="${cx + 8}" y="${y}" style="fill:var(--ink-2)">${inPlace}</text>`;
     const pinned = words.slice(1).find((t) => right - wide(t) >= clearOf) || words[words.length - 1];
     return `<text x="${right}" y="${y}" text-anchor="end" style="fill:var(--ink-2)">${pinned}</text>`;
   };
+  // How much larger a chart's labels are drawn than the size its room was measured at (`base`, in the chart's own
+  // units): 1 at the theme's sizes, about 2 for a reader at 200% text. The room a label takes (the y-axis gutter, the
+  // cut label's fit, a date's width, the readout's box) was set for the theme's sizes: at 200% text the strategy chart's
+  // "−$0.59" ran off its left edge, Home's Closed P&L lost the top of "$30" and drew "Oct 24" into "Oct 31", and the
+  // market chart's "100¢" read "00¢" (walked 2026-11-01). Measured from a hidden copy of the chart's text in `host`, so
+  // the rules that style it there apply; never under 1, so a chart at the theme's sizes is drawn as before. The track
+  // record's charts don't ask for it.
+  const chartScale = (base = 11, host, svgCls = 'chart', textCls = '') => {
+    try {
+      const at = (host && host.isConnected && host) || root.querySelector('#main') || document.body;
+      const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg'), t = document.createElementNS(NS, 'text');
+      svg.setAttribute('class', svgCls); svg.setAttribute('aria-hidden', 'true');
+      svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;visibility:hidden';
+      if (textCls) t.setAttribute('class', textCls);
+      t.textContent = '0'; svg.appendChild(t); at.appendChild(svg);
+      const px = parseFloat(getComputedStyle(t).fontSize); svg.remove();
+      return px > base ? px / base : 1;
+    } catch (e) { return 1; }
+  };
   // The y-axis labels sit right-aligned in a 52-unit gutter left of the plot. A strategy page's chart over $1,000
   // ("$1,584.53") ran past the chart's left edge and read ",584.53" (walked 2026-10-30, a six-month account). With
-  // `fit` the gutter widens to the widest label (~6.5 units a character at the chart's 11px); a chart whose labels
-  // already fit keeps 52.
-  const tickGutter = (labels, fit) => (fit ? Math.max(52, Math.ceil(12 + 6.5 * Math.max(0, ...labels.map((t) => t.length)))) : 52);
+  // `fit` the gutter widens to the widest label (`cw` units a character: ~6.5 at the chart's 11px, ~7.5 in Home's 12px
+  // figures, times chartScale's k); a chart whose labels already fit keeps 52.
+  const tickGutter = (labels, fit, cw = 6.5) => (fit ? Math.max(52, Math.ceil(12 + cw * Math.max(0, ...labels.map((t) => t.length)))) : 52);
   function equityChart(curve, cutoffIso, devCurve, options = {}) {
-    const W = options.width || 760, H = options.height || 236, R = 10, T = options.paper ? 16 : 30, B = 26;
+    // A `fit` chart (a strategy page's, Home's Closed P&L) makes room for its labels at the size they're drawn
+    // (chartScale; Home's are set at 12px in its box, options.host); the track record's is drawn as it was.
+    const k = options.fit ? chartScale(options.paper ? 12 : 11, options.host) : 1;
+    const W = options.width || 760, H = options.height || 236, R = 10, T = options.paper ? Math.max(16, Math.round(16 * k)) : 30, B = 26;
     // A null, NaN or Infinity point is left out (finitePts): one drew the whole line as "NaN,NaN".
     curve = finitePts(curve);
     if (curve.length < 2) return `<div class="empty"><p>Not enough trades to draw an equity curve.</p></div>`;
@@ -1806,12 +1829,18 @@
       lo = Math.floor((lo < 0 ? lo - span * .08 : lo) / step) * step;
       hi = Math.ceil((hi > 0 ? hi + span * .08 : hi) / step) * step;
     }
-    const levels = [lo, (lo + hi) / 2, hi];
-    const wholePaperAxis = options.paper && levels.every(Number.isInteger);
-    const tickText = (v) => (wholePaperAxis ? `${v < 0 ? '−' : ''}$${num(Math.abs(v))}` : usd(v));
-    const L = tickGutter(levels.map((v) => plain(tickText(v))), options.fit);
-    const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
     const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+    const levels = [lo, (lo + hi) / 2, hi];
+    // On a `fit` chart a middle tick that would sit on the $0 line is $0: a backtest between −$0.09 and +$0.04 put
+    // "−$0.02" on the break-even line and left $0 unsaid, so the curve read as crossing −$0.02 (walked 2026-11-01).
+    if (options.fit && lo < 0 && hi > 0 && Math.abs(y(levels[1]) - y(0)) < 14 * k) levels[1] = 0;
+    const wholePaperAxis = options.paper && levels.every(Number.isInteger);
+    // At a larger text size (k > 1) a tick of $100 or more reads compact ("$1.6k", "−$412"), so the plot keeps its width;
+    // the chart's name still says every figure to the cent.
+    const tickText = (v) => (k > 1 && Math.abs(v) >= 99.5 ? `${v < 0 ? '−' : ''}$${Math.abs(v) >= 999.5 ? (Math.abs(v) / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : Math.round(Math.abs(v))}`
+      : wholePaperAxis ? `${v < 0 ? '−' : ''}$${num(Math.abs(v))}` : usd(v));
+    const L = tickGutter(levels.map((v) => plain(tickText(v))), options.fit, (options.paper ? 7.5 : 6.5) * k);
+    const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
     const cut = cutoffIso ? Date.parse(cutoffIso) / 1000 : null;
     const cx = cut && cut > t0 && cut < t1 ? x(cut) : null;
     // A 10,000-trade backtest drew every trade, a dozen points to a pixel (a 117KB line): past about two points a
@@ -1824,7 +1853,7 @@
     // The grey line across the plot is $0, break-even: unlabelled, a curve that dipped under it read against ticks
     // like −$24.72 and $26.69, with nothing saying where it had gained or lost. It gets its own label unless a
     // tick already sits on it or so close the two would overlap.
-    const zeroTick = lo < 0 && hi > 0 && levels.every((v) => Math.abs(y(v) - y(0)) >= 14) ? `<text class="chart-zero" x="${L - 8}" y="${y(0) + 4}" text-anchor="end">$0</text>` : '';
+    const zeroTick = lo < 0 && hi > 0 && levels.every((v) => Math.abs(y(v) - y(0)) >= 14 * k) ? `<text class="chart-zero" x="${L - 8}" y="${y(0) + 4}" text-anchor="end">$0</text>` : '';
     // The paper chart across a new year names the year on each date ("Dec 30, 2025"): "Jan 4" read as before "Dec 30".
     const years = options.paper && new Date(t0 * 1000).getUTCFullYear() !== new Date(t1 * 1000).getUTCFullYear();
     // One date format per chart, made once: toLocaleDateString with options builds a new formatter on every call, and
@@ -1853,7 +1882,7 @@
       }))].map((i) => ({ t: pts[i], label: day(pts[i]) }));
       const ends = [picks[0], picks[picks.length - 1]].filter((tick, i, two) => i === 0 || tick.label !== two[0].label);
       // Where each label reaches: the first starts at the axis, the last ends at it, the rest centre on their point.
-      const width = (label) => label.length * 7;
+      const width = (label) => label.length * 7 * k;
       const reach = (tick, k, last) => (k === 0 ? [L, L + width(tick.label)] : last ? [W - R - width(tick.label), W - R]
         : [x(tick.t) - width(tick.label) / 2, x(tick.t) + width(tick.label) / 2]);
       const kept = [ends[0]];
@@ -1868,21 +1897,25 @@
     const dates = dateTicks().map(({ t, label, k, last }) => (k === 0 ? `<text x="${L}" y="${H - 6}">${label}</text>`
       : last ? `<text x="${W - R}" y="${H - 6}" text-anchor="end">${label}</text>` : `<text x="${x(t)}" y="${H - 6}" text-anchor="middle">${label}</text>`)).join('');
     const endLabel = options.paper && options.endLabel !== false ? `<text class="chart-end ${tone(curve[curve.length - 1][1])}" x="${W - R}" y="${Math.max(12, Math.min(H - B - 6, y(curve[curve.length - 1][1]) - 10))}" text-anchor="end">${usd(curve[curve.length - 1][1], true)}</text>` : '';
+    // The legend's second key starts past "Simulated" at the size it's drawn (k).
+    const k2 = Math.round(92 * k);
     const legend = dev ? `<g transform="translate(${L},${T - 12})">
         <line x1="0" x2="16" y1="0" y2="0" stroke="var(--ink)" stroke-width="2"/><text x="20" y="4" style="fill:var(--ink-2)">Simulated</text>
-        <line x1="92" x2="108" y1="0" y2="0" stroke="var(--l-accent, #F05A28)" stroke-width="2" stroke-dasharray="5 4"/><text x="112" y="4" style="fill:var(--ink-2)">Kalshi dev (real)</text>
+        <line x1="${k2}" x2="${k2 + 16}" y1="0" y2="0" stroke="var(--l-accent, #F05A28)" stroke-width="2" stroke-dasharray="5 4"/><text x="${k2 + 20}" y="4" style="fill:var(--ink-2)">Kalshi dev (real)</text>
       </g>` : '';
     const inspect = options.paper ? curve.map(([t, value], i) => {
-      const px = x(t), py = y(value), boxWidth = 148;
+      // The readout says the day's zone (Home's days are UTC days) and the value's sign, in a box sized for its words at
+      // the size they're drawn: "Oct 30 · +$21.70" left out that Oct 30 was a UTC day.
+      const label = `${day(t)} UTC${SEP}${usd(value, true)}`;
+      const px = x(t), py = y(value), boxWidth = Math.min(W - R - L, Math.max(148, Math.ceil(16 + label.length * 7 * k))), boxHeight = Math.round(26 * k);
       const left = i ? (x(curve[i - 1][0]) + px) / 2 : L;
       const right = i < curve.length - 1 ? (px + x(curve[i + 1][0])) / 2 : W - R;
       const boxX = Math.max(L, Math.min(W - R - boxWidth, px + 8));
-      const boxY = py < T + 32 ? T + 8 : T;
-      const label = `${day(t)}${SEP}${usd(value, true)}`;
+      const boxY = py < T + 32 * k ? T + 8 : T;
       return `<g class="chart-sample" data-time="${t}" tabindex="0" role="img" aria-label="${esc(plain(label))}">
         <rect x="${left}" y="${T}" width="${Math.max(0, right - left)}" height="${H - T - B}" fill="transparent"/>
         <g class="chart-reading" aria-hidden="true"><line x1="${px}" x2="${px}" y1="${T}" y2="${H - B}" stroke="var(--rule-2)" stroke-dasharray="2 3"/><circle cx="${px}" cy="${py}" r="3" fill="var(--ink)"/>
-          <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="26" fill="var(--stock-raised)" stroke="var(--rule-2)"/><text x="${boxX + 8}" y="${boxY + 17}">${esc(label)}</text></g></g>`;
+          <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" fill="var(--stock-raised)" stroke="var(--rule-2)"/><text x="${boxX + 8}" y="${boxY + Math.round(17 * k)}">${esc(label)}</text></g></g>`;
     }).join('') : '';
     // The axis labels are drawn for the eye: in the paper chart (a group, its days focusable) a screen reader read them
     // as loose figures, "$0 $15 $30 Oct 11 Oct 18", between the chart's name, which states its low, high and end, and its days.
@@ -1890,7 +1923,7 @@
     return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="${options.paper ? 'group' : 'img'}" aria-label="${esc(plain(options.label || backtestName))}">
       ${cx ? `<rect x="${cx}" y="${T}" width="${W - R - cx}" height="${H - T - B}" fill="var(--stock-raised)"/>
               <line x1="${cx}" x2="${cx}" y1="${T}" y2="${H - B}" stroke="var(--ink-3)" stroke-dasharray="4 4"/>
-              ${unseenLabel(cx, W - R, T - 10, options.cutLabel, dev ? L + 112 + 'Kalshi dev (real)'.length * 6 + 8 : 0)}` : ''}
+              ${unseenLabel(cx, W - R, T - 10, options.cutLabel, dev ? L + k2 + 20 + 'Kalshi dev (real)'.length * 6 * k + 8 : L, k)}` : ''}
       <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--rule-2)"/>
       ${options.paper ? `<g aria-hidden="true">${reference}${ticks}${zeroTick}${dates}${endLabel}</g>` : `${reference}${ticks}${zeroTick}${dates}${endLabel}`}
       <polyline points="${line(curve)}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/>
@@ -2683,13 +2716,17 @@
         let lo = 0, hi = 0;
         periodCurve.forEach(([, v], i) => { if (v < periodCurve[lo][1]) lo = i; if (v > periodCurve[hi][1]) hi = i; });
         const f = (i) => plain(usd(periodCurve[i][1], true));
-        return f(lo) === f(hi) ? `; flat at ${f(lo)}` : `; low ${f(lo)} (${paperDay(days[lo].d)}), high ${f(hi)} (${paperDay(days[hi].d)})`;
+        // Its first day's figure too: the name gave the period, the low, the high and the end, not where it started.
+        return f(lo) === f(hi) ? `; flat at ${f(lo)}` : `; starts at ${f(0)}; low ${f(lo)} (${paperDay(days[lo].d)}), high ${f(hi)} (${paperDay(days[hi].d)})`;
       };
-      const paperPlot = (width) => equityChart(periodCurve, null, null, { width: Math.max(280, width || root.querySelector('#main').clientWidth), height: 180, paper: true, fit: true, endLabel: false, label: `Cumulative closed paper profit and loss by UTC day from ${paperDay(days[0].d, days[0].d.slice(0, 4) !== days[days.length - 1].d.slice(0, 4))} through ${paperDay(days[days.length - 1].d, true)}${paperRange()}; ends at ${usd(periodPnl, true)}` });
+      const paperPlot = (width) => equityChart(periodCurve, null, null, { width: Math.max(280, width || root.querySelector('#main').clientWidth), height: 180, paper: true, fit: true, endLabel: false, host: root.querySelector('.paper-plot'), label: `Cumulative closed paper profit and loss by UTC day from ${paperDay(days[0].d, days[0].d.slice(0, 4) !== days[days.length - 1].d.slice(0, 4))} through ${paperDay(days[days.length - 1].d, true)}${paperRange()}; ends at ${usd(periodPnl, true)}` });
       // Its days are UTC days (the server's daily_pnl), as the "Today (UTC)" figure above counts them: in Tokyo's morning
       // the curve ended on yesterday's date with nothing saying why today's trades sat there.
       const periodLabel = days.length > 1 ? new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'}).formatRange(new Date(days[0].d + 'T12:00:00Z'), new Date(days[days.length - 1].d + 'T12:00:00Z')) : '';
-      const performance = days.length > 1 ? `<details class="overview-performance" id="paper-performance"${performanceOpen ? ' open' : ''}><summary><span class="performance-heading"><span class="performance-caption"><h2>Closed P&amp;L</h2>${ICON.chev}</span><strong class="${tone(periodPnl)}" title="Cumulative closed P&L over this period">${usd(periodPnl, true)}</strong></span><span class="performance-meta"><span class="performance-mode"><span class="performance-mode-prefix">Paper${SEP}</span>cumulative, ${PAPER_NET}</span><span class="sect-note" title="${esc(days[0].d)} – ${esc(days[days.length - 1].d)}">${esc(periodLabel)}${SEP}UTC days</span></span></summary><div class="paper-plot">${paperPlot()}</div></details>` : '';
+      // One day of closed P&L is one point, no curve: it says so in words with that day's figure. The section was left
+      // out, so an account's first closing day showed no Closed P&L at all.
+      const oneDay = days.length === 1 ? `<p class="hint paper-plot-none">One UTC day of closed paper P&amp;L so far (${esc(paperDay(days[0].d, true))}), so there’s no curve to draw yet. It draws once trades close on a second day.</p>` : '';
+      const performance = days.length ? `<details class="overview-performance" id="paper-performance"${performanceOpen ? ' open' : ''}><summary><span class="performance-heading"><span class="performance-caption"><h2>Closed P&amp;L</h2>${ICON.chev}</span><strong class="${tone(periodPnl)}" title="Cumulative closed P&L over this period">${usd(periodPnl, true)}</strong></span><span class="performance-meta"><span class="performance-mode"><span class="performance-mode-prefix">Paper${SEP}</span>cumulative, ${PAPER_NET}</span><span class="sect-note" title="${esc(days[0].d)} – ${esc(days[days.length - 1].d)}">${oneDay ? `${esc(paperDay(days[0].d, true))}${SEP}UTC day` : `${esc(periodLabel)}${SEP}UTC days`}</span></span></summary><div class="paper-plot">${oneDay || paperPlot()}</div></details>` : '';
       const main = `${apFirst ? '' : sinceStrip(d, '#dash-paused')}<section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-paused') : ''}<div class="dash${paperWorkspace ? ' paper-workspace' : ''}"><div class="dash-layout">
         <section class="account-band"><dl class="figures measure dashboard-figures ${hasLive ? 'live-primary' : ''}">${hasLive ? liveSummary : paperFigure + (cashInBand ? liveFigure : '')}</dl><p class="stale-note" id="dash-stale" role="status"></p></section>
         <section class="positions-ledger" id="dash-open"><div class="sect-head"><h2>Open positions <span class="section-count">${openHead.n}</span>${openHead.book}</h2></div>
@@ -4161,7 +4198,7 @@
     apExpanded, apFlash, apFloorText, apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, fundsLinked,
     apMarketNames, apQueued, apNudge, apReloadFailed, apShowFocus, apStale, apStillTrading, apStory, apSwitchOn, apEvery, apWhenSpan,
     apWeek, apOffCost, apSessionLine, apCostWatch, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, bookName, btCheckLine, bulkDeployable, pageLede,
-    busy, cardFormFail, cashAt, cashFig, cashNow, cashRead, catOrder, cents, chartWidth, clearTimers, clock, CLOCK, CLOCK_ZONE, LOG_STAMP, closeClock, liveClose,
+    busy, cardFormFail, cashAt, cashFig, cashNow, cashRead, catOrder, cents, chartScale, chartWidth, clearTimers, clock, CLOCK, CLOCK_ZONE, LOG_STAMP, closeClock, liveClose,
     clipWords, CODE_RESEARCH_ONLY, compact, contractLink, contractMarket, contractName, depIdle, kalshiRef, liveIdleCount, liveIdleShort, liveOpen, liveWaitMark, dateFmt, DEMO_BOOK, DEMO_WHAT, demoCashRead, demoHealthLine, demoKeyless, demoCapital, demoNoClose, demoPnl, FEES_NET, inBalance, openBasis, openCost, openFig, demoSpan,
     DEP_DONE, depActed, deploymentMode, dirLabel, equityChart, errText, esc, EXAMPLE_NOTE, EXAMPLE_TAG,
     exampleLine, exitWord, failText, feedMd, fig, fillLiveRow, flash, fmt0, fold, gl, glo, GLOSSARY, go, halfUp,

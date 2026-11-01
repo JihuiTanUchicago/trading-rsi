@@ -30,6 +30,7 @@ import {exploreParityCases} from './explore_parity_frontend_cases.mjs';
 import {countFormatCases} from './count_format_frontend_cases.mjs';
 import {largeAccountCases} from './large_account_frontend_cases.mjs';
 import {chartTrustCases} from './chart_trust_frontend_cases.mjs';
+import {chartTextCases} from './chart_text_frontend_cases.mjs';
 import {explorePageCases} from './explore_page_frontend_cases.mjs';
 import {exploreSpotListCases} from './explore_spot_list_frontend_cases.mjs';
 import {explorePollCases} from './explore_poll_frontend_cases.mjs';
@@ -332,6 +333,7 @@ chartTrustCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend, t
   return out;
 }});
 explorePageCases({name: 'Meridian', frontend});
+chartTextCases({name: 'Meridian', frontend, Element, cw: 6});
 trackRecordTrustCases({name: 'Meridian', frontend, Element, dashboard: () => dashboardData()});
 researchFormCases({name: 'Meridian', frontend});
 spendTrustCases({name: 'Meridian', frontend});
@@ -1380,7 +1382,7 @@ test('Overview charts cumulative closed paper results separately from all-time P
   const cases = [
     [[{d: day(-4), pnl: -4}, {d: day(-2), pnl: 0}, {d: day(-1), pnl: 1}], '−$3.00', ['−$4.00', '−$4.00', '−$3.00']],
     [[{d: day(-2), pnl: 0}, {d: day(-1), pnl: 0}], '$0.00', ['$0.00', '$0.00']],
-    [[{d: day(-1), pnl: -4}], null],
+    [[{d: day(-1), pnl: -4}], 'one'],
     [[], null],
   ];
   for (const [daily, ending, amounts] of cases) {
@@ -1394,13 +1396,21 @@ test('Overview charts cumulative closed paper results separately from all-time P
     assert.match(f.root.querySelector('.paper-summary').textContent, /Since you started: realized P&amp;L \+\$98\.40/);
     const performance = f.root.querySelector('.overview-performance');
     if (ending === null) assert.equal(performance, null);
-    else {
+    else if (ending === 'one') {
+      // One day of closed P&L is one point: it says so in words with its figure, and draws no line (2026-11-01: the
+      // section was left out).
+      assert.equal(performance.querySelector('svg.chart'), null);
+      assert.match(performance.querySelector('strong').textContent, /^−\u2060?\$4\.00$/);
+      assert.match(performance.querySelector('.paper-plot-none').textContent, /^One UTC day of closed paper P&amp;L so far \([A-Z][a-z]{2} \d+, \d{4}\), so there’s no curve to draw yet\./);
+      assert.match(performance.querySelector('.sect-note').textContent, /\u00a0· UTC day$/);
+    } else {
       const chart = performance.querySelector('svg.chart'), label = chart.getAttribute('aria-label');
       assert.match(label, /^Cumulative closed paper profit and loss /);
       const words = (d, year) => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(year ? {year: 'numeric'} : {}), timeZone: 'UTC'});
       assert.ok(label.includes(`from ${words(daily[0].d, daily[0].d.slice(0, 4) !== daily.at(-1).d.slice(0, 4))} through ${words(daily.at(-1).d, true)}`), 'sparse trading dates are labelled as their actual period, in words');
       assert.doesNotMatch(label, /\d{4}-\d\d-\d\d/);
-      assert.match(label, /; (?:low [^;]+ \([A-Z][a-z]{2} \d+\), high [^;]+ \([A-Z][a-z]{2} \d+\)|flat at [^;]+); ends at /);
+      // Its first figure too (2026-11-01).
+      assert.match(label, /; (?:starts at [^;]+; low [^;]+ \([A-Z][a-z]{2} \d+\), high [^;]+ \([A-Z][a-z]{2} \d+\)|flat at [^;]+); ends at /);
       assert.equal(performance.querySelector('.sect-note').getAttribute('title'), `${daily[0].d} – ${daily.at(-1).d}`);
       assert.ok(performance.querySelector('.sect-note').textContent.includes(daily.at(-1).d.slice(0, 4)));
       // Its days are UTC days, as "Today (UTC)" counts them, and it says so (time walk 2026-10-31, Asia/Tokyo).
@@ -1413,9 +1423,10 @@ test('Overview charts cumulative closed paper results separately from all-time P
         const date = new Date(daily[index].d + 'T12:00:00Z').toLocaleDateString(undefined, {month: 'short', day: 'numeric', timeZone: 'UTC'});
         assert.equal(sample.dataset.time, String(Date.parse(daily[index].d + 'T12:00:00Z') / 1000));
         assert.equal(sample.getAttribute('tabindex'), '0'); assert.equal(sample.getAttribute('role'), 'img');
-        assert.equal(sample.getAttribute('aria-label'), `${date}\u00a0· ${amounts[index]}`);
+        // The readout names the day's zone, UTC, as the axis note does (2026-11-01).
+        assert.equal(sample.getAttribute('aria-label'), `${date} UTC\u00a0· ${amounts[index]}`);
         assert.equal(sample.querySelector('.chart-reading').getAttribute('aria-hidden'), 'true');
-        assert.equal(sample.querySelector('.chart-reading text').textContent, `${date}\u00a0· ${amounts[index]}`);
+        assert.equal(sample.querySelector('.chart-reading text').textContent, `${date} UTC\u00a0· ${amounts[index]}`);
       });
       const points = chart.querySelector('polyline').getAttribute('points').split(' ').map(point => point.split(',').map(Number));
       assert.equal(points.length, daily.length); assert.ok(points.flat().every(Number.isFinite));
@@ -1481,8 +1492,12 @@ test('Overview paper performance preserves disclosure and focus on polls and red
   assert.equal(performance.open, true); assert.equal(f.document.activeElement, outside);
   performance.querySelector('summary').focus(); data = dashboardData({paper: {daily: daily(1).slice(0, 1)}});
   poll(); await flush();
-  assert.equal(f.root.querySelector('#paper-performance'), null); assert.equal(f.document.activeElement, f.document.body);
-  const beforeResize = f.requests.length; resize(); assert.equal(f.requests.length, beforeResize);
+  // One day: the section stays, its words in place of a line, and focus stays on its summary.
+  performance = f.root.querySelector('#paper-performance');
+  assert.equal(performance.querySelector('svg.chart'), null); assert.ok(performance.querySelector('.paper-plot-none'));
+  assert.equal(f.document.activeElement, performance.querySelector('summary'));
+  const beforeResize = f.requests.length, wordsWrites = performance.querySelector('.paper-plot').writes;
+  resize(); assert.equal(f.requests.length, beforeResize); assert.equal(performance.querySelector('.paper-plot').writes, wordsWrites);
   outside.focus(); data = dashboardData({paper: {daily: daily(1)}}); poll(); await flush();
   performance = f.root.querySelector('#paper-performance');
   assert.equal(performance.open, true); assert.equal(f.document.activeElement, outside);
@@ -1490,6 +1505,32 @@ test('Overview paper performance preserves disclosure and focus on polls and red
   f.clearTimers(); plot.clientWidth = 420; resize();
   assert.equal(plot.writes, writes); assert.equal(f.S.timers.length, 0);
   assert.equal(reads, 8); assert.equal(postRequests(f).length, 0);
+});
+
+// Chart walk 2026-11-01, 200% text on a 390px phone: the Overview's Closed P&L drew "Oct 24" into "Oct 31", lost the "$"
+// of "$30" off its left edge, and its readout box (148 wide) was narrower than its words. Its labels are set at 24px
+// there: it makes room for them at that size, and at the theme's 12px it is drawn as before.
+test('Overview Closed P&L at 200% text keeps its ticks, dates and readout inside the chart and clear of each other', () => {
+  const f = frontend({fetchImpl: () => response({}), globals: {getComputedStyle: el => ({fontSize: el.tag === 'text' ? '24px' : '32px'})}});
+  f.document.createElementNS = (_ns, tag) => new Element(tag);
+  const days = ['2026-10-11', '2026-10-12', '2026-10-18', '2026-10-24', '2026-10-31'];
+  const curve = days.map((d, i) => [Date.parse(d + 'T12:00:00Z') / 1000, [2.81, 0.72, 5.5, 9.1, 21.7][i]]);
+  const opts = {width: 358, height: 180, paper: true, fit: true, endLabel: false};
+  const big = f.equityChart(curve, null, null, opts), plain = frontend({fetchImpl: () => response({})}).equityChart(curve, null, null, opts);
+  const dates = svg => [...svg.matchAll(/<text x="([\d.]+)" y="174"(?: text-anchor="(middle|end)")?>([^<]*)<\/text>/g)]
+    .map(m => { const w = 15 * m[3].length, x = +m[1]; return m[2] === 'end' ? [x - w, x] : m[2] === 'middle' ? [x - w / 2, x + w / 2] : [x, x + w]; });
+  const tickAt = svg => [...svg.matchAll(/<text x="([\d.]+)" y="[^"]*" text-anchor="end">([^<]*)<\/text>/g)].filter(m => !/174/.test(m[0])).map(m => [+m[1], m[2].replace(/⁠/g, '')]);
+  assert.equal(dates(plain).length, 4, 'at the theme’s size it labels four days, as before');
+  const at = dates(big);
+  assert.ok(at.length >= 2);
+  at.slice(1).forEach((d, i) => assert.ok(d[0] > at[i][1], `date ${i + 1} at ${d} runs into ${at[i]}`));
+  assert.ok(at[at.length - 1][1] <= 358 - 10 + 0.5);
+  for (const [x, words] of tickAt(big)) assert.ok(x >= 15 * words.length, `${words} needs ${15 * words.length} units left of ${x}`);
+  // The readout's box is as tall as two lines of the theme's and as wide as its words at that size.
+  const box = big.match(/<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)" height="([\d.]+)" fill="var\(--stock-raised\)"/);
+  const words = big.match(/<g class="chart-reading"[\s\S]*?<text[^>]*>([^<]*)<\/text>/)[1];
+  assert.match(words, /^Oct 11 UTC · \+⁠?\$2\.81$/);
+  assert.equal(+box[2], 52); assert.ok(+box[1] >= 16 + 14 * words.length || +box[1] >= 358 - 10 - 57, box[0]);
 });
 
 // Money-pages walk 2026-10-30: with two days of closed P&L the Overview chart's date axis read "Oct 29, Oct 30, Oct 30"
@@ -4066,8 +4107,10 @@ for (const [label, view, endpoint, selector] of [['Overview', 'viewDashboard', '
     const svgs = [...html.matchAll(/<svg class="spark (up|down|flat)"[^>]*aria-label="([^"]*)"[^>]*>.*?<\/svg>/g)];
     assert.equal(svgs.length, 2, html);  // the one-trade deployment draws none
     const [up, down] = [svgs.find((m) => m[1] === 'up'), svgs.find((m) => m[1] === 'down')];
-    assert.equal(up[2], 'Paper cumulative P&amp;L, +$12.40 over 48 trades; low −$1.00, high +$500.00');
-    assert.equal(down[2], 'Live cumulative P&amp;L, −$3.00 over 2 trades; low −$3.00, high −$1.00');
+    // Its name says its period and its first figure too (2026-11-01): it said only where it ended, its low and its high.
+    const d9 = new Date(1760000000e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+    assert.equal(up[2], `Paper cumulative P&amp;L, +$12.40 over 48 trades on ${d9}; +$2.00 after the first; low −$1.00, high +$500.00`);
+    assert.equal(down[2], `Live cumulative P&amp;L, −$3.00 over 2 trades on ${d9}; −$1.00 after the first; low −$3.00, high −$1.00`);
     for (const m of svgs) {
       assert.match(m[0], /role="img"/); assert.match(m[0], /viewBox="0 0 80 24"/);
       assert.match(m[0], /<line class="spark-zero"/);

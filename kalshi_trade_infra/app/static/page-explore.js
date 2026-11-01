@@ -8,7 +8,7 @@
 window.TauPage('explore', (T) => {
   'use strict';
   const {
-    announce, api, boardTitle, BTC_CONTRACT, cents, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
+    announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
     exploreNoBtc, exploreNoFeed, exploreShowChips, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel,
@@ -28,7 +28,9 @@ window.TauPage('explore', (T) => {
       : '<div class="empty"><h3>Not enough price history</h3></div>';
     // The SVG scales to its box, labels too: drawn 760 wide, a phone's ~320px chart shrank its 10.5px axis
     // labels to under 5px. On a phone it's drawn near the size it shows at, so the cents and times stay legible.
-    const W = phone() ? 340 : 760, H = phone() ? 220 : 260, pl = 44, pr = 14, pt = 14, pb = 26, iw = W - pl - pr, ih = H - pt - pb;
+    // The cents gutter and the top fit "100¢" at the size the labels are drawn (chartScale): at 200% text it read "00¢".
+    const k = chartScale(10.5, null, 'pchart', 'pc-ylab');
+    const W = phone() ? 340 : 760, H = phone() ? 220 : 260, pl = Math.max(44, Math.ceil(12 + 4 * 8 * k)), pr = 14, pt = Math.round(14 * k), pb = 26, iw = W - pl - pr, ih = H - pt - pb;
     const t0 = pts[0][0], t1 = pts[pts.length - 1][0], tr = (t1 - t0) || 1;
     const x = (t) => pl + (t - t0) / tr * iw, y = (v) => pt + (1 - v) * ih;
     const grid = [0, .25, .5, .75, 1].map((v) => `<line x1="${pl}" y1="${y(v).toFixed(1)}" x2="${W - pr}" y2="${y(v).toFixed(1)}" class="pc-grid"/><text x="${pl - 8}" y="${(y(v) + 3).toFixed(1)}" class="pc-ylab">${Math.round(v * 100)}¢</text>`).join('');
