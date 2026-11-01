@@ -323,3 +323,30 @@ def test_a_polled_money_page_carries_the_live_switch_and_a_flip_moves_its_versio
         assert not flipped.get("same") and flipped["v"] != first["v"]
         assert flipped["live_trading_available"] is True
         monkeypatch.setattr(engine, "LIVE_TRADING_ENABLED", False)
+
+
+def test_a_dashboard_without_since_keeps_nothing_new_on_each_poll(conn, world):
+    """Load pass 2026-11-01: a dashboard with no ?since= (a first visit on the device, and every visit after it
+    until a 30-minute gap) sums the rolling last 24 hours, whose start moves with the clock. Its sums were kept
+    under that start, a new entry on every 15s poll that no read could hit, until the keep (4,096 entries across
+    all users) was cleared whole, every user's kept reads with it. 50 sessions left it at 848 entries after
+    10 minutes. The window's start now rides with the kept answer (one entry, served only for the same start);
+    the answer is unchanged."""
+    from app.services import book_memo
+
+    counting = Counting(conn)
+    uid = _book(conn)[0]
+    _poll(counting, uid, "dashboard", {})
+    kept = len(book_memo._KEPT)
+    for s in (15, 30, 45):
+        CLOCK[0] = NOW + timedelta(seconds=s)
+        out, _ = _poll(counting, uid, "dashboard", {})
+    assert len(book_memo._KEPT) == kept
+    assert _canon(out) == _canon(_fresh(counting, uid, "dashboard", {}))
+    # A start the page named is the same on every poll of the visit: kept, and served again with no re-sum.
+    since = {"since": str(int((NOW - timedelta(hours=5)).replace(tzinfo=timezone.utc).timestamp()))}
+    _poll(counting, uid, "dashboard", since)
+    CLOCK[0] = NOW + timedelta(seconds=60)
+    again, sent = _poll(counting, uid, "dashboard", since)
+    assert len(book_memo._KEPT) == kept and not any("AS p_all" in s for s in sent), sent
+    assert _canon(again) == _canon(_fresh(counting, uid, "dashboard", since))

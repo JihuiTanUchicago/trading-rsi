@@ -165,14 +165,21 @@ def removed_deployments(memo: BookMemo, strategy_id: Optional[int] = None) -> Li
 def closed_book_totals(memo: BookMemo, day: datetime, visit: Optional[datetime] = None, split: bool = False,
                        fills: bool = False):
     """repo.closed_book_totals (every book's realized P&L and closed-trade count, with `split` each
-    deployment's since-visit share, and with `fills` each book's contract fills), kept."""
-    if fills:
-        return memo.get("book_totals_fills", (day, visit, split),
-                        lambda: repo.closed_book_totals(memo.cur, memo.uid, day, visit, split=split, fills=True))
-    if split:
-        return memo.get("book_totals_split", (day, visit),
-                        lambda: repo.closed_book_totals(memo.cur, memo.uid, day, visit, split=True))
-    return memo.get("book_totals", (day, visit), lambda: repo.closed_book_totals(memo.cur, memo.uid, day, visit))
+    deployment's since-visit share, and with `fills` each book's contract fills), kept.
+
+    The visit rides with the kept answer, not in its key: one entry per user, day and shape, served only for
+    the same visit. The dashboard's rolling last 24 hours (no ?since=: a first visit on the device, and every
+    visit after it until a 30-minute gap) starts at a new instant on every request; in the key it added an
+    entry on each 15s poll that no read could hit, until the keep was cleared whole, every user's kept reads
+    with it (load pass 2026-11-01: 848 entries after 10 minutes of 50 sessions)."""
+    name = "book_totals_fills" if fills else ("book_totals_split" if split else "book_totals")
+    key = (day, split)
+    hit = memo.peek(name, key)
+    if hit is not None and hit[0] == visit:
+        return hit[1]
+    val = repo.closed_book_totals(memo.cur, memo.uid, day, visit, split=split, fills=fills)
+    memo.keep(name, key, (visit, val))
+    return val
 
 
 def deployment_curves(memo: BookMemo, deployment_ids: List[int]) -> Dict[int, List[List]]:
