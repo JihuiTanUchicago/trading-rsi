@@ -937,6 +937,7 @@ def test_the_research_scoreboard_takes_live_ready_from_the_deploy_boards_kept_ch
     for k in (2, 6):
         rows = _up_book(k)
         paper_checks.KEPT.clear()
+        paper_checks.GATE.clear()
         server._SHARED.clear()
         asked.clear()
         alone = server.research_scoreboard(_ctx([], 10.0, query={"days": "14"}, extra=rows))["paper"]
@@ -959,6 +960,66 @@ def test_the_research_scoreboard_takes_live_ready_from_the_deploy_boards_kept_ch
         boards.append(board)
     assert counts[0] == counts[1] <= SCOREBOARD_KEPT_BUDGET, counts
     paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
+
+
+def test_the_first_research_scoreboard_after_the_warm_up_reads_no_gate(production, monkeypatch):
+    """The board's live-ready answers were kept only when the Deploy board had kept them: a stopped strategy (off
+    the Deploy board) or a user the warm-up's Deploy boards hadn't reached cost the gate's ~5 reads and its bootstrap
+    each, ~650ms cold on a seeded heavy account. The startup warm-up now keeps the board's answers too
+    (keep_scoreboard_checks), and the board keeps what it reads (services.paper_checks), so the first board after
+    the warm-up, and a second board with nothing kept (another range of days), read no gate and keep the
+    SCOREBOARD_KEPT_BUDGET. A record that moved (a trade closed) is read again, for that strategy only."""
+    from app.research import agent
+    from app.services import paper_checks
+
+    asked = []
+    ready_ids = {2, 5}
+
+    def evidence(cur, uid, sid):
+        asked.append(sid)
+        checks = {"realistic_trades": True, "net_pnl": True, "demo": sid in ready_ids}
+        return {"ready": all(checks.values()), "checks": checks}
+
+    monkeypatch.setattr(agent, "paper_evidence", evidence)
+    monkeypatch.setattr(agent, "_is_deployment_candidate", lambda cur, sid: (_ for _ in ()).throw(AssertionError("candidate")))
+    rows = _up_book(6)
+    rows[SB_DEPLOYMENTS][2]["status"] = "stopped"  # strategy 3: off the Deploy board, still counted by this one
+    paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
+    server._SHARED.clear()
+    alone = server.research_scoreboard(_ctx([], 10.0, query={"days": "14"}, extra=rows))
+    assert sorted(asked) == [1, 2, 3, 4, 5, 6]  # nothing kept: the gate, for each one
+    # A second board with nothing kept from the Deploy board: the first board's reads serve it.
+    asked.clear()
+    log = []
+    other = server.research_scoreboard(_ctx(log, 10.0, query={"days": "7"}, extra=rows))
+    assert asked == [] and other["paper"] == alone["paper"] and len(log) <= SCOREBOARD_KEPT_BUDGET, len(log)
+    # A fresh process: the warm-up keeps them, and the first board reads none.
+    from app.research import tournament
+    paper_checks.GATE.clear()
+    monkeypatch.setattr(tournament, "_ALLOCATIONS", type(tournament._ALLOCATIONS)())
+    server._SHARED.clear()
+    asked.clear()
+    server.keep_scoreboard_checks(CountingCursor([], dict(_ctx([], 10.0).conn.cursor().rows, **rows)), 7)
+    assert sorted(asked) == [1, 2, 3, 4, 5, 6] and len(tournament._ALLOCATIONS) == 1  # and the hour's allocation
+    asked.clear()
+    draws, real = [], tournament.allocate
+    monkeypatch.setattr(tournament, "allocate", lambda e, seed="": draws.append(seed) or real(e, seed))
+    log = []
+    warmed = server.research_scoreboard(_ctx(log, 10.0, query={"days": "14"}, extra=rows))
+    assert asked == [] and draws == [] and warmed == alone and len(log) <= SCOREBOARD_KEPT_BUDGET, len(log)
+    assert warmed["paper"]["total"]["live_ready"] == 2
+    # Strategy 4 closed another trip: its record moved, so its answer is read again; the rest are kept.
+    t0 = datetime(2026, 10, 24)
+    rows[SB_TRIPS] = rows[SB_TRIPS] + [{"strategy_id": 4, "pnl": 0.085, "opened_at": t0, "closed_at": t0 + timedelta(minutes=14),
+                                        "ticker": "KXBTC15M-26OCT240000-00"}]
+    server._SHARED.clear()
+    asked.clear()
+    moved = server.research_scoreboard(_ctx([], 10.0, query={"days": "14"}, extra=rows))
+    assert asked == [4] and moved["paper"]["total"]["live_ready"] == 2
+    paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
 
 
 def test_the_paper_progress_worked_out_from_the_trips_is_the_sums_read():

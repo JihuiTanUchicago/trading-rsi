@@ -117,6 +117,7 @@ def test_the_boards_checks_are_the_same_however_they_are_read(conn, book, monkey
     monkeypatch.setattr(agent, "paper_evidence", lambda cur, u, sid: calls.append(sid) or gate(cur, u, sid))
     monkeypatch.setattr(paper_checks, "WORKER_IDLE", 0.05)
     paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
     agent._EDGE_P.clear()
     fresh = _board(conn, user)
     assert sorted(fresh) == sorted(book["sids"]) and all(r[3] is not None for r in fresh.values())
@@ -126,6 +127,7 @@ def test_the_boards_checks_are_the_same_however_they_are_read(conn, book, monkey
     assert uid in repo.paper_board_users(conn.cursor(), 10_000)
     monkeypatch.setattr(server.repo, "paper_board_users", lambda cur, limit: [uid])
     paper_checks.KEPT.clear()  # a fresh process
+    paper_checks.GATE.clear()
     server._ROADS.clear()
     agent._EDGE_P.clear()
     assert server.warm_deploy_boards() == 1 and len(calls) == 6
@@ -157,3 +159,4 @@ def test_the_boards_checks_are_the_same_however_they_are_read(conn, book, monkey
     if worker is not None:
         worker.join(5)
     paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
