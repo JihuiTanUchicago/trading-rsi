@@ -44,12 +44,13 @@ def test_the_file_has_a_header_row_and_one_row_per_closed_trade_oldest_first(mon
     assert fname.startswith("tau-trades-paper-") and fname.endswith(".csv")
     assert rows[0] == ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
                        "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
-                       "close_reason", "market"]
-    # The strategy by its title, never its internal id (the file once said "No. 00042"); the market in words last, so
-    # every column a reader already reads keeps its header and place.
+                       "close_reason", "market", "closed_at_local"]
+    # The strategy by its title, never its internal id (the file once said "No. 00042"); the market in words, then the
+    # close in the reader's zone, last, so every column a reader already reads keeps its header and place. No zone known
+    # (no cookie): the local close says its offset, +00:00.
     assert rows[1] == ["2026-10-25T13:00:01Z", "2026-10-25T12:00:01Z", "paper", "Fade late spikes", "Fade late spikes",
                        "KXBTCD-26OCT2517-T98000", "yes", "5", "0.4000", "1.0000", "0.0700", "0.0000", "2.9300",
-                       "Held to settlement: paid $1", "Bitcoin above a set price at 5pm ET"]
+                       "Held to settlement: paid $1", "Bitcoin above a set price at 5pm ET", "2026-10-25T13:00:01+00:00"]
     assert rows[2][12] == "-1.5000"  # a loss stays a number, not text
     assert len(rows) == 3
 
@@ -104,7 +105,7 @@ def test_a_removed_deployments_trades_say_so_in_the_strategy_column(monkeypatch)
               _row(4, strategy_id=None, title=None, deployment_removed=False)]
     monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(trades)))
     _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
-    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 15
+    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 16
     assert [r[3] for r in rows[1:]] == ["Fade late spikes (removed deployment)", "Fade late spikes", "Fade late spikes", ""]
     assert [r[4] for r in rows[1:]] == ["Fade late spikes", "Fade late spikes", "Fade late spikes", ""]
     # Beside a same-titled strategy the plain-words tag stays, and the mark follows it.
@@ -138,7 +139,7 @@ def test_the_file_names_no_internal_id_and_says_each_close_in_plain_words(monkey
     _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
     assert rows[0] == billing_routes.TRADES_CSV_HEADER
     assert not any("id" in h.split("_") for h in rows[0]), rows[0]
-    assert len(rows[0]) == 15 and all(len(r) == 15 for r in rows[1:])
+    assert len(rows[0]) == 16 and all(len(r) == 16 for r in rows[1:])
     assert [r[13] for r in rows[1:]] == [said for _, _, said in closes]
     assert not any(re.search(r"\b[a-z]+_[a-z_]+\b", r[13]) for r in rows[1:])  # no stored code
     # The money columns as before: dollars, four places, the P&L a number a sum reads.
@@ -401,7 +402,7 @@ def test_the_last_column_names_the_market_in_words_and_every_old_column_stays_pu
     head = rows[0]
     assert head[:14] == ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
                          "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl", "close_reason"]
-    assert head[14:] == ["market"]
+    assert head[14:] == ["market", "closed_at_local"]
     market = [r[head.index("market")] for r in rows[1:]]
     assert market == ["Solana up or down in 15 minutes", "NYC daily high temperature", "NBA game winner (moneyline)",
                       "Bitcoin up or down in 15 minutes", ""]

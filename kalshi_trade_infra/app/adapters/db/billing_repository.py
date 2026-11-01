@@ -4,7 +4,7 @@ from __future__ import annotations
 from decimal import Decimal, localcontext
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from app.adapters.db.sql import now_utc
+from app.adapters.db.sql import day_shift_sql, now_utc
 
 
 def credit_balance(cur, user_id: int) -> float:
@@ -108,13 +108,7 @@ def _day_shift(tz) -> Tuple[str, Tuple]:
     """credit_statement's minutes behind UTC for a row, as SQL over l.created_at and its parameters: one offset
     (an int), or [(from, minutes)] oldest first (the first from None), the offset in force from each naive UTC
     instant on, so a row before a clock change counts on the viewer's day by the offset it fell under."""
-    if isinstance(tz, (list, tuple)) and len(tz) > 1:
-        params: List = []
-        for (start, _), (_, before) in zip(tz[1:], tz[:-1]):
-            params += [start, int(before)]
-        return ("(CASE " + " ".join(["WHEN l.created_at < %s THEN %s"] * (len(tz) - 1)) + " ELSE %s END)",
-                tuple(params) + (int(tz[-1][1]),))
-    return "%s", (int(tz[0][1] if isinstance(tz, (list, tuple)) else tz),)
+    return day_shift_sql(tz, "l.created_at")
 
 
 def credit_statement(cur, user_id: int, since, tz_minutes=0, limit: int = 300) -> List[Dict]:

@@ -65,6 +65,7 @@ import {firstQuarterHourCases} from './first_quarter_hour_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
+import {readerDayCases} from './reader_day_frontend_cases.mjs';
 import {dayClockCases} from './day_clock_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
@@ -7132,6 +7133,7 @@ multiFamilyCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus
 firstQuarterHourCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 timeTruthCases({name: 'Meridian', billingPage, cardedBilling});
 midnightCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, storageFor: m => m});
+readerDayCases({name: 'Meridian', frontend, dashboard: dashboardData, storageFor: m => m, paperChart: true});
 dayClockCases({name: 'Meridian', frontend, fundsData: funds, storageFor: m => m});
 writeWaitCases({name: 'Meridian', frontend, billingPage, cardedBilling, postRequests, storageFor: m => m});
 declinedCardCases({name: 'Meridian', frontend, dashboard: dashboardData});

@@ -83,9 +83,10 @@ test('every helper the core gives is one a bundle takes, and both bundles take t
   const [tau, mer] = BUNDLES.map((b) => new Set(taken(read(b))));
   assert.deepEqual(all.filter((n) => !tau.has(n) && !mer.has(n)), [], 'a helper no bundle takes');
   // Both call mdInline for a strategy row's thesis line (Meridian's when the search found the row by it); only
-  // Meridian's draws Explore's spot distance from its parts (its rows' own markup).
+  // Meridian's draws Explore's spot distance from its parts (its rows' own markup), and only Meridian's Home draws the
+  // paper days (daysReaders: whether they are the reader's own days or UTC days).
   assert.deepEqual([...tau].filter((n) => !mer.has(n)), []);
-  assert.deepEqual([...mer].filter((n) => !tau.has(n)), ['TARGET_IN', 'vsText', 'vsLab', 'rowVs']);
+  assert.deepEqual([...mer].filter((n) => !tau.has(n)), ['daysReaders', 'TARGET_IN', 'vsText', 'vsLab', 'rowVs']);
 });
 
 test('the core keeps no dead helper: each one it defines it gives, or calls itself', () => {

@@ -2,6 +2,8 @@
 memory/awareness blocks added so a review stops repeating dead ends, double-launching research, or
 spending blind to its budget — and that a context-read hiccup degrades gracefully instead of failing
 the whole review (every block is best-effort)."""
+from datetime import datetime, timedelta, timezone
+
 from app.research import agent
 
 
@@ -69,7 +71,7 @@ def test_open_exposure_and_realized_pnl_come_book_by_book_never_summed(monkeypat
     _wire(monkeypatch)
     expo = {"paper": {"n": 2, "notional": 3.0050}, "demo": {"n": 1, "notional": 2.1}, "live": {"n": 3, "notional": 0.9}}
     monkeypatch.setattr(agent.repo, "user_open_exposure", lambda cur, uid, mode=None: expo[mode])
-    monkeypatch.setattr(agent.repo, "closed_book_totals", lambda cur, uid, day: (
+    monkeypatch.setattr(agent.repo, "closed_book_totals", lambda cur, uid, day, visit=None: (
         {"paper": (-0.745, 0.0), "demo": (0.6335, 0.0), "live": (1.5225, 0.0)}, {"paper": 12, "demo": 3, "live": 3}, {}))
     monkeypatch.setattr(agent.repo, "demo_equity", lambda cur, uid, realized=None: {"equity": 749.91, "realized": -0.09,
                                                                                   "before_reload": 0.73})
@@ -205,14 +207,22 @@ def test_the_realized_line_carries_each_books_day_as_the_dashboard_labels_it(mon
     # asked "what did I make today?" had nothing of the page's to quote. Each book apart, never summed.
     _wire(monkeypatch)
     monkeypatch.setattr(agent.repo, "user_open_exposure", lambda cur, uid, mode=None: {"n": 0, "notional": 0})
-    monkeypatch.setattr(agent.repo, "closed_book_totals", lambda cur, uid, day: (
+    seen = {}
+    monkeypatch.setattr(agent.repo, "closed_book_totals", lambda cur, uid, day, visit=None: seen.update(day=day, visit=visit) or (
         {"paper": (5.2125, 10.0), "demo": (3.525, 3.435), "live": (2.0360, -7.3575)},
-        {"paper": 11, "demo": 3, "live": 11}, {}))
+        {"paper": 11, "demo": 3, "live": 11}, {"paper": (12.5, 4), "demo": (0.0, 0), "live": (-8.115, 2)}))
     monkeypatch.setattr(agent.repo, "demo_equity", lambda cur, uid, realized=None: {"equity": 1003.53, "realized": 3.53,
                                                                                   "before_reload": 0.0})
     ctx = agent._copilot_context(None, USER)
     assert "Realized today (UTC, since 00:00 UTC): paper $10.00; demo $3.44; live (real money) -$7.36." in ctx
     assert "$2.64" not in ctx and "$6.08" not in ctx  # live + paper, live + paper + demo: never one figure
+    # Home's "Today" is the reader's own day, which a reply on the worker can't know: the same read sums the last 24
+    # hours (a window that means the same in every zone) and the line says which figure to give for "today", by name.
+    ago = datetime.now(timezone.utc).replace(tzinfo=None) - seen["visit"]
+    assert (seen["day"].hour, seen["day"].minute) == (0, 0) and timedelta(hours=23, minutes=59) < ago < timedelta(hours=24, minutes=1)
+    assert ("Realized in the last 24 hours: paper $12.50 over 4 closed trades; demo $0.00 over 0 closed trades; "
+            "live (real money) -$8.12 over 2 closed trades.") in ctx
+    assert "Home's \"Today\" is the user's own calendar day" in ctx and "never call either \"today\" alone" in ctx
 
 
 def test_a_running_live_deployment_waits_while_live_trading_is_closed_as_deploy_says(monkeypatch):

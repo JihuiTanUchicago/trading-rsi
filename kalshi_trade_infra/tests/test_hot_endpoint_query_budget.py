@@ -854,14 +854,16 @@ def test_the_trades_download_stays_in_its_query_budget_and_reads_each_strategy_o
     assert [p for s, p in log if "WHERE d.id IN" in s] == [(5, 6, 7)]  # each deployment once, not per trade
     # Oldest first; deployment 6 is gone, so no strategy. The strategy column is the title, never its id.
     btc, eth = "Fade tails (Bitcoin up or down in 15 minutes)", "Fade tails (Ethereum up or down in 15 minutes) (removed deployment)"
+    # The last column is the close in the reader's zone with its offset (+00:00 here: no zone cookie).
     assert data.splitlines()[1:] == [
         "2026-10-25T07:00:00Z,2026-10-25T06:00:00Z,paper,%s,Fade tails,KXBTC15M-26OCT2517-T98,yes,3,"
-        "0.5000,1.0000,0.0700,0.0000,1.4300,Held to settlement: paid $1,Bitcoin up or down in 15 minutes" % eth,
+        "0.5000,1.0000,0.0700,0.0000,1.4300,Held to settlement: paid $1,Bitcoin up or down in 15 minutes,2026-10-25T07:00:00+00:00" % eth,
         "2026-10-25T09:00:00Z,2026-10-25T08:00:00Z,paper,%s,Fade tails,KXBTC15M-26OCT2517-T98,yes,3,"
-        "0.5000,0.0000,0.0700,0.0000,-1.5700,Held to settlement: expired worthless,Bitcoin up or down in 15 minutes" % btc,
-        "2026-10-25T11:00:00Z,2026-10-25T10:00:00Z,paper,,,KXBTC15M-26OCT2517-T98,yes,3,0.5000,,0.0700,,,,Bitcoin up or down in 15 minutes",
+        "0.5000,0.0000,0.0700,0.0000,-1.5700,Held to settlement: expired worthless,Bitcoin up or down in 15 minutes,2026-10-25T09:00:00+00:00" % btc,
+        "2026-10-25T11:00:00Z,2026-10-25T10:00:00Z,paper,,,KXBTC15M-26OCT2517-T98,yes,3,0.5000,,0.0700,,,,Bitcoin up or down in 15 minutes,"
+        "2026-10-25T11:00:00+00:00",
         "2026-10-25T13:00:00Z,2026-10-25T12:00:00Z,paper,%s,Fade tails,KXBTC15M-26OCT2517-T98,yes,5,"
-        "0.4000,1.0000,0.0700,0.0000,2.9300,Held to settlement: paid $1,Bitcoin up or down in 15 minutes" % btc]
+        "0.4000,1.0000,0.0700,0.0000,2.9300,Held to settlement: paid $1,Bitcoin up or down in 15 minutes,2026-10-25T13:00:00+00:00" % btc]
     assert "No. " not in data
     log = []
     server.trades_csv(_ctx(log, 10.0, query={"mode": "live"}))
@@ -887,15 +889,16 @@ def test_the_trades_download_words_each_close_once_and_every_line_as_its_own(pro
                                                            "strategy_market": "btc15m", "strategy_created": None}]}
     _, _, _, data = server.trades_csv(_ctx([], 10.0, query={"mode": "paper"}, extra=rows))
     assert len(said) == 4  # 100 trades, four closes
-    # The close in words is the last column but one; the market in words, last.
-    words = [line.rsplit(",", 2)[1] for line in data.splitlines()[1:]]
+    # The close in words is the last column but two; the market in words, then the close in the reader's zone.
+    words = [line.rsplit(",", 3)[1] for line in data.splitlines()[1:]]
     assert len(words) == 100 and set(words) == {"Exited at 60¢: take-profit (+20¢)", "Exited at 60¢: take-profit (+10¢)",
                                                 "Held to settlement: paid $1"}
-    assert {line.rsplit(",", 1)[1] for line in data.splitlines()[1:]} == {"Bitcoin up or down in 15 minutes"}
+    assert {line.rsplit(",", 2)[1] for line in data.splitlines()[1:]} == {"Bitcoin up or down in 15 minutes"}
     # Each line as it reads alone.
     for line, r in zip(data.splitlines()[1:], reversed(rows["AS v FROM app_positions p"])):
         v = r["v"].split(",")
-        assert line.rsplit(",", 2)[1] == real(dict(r, entry_price=v[2], exit_price=v[3]))
+        assert line.rsplit(",", 3)[1] == real(dict(r, entry_price=v[2], exit_price=v[3]))
+        assert line.rsplit(",", 1)[1] == v[0][:-1] + "+00:00"
 
 
 # GET /api/billing/receipt: the ledger with the balance and total spent summed from it (repo.credit_history), then the

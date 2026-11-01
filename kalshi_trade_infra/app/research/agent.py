@@ -5142,19 +5142,30 @@ def _copilot_context(cur, user: Dict) -> str:
     # reply asked "what have I made" quotes the page's figure: the per-deployment lines above leave
     # out removed deployments and deleted strategies, and adding them up mixed rounded figures. Today's figure
     # is each book's "realized today (UTC)" from the same read: without it a reply asked "what did I make today?"
-    # had only the all-time figures and the per-deployment lines to work from.
+    # had only the all-time figures and the per-deployment lines to work from. Home counts the reader's own day,
+    # which this context can't know (a reply runs on a worker, away from the reader's browser), so the same read
+    # also sums the last 24 hours, a window that means the same in every time zone, and the line says which to give.
     try:
-        realized, closed, _ = repo.closed_book_totals(cur, user["id"], repo.now_utc().replace(hour=0, minute=0, second=0))
+        now = repo.now_utc()
+        realized, closed, last24 = repo.closed_book_totals(cur, user["id"], now.replace(hour=0, minute=0, second=0),
+                                                           now - timedelta(hours=24))
         demo_since = repo.demo_equity(cur, user["id"], realized=realized["demo"][0])
+        day24 = lambda m: "%s over %d closed trades" % (_usd((last24.get(m) or (0, 0))[0]), int((last24.get(m) or (0, 0))[1]))  # noqa: E731
         lines.append("Realized P&L by book, closed trades only (the dashboard's figures; never add books together): "
                      "paper %s over %d closed trades, all time; demo %s %s; live (real money) %s over %d "
                      "closed trades, all time. Removed deployments and deleted strategies are included. "
                      "Demo has %d closed trades all time. "
-                     "Realized today (UTC, since 00:00 UTC): paper %s; demo %s; live (real money) %s."
+                     "Realized today (UTC, since 00:00 UTC): paper %s; demo %s; live (real money) %s. "
+                     "Realized in the last 24 hours: paper %s; demo %s; live (real money) %s. "
+                     "The user's own time zone isn't known here, and Home's \"Today\" is the user's own calendar day, "
+                     "so it can differ from both: asked what they made \"today\", give the last 24 hours' figures and "
+                     "say they are the last 24 hours (Home shows their own day), or the UTC day's saying it counts from "
+                     "00:00 UTC; never call either \"today\" alone."
                      % (_usd(realized["paper"][0]), closed.get("paper", 0), _usd(demo_since["realized"]),
                         "since its last reload" if demo_since.get("before_reload") else "all time",
                         _usd(realized["live"][0]), closed.get("live", 0), closed.get("demo", 0),
-                        _usd(realized["paper"][1]), _usd(realized["demo"][1]), _usd(realized["live"][1])))
+                        _usd(realized["paper"][1]), _usd(realized["demo"][1]), _usd(realized["live"][1]),
+                        day24("paper"), day24("demo"), day24("live")))
     except Exception:
         pass
     # The trades themselves, with the page's reason line, and open positions a deleted strategy left: "why did this

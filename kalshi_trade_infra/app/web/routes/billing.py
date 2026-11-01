@@ -6,7 +6,6 @@ import re
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from urllib.parse import unquote
 
 from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
@@ -14,6 +13,7 @@ from app.adapters.stripe import billing
 from app.services import customer_text
 from app.services.trade_why import trade_why
 from app.trading.markets import contract_customer_name, customer_name
+from app.services import reader_day
 from app.web.http import ApiError, Ctx, _num
 from app.web.views import credit_cents, credit_exact, credit_split, credit_usd, session_title
 
@@ -267,13 +267,7 @@ def _tz_minutes(ctx: Ctx) -> int:
     return tz if -840 <= tz <= 840 else 0
 
 
-TZ_NAME_COOKIE = "tau_tzn"  # the browser's time zone name (Intl), URL-encoded, as boot.js writes it on every load
-_TZ_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}$")
-
-
-def _zone_offset(zone, at: datetime) -> int:
-    """The zone's offset from UTC at the naive UTC instant `at`, in minutes as getTimezoneOffset() says it (360 for UTC-6)."""
-    return -int(at.replace(tzinfo=timezone.utc).astimezone(zone).utcoffset().total_seconds()) // 60
+TZ_NAME_COOKIE = reader_day.TZ_NAME_COOKIE  # the browser's time zone name (Intl), URL-encoded, as boot.js writes it
 
 
 def _statement_tz(ctx: Ctx, since: datetime) -> Union[int, List[Tuple[Optional[datetime], int]]]:
@@ -282,33 +276,14 @@ def _statement_tz(ctx: Ctx, since: datetime) -> Union[int, List[Tuple[Optional[d
     from None — read off the time zone the browser names (the tau_tzn cookie), when that zone is at ?tz= now. With one
     offset for every row, the days before a clock change were cut an hour off the viewer's midnight: a session's
     calls on two of the viewer's days (Oct 31 evening and 00:04 CDT Nov 1) were one line, headed by its last call's
-    day, so "Today" summed yesterday's calls (walk 2026-11-01). Display only: amounts are the ledger's own."""
+    day, so "Today" summed yesterday's calls (walk 2026-11-01). Display only: amounts are the ledger's own. The
+    zone and its offsets are app.services.reader_day's, as every page that counts the reader's day reads them."""
     tz = _tz_minutes(ctx)
-    handler = getattr(ctx, "handler", None)
-    name = unquote((handler.cookies().get(TZ_NAME_COOKIE) or "") if handler is not None and hasattr(handler, "cookies") else "")
-    if not name or len(name) > 64 or not _TZ_NAME.match(name):
+    zone = reader_day.named_zone(reader_day._cookies(ctx).get(TZ_NAME_COOKIE), tz)
+    if zone is None:
         return tz
-    try:
-        from zoneinfo import ZoneInfo
-        zone = ZoneInfo(name)
-        now = repo.now_utc()
-        if _zone_offset(zone, now) != tz:
-            return tz  # the cookie names another zone than the page's offset (it moved): the offset wins
-        t = since.replace(second=0, microsecond=0)  # clock changes fall on whole minutes
-        segs: List[Tuple[Optional[datetime], int]] = [(None, _zone_offset(zone, t))]
-        while t < now:  # a day at a time; a change inside a day is found to the minute
-            nxt = min(t + timedelta(days=1), now)
-            if _zone_offset(zone, nxt) != segs[-1][1]:
-                lo, hi = 0, int((nxt - t).total_seconds() // 60) + 1
-                while hi - lo > 1:
-                    mid = (lo + hi) // 2
-                    lo, hi = (mid, hi) if _zone_offset(zone, t + timedelta(minutes=mid)) == segs[-1][1] else (lo, mid)
-                at = t + timedelta(minutes=hi)
-                segs.append((at, _zone_offset(zone, at)))
-            t = nxt
-    except Exception:  # noqa: BLE001 - an unknown zone or no zone data: the browser's offset, as before
-        return tz
-    return segs if len(segs) > 1 else tz
+    segs = reader_day.offsets(zone, since)
+    return segs if isinstance(segs, list) else tz
 
 
 _cents = credit_cents  # every credits figure rounds one way (app.web.views.credit_cents)
@@ -491,11 +466,14 @@ TRADE_MODES = ("paper", "demo", "live")
 TRADES_CSV_MAX_ROWS = 50000  # about 7MB; a cap, so one request can't read an unbounded book
 TRADES_CSV_HEADER = ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
                      "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
-                     "close_reason", "market"]
+                     "close_reason", "market", "closed_at_local"]
 # The file's last column was each trade's internal position id (walk 2026-11-01): no column carries an id now. A trade
 # is told apart by its Kalshi contract (ticker) and its times. The ticker carries the raw series key
 # (KXSOL15M-26NOV011815-00), so the market column names the market in words (markets.contract_customer_name), as the
 # pages do. It comes last: every column a reader already reads keeps its header and its place.
+# closed_at_local, after it, is when the trade closed in the reader's own zone with its offset ("2026-10-31T21:05:00-04:00",
+# app.services.reader_day), so its first ten characters are the day Home's "Today" and its paper days count it on: a
+# New York reader's 9pm trade read "2026-11-01" in closed_at_utc. "+00:00" while the reader's zone isn't known yet.
 
 
 def _close_said(r: Dict) -> str:
@@ -584,6 +562,7 @@ def trades_csv(ctx: Ctx):
     if mode not in TRADE_MODES:
         raise ApiError(400, "Pick a mode: paper, demo or live.")
     rows = repo.closed_trades_for_export(ctx.cur, ctx.uid, mode, TRADES_CSV_MAX_ROWS + 1)
+    zone = reader_day.reader_zone(ctx)
     cut = len(rows) > TRADES_CSV_MAX_ROWS
     buf = io.StringIO()
     row = _csv_rows(buf)
@@ -606,7 +585,7 @@ def trades_csv(ctx: Ctx):
             _iso_utc(r["closed_at"]), _iso_utc(r["opened_at"]), r["mode"],
             _strategy_cell(names, r), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
             _dec(r["entry_price"]), _dec(r["exit_price"]), _dec(r["entry_fee"]), _dec(r["exit_fee"]),
-            _dec(r["pnl"]), close, name])
+            _dec(r["pnl"]), close, name, reader_day.local_iso(r["closed_at"], zone)])
     if cut:
         row(["# Only the newest %d trades are in this file; older ones are not." % TRADES_CSV_MAX_ROWS])
     fname = "tau-trades-%s-%s.csv" % (mode, repo.now_utc().strftime("%Y%m%d"))
