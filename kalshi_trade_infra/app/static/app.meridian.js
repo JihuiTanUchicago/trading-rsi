@@ -15,10 +15,10 @@
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine, neverCleared,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
-    spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
+    spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, pricesOld, notFoundLine, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS,
     shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,
@@ -924,7 +924,7 @@
       if (gen === S.gen && e.status === 404) {
         // A deleted or mistyped strategy or session: Try again can't bring it back, so offer its list.
         const up = path.replace(/\/\d+$/, ''), label = { '/strategies': 'All strategies', '/research': 'All research sessions' }[up];
-        shell(sectionOf(path), boardTitle('Not found'), `<div class="load-fail">${notice(e.message, 'bad')}<a class="btn sm" href="${label ? up : '/'}">${label || 'Dashboard'}</a></div>`);
+        shell(sectionOf(path), boardTitle('Not found'), `<div class="load-fail">${notice(notFoundLine(up, e.message), 'bad')}<a class="btn sm" href="${label ? up : '/'}">${label || 'Dashboard'}</a></div>`);
       } else if (gen === S.gen && e.status !== 401) {
         // Offline, it isn't "something went wrong": the page loads by itself once the network is back
         // (the online handler presses Try again).
@@ -2738,6 +2738,8 @@
       const hasLive = d.deployments.some((x) => x.mode === 'live' && x.status !== 'stopped');
       const paperWorkspace = !hasLive && d.open_positions.concat(d.recent_closed, d.deployments).every(x => x.mode === 'paper');
       const sharedPaperRunning = d.deployments.length > 0 && d.deployments.every(x => x.mode === 'paper' && x.status === 'running');
+      // "Deployed strategies" counts strategies (stratCount), not its rows: one strategy on paper with a demo copy read
+      // as two, "6" beside the Strategies list's "Deployed (5)" (audit 2026-11-01).
       // Collector lag is the operator's to fix, so only the admin view shows it (red "needs you" told
       // every user something was wrong that they couldn't act on). It stays red there: no Bitcoin spot candles, or
       // none for 45 minutes, means the collector is down and new backtests run on missing prices. It names the feed it
@@ -2797,6 +2799,8 @@
         : `<div id="deps-empty" data-on="${S.me.user && S.me.user.autopilot ? 1 : 0}">${depsEmpty(S.me.user && S.me.user.autopilot)}</div>`;
       const positionMarket = r => contractMkt(r.ticker);
       const depMarket = (r) => (d.deployments.find((x) => x.id === r.deployment_id) || {}).market;
+      // An open position of a removed deployment says why it is still here, as Deploy's does (posRemovedWhy).
+      const posLeft = (r) => posRemovedWhy(r, posDep(r, twinned));
       // An open position's Unrealized P&L says when its mark was read (the engine's mark_ts), as Deploy's does: with
       // the engine stopped, a mark hours old read as this minute's. An old mark's figure is dimmed and says how old.
       const positions = (rows, closed) => rows.map((r) => {
@@ -2811,7 +2815,7 @@
         // "market · strategy · Demo" over a row that shows "market … Demo", whose words ran together ("minutesDemo") with
         // nothing between them. The grid still places each where it was (a space between grid items draws nothing).
         return `<tr class="${closed ? 'settled-position' : 'open-position'}">
-        <td class="name"><details class="position-details" data-position="${closed ? 'closed' : 'open'}-${esc(r.id)}"><summary aria-label="${esc(name)}${SEP}${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'Demo' : 'Paper'}${SEP}${esc(r.title)}">${ICON.chev}<span class="position-market">${esc(name)}</span> <span class="position-mode">${r.mode === 'live' ? '<span class="mk live">LIVE</span>' : r.mode === 'demo' ? 'Demo' : 'Paper'}</span> <span class="position-title vh">${esc(r.title)}</span></summary><div class="sub-fig">${kalshiRef(r.ticker)}${SEP}${esc(r.title)}<span class="position-opened">${closed ? 'Closed' : 'Opened'} ${ageAt(closed ? r.closed_at : r.opened_at)}</span>${r.why ? `<span class="position-why">${sepLine(r.why)}</span>` : ''}${close && Number.isFinite(close.getTime()) ? `<span class="position-absolute">Expires ${esc(dateFmt(close, EXPIRES_AT))}</span>` : ''}${!closed && r.unrealized == null ? `<span class="position-mark-note">Unrealized: ${NOT_MARKED.toLowerCase()}</span>` : ''}</div></details></td>
+        <td class="name"><details class="position-details" data-position="${closed ? 'closed' : 'open'}-${esc(r.id)}"><summary aria-label="${esc(name)}${SEP}${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'Demo' : 'Paper'}${SEP}${esc(r.title)}">${ICON.chev}<span class="position-market">${esc(name)}</span> <span class="position-mode">${r.mode === 'live' ? '<span class="mk live">LIVE</span>' : r.mode === 'demo' ? 'Demo' : 'Paper'}</span> <span class="position-title vh">${esc(r.title)}</span></summary><div class="sub-fig">${kalshiRef(r.ticker)}${SEP}${esc(r.title)}<span class="position-opened">${closed ? 'Closed' : 'Opened'} ${ageAt(closed ? r.closed_at : r.opened_at)}</span>${r.why ? `<span class="position-why">${sepLine(r.why)}</span>` : !closed && posLeft(r) ? `<span class="position-why pos-dep-why">${posLeft(r)}</span>` : ''}${close && Number.isFinite(close.getTime()) ? `<span class="position-absolute">Expires ${esc(dateFmt(close, EXPIRES_AT))}</span>` : ''}${!closed && r.unrealized == null ? `<span class="position-mark-note">Unrealized: ${NOT_MARKED.toLowerCase()}</span>` : ''}</div></details></td>
         <td class="position-size-cell"><span class="position-size"><span class="position-side">${esc(r.side.toUpperCase())}</span><span aria-hidden="true"> × </span><span class="position-quantity"><span class="vh">Quantity </span>${esc(r.qty)}</span></span></td>
         <td class="position-expiry-cell">${expiry ? `<time class="position-expiry" datetime="${esc(close.toISOString())}">${esc(expiry)}</time>${pastClose ? `<span class="position-expired">${MKT_STATUS.closed}</span>` : ''}` : '<span class="unavailable" title="Expiry unavailable"><span aria-hidden="true">—</span><span class="vh">Expiry unavailable</span></span>'}</td>
         <td class="num position-entry">${cents(+r.entry_price)}</td>
@@ -2860,7 +2864,8 @@
               && previous.mode === row.mode && previous.market === market) previous.rows.push(row);
           else groups.push({market, deploymentId, title: row.title, mode: row.mode, rows: [row]});
         });
-        // A group of open positions from a removed deployment says so; one from a strategy's twin deployment says which.
+        // A group of open positions from a removed deployment says so (each row's details say why it is still here,
+        // posRemovedWhy); one from a strategy's twin deployment says which.
         const groupWhose = (g) => { if (closed || !g.rows.length) return ''; const w = posDep(g.rows[0], twinned); return w.removed ? ` <span class="position-dep">(${POS_REMOVED})</span>` : w.dep ? ` <span class="position-dep">(${depStake(w.dep)}${SEP}Deployed ${esc(w.dep._twinDay)})</span>` : ''; };
         const bodies = groups.map(group => `<tbody><tr class="position-family"><th scope="rowgroup" colspan="${widths.length}"><span class="position-attribution">${group.market ? `<span class="position-family-name vh">${esc(group.market.label || marketShort(group.market.key))}</span>` : ''}<span class="position-strategy">${esc(group.title)}${groupWhose(group)}</span><span class="position-attribution-mode">${group.mode === 'live' ? '<span class="mk live">LIVE</span>' : group.mode === 'demo' ? 'Demo' : 'Paper'}</span></span></th></tr>${positions(group.rows, closed)}</tbody>`).join('');
         return `<div class="sheet"><table class="t-positions" data-paper-only="${onlyPaper}"><colgroup>${widths.map(width => `<col style="width:${width / 808 * 100}%">`).join('')}</colgroup><thead><tr><th scope="col">Market / contract</th><th scope="col">Position</th><th scope="col">Expiry</th><th scope="col" class="num">Entry</th>${closed ? '' : '<th scope="col" class="num">Cost + fee</th>'}<th scope="col" class="num" title="${closed ? 'Realized result when it closed, at settlement or sold early' : 'Estimated from the latest stored bid'}">${closed ? 'Realized' : 'Unrealized'} P&amp;L</th></tr></thead>${bodies}</table></div>`;
@@ -2897,7 +2902,7 @@
         <section class="positions-ledger" id="dash-open"><div class="sect-head"><h2>Open positions <span class="section-count">${openHead.n}</span>${openHead.book}</h2></div>
           ${d.open_positions.length ? positionTable(d.open_positions, false) : '<p class="hint">No open positions.</p>'}
           ${d.recent_closed.length ? `<details class="recent-settlements" id="recent-settlements"${settlementsOpen ? ' open' : ''}><summary>Recently closed <span>${closedHead.n}</span>${closedHead.book}</summary>${positionTable(d.recent_closed, true)}${closedAll > d.recent_closed.length ? closedWhere(d, 'closed-all') : ''}</details>` : ''}
-        </section><div class="dash-analysis">${performance}<section class="sect deployed-monitor${sharedPaperRunning ? ' shared-paper-running' : ''}"><div class="sect-head"><div class="monitor-heading"><h2>Deployed strategies <span class="section-count">${num(d.deployments.length)}</span></h2>${sharedPaperRunning ? '<span class="monitor-context">Paper</span>' : ''}${d.deployments.length ? '<a href="/research?new=1" class="btn">New research</a>' : ''}</div></div><div id="dash-deps">${deps}</div></section></div></div></div>`;
+        </section><div class="dash-analysis">${performance}<section class="sect deployed-monitor${sharedPaperRunning ? ' shared-paper-running' : ''}"><div class="sect-head"><div class="monitor-heading"><h2>Deployed strategies <span class="section-count">${num(stratCount(d.deployments))}</span></h2>${sharedPaperRunning ? '<span class="monitor-context">Paper</span>' : ''}${d.deployments.length ? '<a href="/research?new=1" class="btn">New research</a>' : ''}</div></div><div id="dash-deps">${deps}</div></section></div></div></div>`;
       paint(root.querySelector('#boardbody'), board);  // the 15s poll repaints only what changed
       if (accountsFocused) root.querySelector('#other-accounts > summary').focus({ preventScroll: true });
       keepApCard(() => replaceDeploymentContent(root.querySelector('#main'), main));
@@ -3085,7 +3090,8 @@
       // A position of a removed deployment says so (it read as a running one's), and one of a strategy's twin
       // deployments says which: its stake and the day it was deployed (posDep).
       const twinned = withTwins(d.deployments);
-      const posWhose = (p) => { const w = posDep(p, twinned); return w.removed ? `<div class="sub-fig pos-dep">Removed deployment</div>` : w.dep ? `<div class="sub-fig pos-dep">${depStake(w.dep)}${SEP}Deployed ${esc(w.dep._twinDay)}</div>` : ''; };
+      // The removed one's also says why it is still here (posRemovedWhy). Display only.
+      const posWhose = (p) => { const w = posDep(p, twinned); return w.removed ? `<div class="sub-fig pos-dep">Removed deployment</div>${posRemovedWhy(p, w) ? `<div class="sub-fig pos-dep-why">${posRemovedWhy(p, w)}</div>` : ''}` : w.dep ? `<div class="sub-fig pos-dep">${depStake(w.dep)}${SEP}Deployed ${esc(w.dep._twinDay)}</div>` : ''; };
       // Every open position says its book, paper included: a paper row had no mark beside a Demo one, so on a
       // board holding both, its Cost + fee read as nobody's money (or real money).
       const posBook = (p) => p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : '<span class="mk">Paper</span>';
@@ -3281,6 +3287,10 @@
         const t = closeWords(el.getAttribute('data-close'), el.getAttribute('data-form'), el.getAttribute('data-skew'), el.getAttribute('data-cap'));
         if (el.textContent !== t) el.textContent = t;
       });
+      // On the same tick the market page's prices, read once, say how old they are once past the feed's refresh
+      // (pricesOld). Nothing failed, so it is a quiet line, never the outage's (staleLine, not failing).
+      const old = root.querySelector('#mk-price-stale');
+      if (old) { const t = pricesOld(old.getAttribute('data-stale-from')); if (old.textContent !== t) staleLine('mk-price-stale', t, false); }
     }, 5000));
   }
 
@@ -4395,7 +4405,7 @@
   let shareMap = null;
   const shared = () => shareMap || (shareMap = new Proxy({
     BTC_CONTRACT, closeLeft, closeWords, comboTitle, compactCondition, contractMkt, contractShort, EXPLORE_NO_FEED, EXPLORE_WAIT,
-    exploreEmpty, exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, hourET, kalshiUrl, keepFocus, marketSpot, midOf, MKT_GONE,
+    exploreEmpty, exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, hourET, kalshiUrl, keepFocus, marketSpot, midOf, MKT_GONE, pricesOld,
     MKT_STATUS, mktLabel, NO_MARK, rulesText, spotListNote, spotSect, strikeIn, sum4, usdShare, vsHtml,
     actionLink, adminViewOn, alert0, announce, staleLine, SEP, sepLine, gloSep, WJ, plain, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apSaid, depSaid, depWrite,
     apExpanded, apFlash, apFloorText, apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, fundsLinked,

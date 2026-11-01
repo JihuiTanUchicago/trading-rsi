@@ -11,7 +11,7 @@ window.TauPage('explore', (T) => {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
     exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
-    liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel,
+    liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel, pricesOld,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
     settleAt, dayAt, shell, sinceMin, smooth, ageAt, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
   } = T;
@@ -141,8 +141,8 @@ window.TauPage('explore', (T) => {
     // goes to the market's heading, or to the new Try again when the read failed again (walk 2026-10-31).
     const again = () => viewMarketDetail(ticker)
       .then(() => retried(root.querySelector('main'), root.querySelector('#mk-retry') || root.querySelector('main h1')));
-    let d;
-    try { d = await api('/api/explore/market?ticker=' + encodeURIComponent(ticker)); }
+    let d, readAt;
+    try { d = await api('/api/explore/market?ticker=' + encodeURIComponent(ticker)); readAt = new Date(Date.now()).toISOString(); }
     catch (e) {
       // A market Kalshi doesn't have (404) won't come back on a retry: it says so in words, without the raw code
       // from the link ("Kalshi has no market KXNOPE-…"), and offers only the way back to Explore.
@@ -205,6 +205,11 @@ window.TauPage('explore', (T) => {
       const t = v == null || v === '' || !Number.isFinite(+v) ? '—' : num(Math.round(+v));
       return fig(label, t, { small, ...(t.length > 11 ? { cls: 'fig-long' } : {}) });
     };
+    // The page reads its prices once: left open past the feed's refresh, a line under the figures says how old they are
+    // (pricesOld), kept current by the close clock's tick (closeClock), no timer of its own. A Kalshi read counts from
+    // when this page read it, on the reader's clock (its as_of is the server's, which may be skewed, as closeSkew says);
+    // the Explore snapshot from its own time. A market with a result shows no price, so it has no line.
+    const pricesFrom = over ? '' : d.snapshot ? d.as_of || '' : d.as_of ? readAt : '';
     // The way back sits at the top as well as the foot: on a 390px phone the foot's "Back to Explore" was about three
     // screens down. Both go to the list this tab last showed, its filter kept (exploreBackHref).
     shell('/explore', `<p class="mk-back"><a href="${esc(exploreBackHref())}">← Back to Explore</a></p>` + boardTitle(label, [esc(contractMarket(d.ticker)), statusLine, d.ticker ? kalshiRef(d.ticker) : ''].filter(Boolean).join(SEP)) +
@@ -214,7 +219,7 @@ window.TauPage('explore', (T) => {
           : voided ? fig('Result', 'Voided', { small: 'Kalshi voided this market: no Yes or No result' })
           : noResult ? fig('Result', '—', { small: 'Kalshi lists it as settled but sent no Yes or No result' })
           : fig('Yes price', mid == null ? '—' : cents(mid), { small: priceSub })) + count('24h volume', d.volume_24h, 'contracts traded') +
-        count('Open interest', d.open_interest, 'contracts held') + closesFig + '</dl>' + marketNext(d.ticker, d.my_markets), `${spotReq && !over ? spotSect(d.ticker || ticker) : ''}
+        count('Open interest', d.open_interest, 'contracts held') + closesFig + '</dl>' + (pricesFrom ? `<p class="stale-note" id="mk-price-stale" role="status" data-stale-from="${esc(pricesFrom)}">${esc(pricesOld(pricesFrom))}</p>` : '') + marketNext(d.ticker, d.my_markets), `${spotReq && !over ? spotSect(d.ticker || ticker) : ''}
       <section class="sect"><div class="sect-head"><h2>Your positions here</h2><p>Each money book on its own</p></div>${marketMine(d)}</section>
       <section class="sect"><div class="sect-head"><h2>How it settles</h2><p>${settled ? `Settled${SEP}${d.result === 'yes' ? 'Yes' : 'No'}` : cancelled ? `Cancelled by Kalshi${paidEach ? SEP + paidEach : ''}` : voided ? 'Voided, no result' : noResult ? 'Settled, no result sent' : d.settles_at ? `Result expected ${dayAt(d.settles_at)}` : 'Kalshi’s rules'}</p></div>
         ${d.rules ? `<p class="mk-rules">${esc(rulesText(d.rules))}</p>${d.rules_more ? `<p class="hint mk-rules">${esc(rulesText(d.rules_more))}</p>` : ''}`

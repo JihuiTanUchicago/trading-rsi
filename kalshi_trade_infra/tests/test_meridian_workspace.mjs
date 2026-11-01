@@ -3867,8 +3867,23 @@ test('a research session that does not exist links to the list instead of offeri
   f.location.pathname = '/research/9';
   await f.render(); await flush();
   const html = f.root.innerHTML;
-  assert.match(html, /No such research session\./); assert.match(html, /href="\/research">All research sessions</);
+  assert.match(html, /Tau can’t find this research session\. It may have been deleted\./); assert.match(html, /href="\/research">All research sessions</);
   assert.doesNotMatch(html, /data-retry/);
+});
+
+test('a deleted strategy or research session, opened from an old link or the bell, says it may have been deleted', async () => {
+  // Audit 2026-11-01: it read "Not found" over "No such strategy.", as if the link were broken. It says plainly it may
+  // have been deleted and keeps the way back to its list; another page's 404 keeps the server's words.
+  for (const [pathname, api, said, back] of [['/strategies/42', '/api/strategies/42', 'strategy', 'href="/strategies">All strategies<'],
+    ['/research/9', '/api/runs/9', 'research session', 'href="/research">All research sessions<']]) {
+    const f = frontend({fetchImpl: path => (path.startsWith(api) ? {ok: false, status: 404, json: async () => ({error: 'No such thing.'})} : {ok: true, status: 200, json: async () => ({})})});
+    f.location.pathname = pathname;
+    await f.render(); await flush();
+    const html = f.root.innerHTML;
+    assert.match(html, new RegExp(`Tau can’t find this ${said}\\. It may have been deleted\\.`), pathname);
+    assert.ok(html.includes(back), pathname);
+    assert.doesNotMatch(html, /No such thing|data-retry/, pathname);
+  }
 });
 
 test('the legal pages load in Tau even for a Meridian user, since only Tau has them', () => {

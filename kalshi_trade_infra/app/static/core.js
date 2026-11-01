@@ -936,6 +936,17 @@
     return { dep: d && d._twinDay ? d : null, apart: d && d._apart ? d._apart.slice(2) : '', removed: !d && p.deployment_id != null };
   };
   const POS_REMOVED = 'removed deployment';
+  // Why that position is still listed: Remove sells what a deployment holds (the engine flattens a stopped one), so
+  // one still open hasn't been sold yet: no price to sell at so far, or no way to sell it (real money while live
+  // trading is closed), and then it closes when its market settles, as the strategy page's Delete reason says
+  // ("They'll close at settlement"). A deleted strategy's position says otherwise in its own line (the server's why:
+  // nothing sells or settles it), so it gets none. `w` is posDep's answer. Display only.
+  const POS_REMOVED_WHY = 'Not sold yet: Tau sells it when it can, or it closes when its market settles.';
+  const posRemovedWhy = (p, w) => (w && w.removed && !p.why && (p.status == null || p.status === 'open') ? POS_REMOVED_WHY : '');
+  // How many strategies a list of deployments covers: one strategy on paper with a demo copy, or deployed twice, is
+  // two deployments but one strategy. "6 strategies" over five of them read as a sixth (audit 2026-11-01). A count
+  // labelled strategies counts these. A row with no strategy id counts as its own.
+  const stratCount = (ds) => new Set((ds || []).map((d) => (d.strategy_id != null ? 's' + d.strategy_id : 'd' + d.id))).size;
   // One plain line on how a book is doing against its backtest, written by the server
   // (services/backtest_check.py): that book's realized per-trade P&L and win rate against the
   // backtest's, "too early to tell" under 10 trades. One book per line; books are never added up.
@@ -1214,6 +1225,22 @@
     return `<dl class="figures measure">${now}${strike}${vs}${left}</dl><p class="hint mk-spot-note">Kalshi settles on the CF Benchmarks Bitcoin index averaged over the last minute before the close; Coinbase’s price usually sits within a few dollars of it.</p>`;
   }
   const MKT_GONE = 'Kalshi has no market at this link. It may have been taken down, or the link is incomplete. Find it again on Explore.';
+  // A market page reads its prices once. Left open, they stood as current under "as of 09:11" for as long as the tab
+  // did (audit 2026-11-01). Past the feed's refresh (about once a minute, as Explore's list says) its line says how old
+  // they are. `iso`: when they were read (the reader's clock at the read, or the Explore snapshot's time). '' while fresh.
+  const FEED_REFRESH_MS = 60000;
+  const pricesOld = (iso) => {
+    const t = Date.parse(iso || '');
+    if (!Number.isFinite(t) || Date.now() - t <= FEED_REFRESH_MS) return '';
+    const m = Math.max(1, Math.floor((Date.now() - t) / 60000)), h = Math.round(m / 60), d = Math.round(m / 1440);
+    const ago = m < 90 ? `${num(m)} minute${m === 1 ? '' : 's'}` : m < 2880 ? `${num(h)} hours` : `${num(d)} days`;
+    return `These prices are from ${ago} ago and don’t refresh on this page. Reload it for the latest.`;
+  };
+  // A strategy or research session page whose read came back 404 said "Not found" over "No such strategy.", which
+  // read as a broken link to someone following an old link or a notice about one since deleted (audit 2026-11-01). It
+  // says plainly it may have been deleted; the page keeps its way back to the list. Any other 404 keeps its own words.
+  const GONE_WHAT = { '/strategies': 'strategy', '/research': 'research session' };
+  const notFoundLine = (up, said) => (GONE_WHAT[up] ? `Tau can’t find this ${GONE_WHAT[up]}. It may have been deleted.` : said);
   // Explore's rows and the hot rail say how far stored Bitcoin is from a contract's strike (the server's `vs`,
   // from one shared spot read): "+$420 · 0.4%" is spot $420 (0.4%) above it, a bucket's is to its nearer
   // edge, and a bucket spot sits in reads "in range". Without a fresh spot no row carries one, and the line
@@ -1690,10 +1717,10 @@
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine, neverCleared,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
-    spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
+    spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, pricesOld, notFoundLine, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,

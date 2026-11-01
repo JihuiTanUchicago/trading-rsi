@@ -1119,7 +1119,7 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     await f.render(); await settle();
     const cells = f.root.querySelectorAll('#openpos td[data-lab="Strategy"]').map((td) => td.textContent.replace(/\s+/g, ' ').trim());
     assert.match(cells[0], name === 'Meridian' ? /^Late fade Paper\s*\$5 \/ trade · Deployed Oct 31$/ : /^Late fade Paper\s*\$5 a trade, deployed Oct 31$/);
-    assert.match(cells[1], /^Old breakout Paper\s*Removed deployment$/);
+    assert.match(cells[1], /^Old breakout Paper\s*Removed deployment\s*Not sold yet: Tau sells it when it can, or it closes when its market settles\.$/);
     assert.match(cells[2], /^Other Paper$/);
     f.clearTimers();
     // The dashboard's open positions say the same.
@@ -1130,6 +1130,50 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     assert.match(shown, name === 'Meridian' ? /Late fade \(\$5 \/ trade · Deployed Oct 31\)/ : /Late fade \(\$5 a trade, deployed Oct 31\)/);
     assert.match(shown, /Old breakout \(removed deployment\)/);
     if (name === 'Meridian') assert.match(shown, /\$5 \/ trade · Deployed Oct 12/);  // its card, beside its stake
+    d.clearTimers();
+  });
+
+  // Audit 2026-11-01: a removed deployment's open position said "removed deployment" on Home and Deploy and nothing of
+  // why it was still there (Remove sells what it holds). Each row says why, once; a running one's says nothing of it,
+  // and a deleted strategy's keeps the server's own line (nothing sells or settles it), never this one.
+  const LEFT = 'Not sold yet: Tau sells it when it can, or it closes when its market settles.';
+  const gonePos = () => ({...pos(14, 98, 'Deleted strategy'), why: 'Its strategy was deleted, so Tau no longer sells or settles this position.'});
+  test(`${name}: a removed deployment's open position says why it is still there, on Home and on Deploy`, async () => {
+    const f = frontend({fetchImpl: (path) => (path === '/api/deployments'
+      ? response({deployments: twins(), open_positions: [pos(11, 2), pos(12, 99, 'Old breakout'), gonePos()]}) : response({}))});
+    f.location.pathname = '/deploy';
+    await f.render(); await settle();
+    const rows = f.root.querySelectorAll('#openpos tbody tr').map((tr) => tr.textContent.replace(/\s+/g, ' '));
+    assert.equal(rows.length, 3);
+    assert.ok(!rows[0].includes(LEFT), 'a running deployment’s position says nothing of removal');
+    assert.equal(rows[1].split(LEFT).length, 2, 'the removed deployment’s position says why, once');
+    assert.ok(!rows[2].includes(LEFT) && rows[2].includes('Its strategy was deleted'), 'a deleted strategy’s keeps its own line');
+    f.clearTimers();
+    const d = frontend({fetchImpl: (path) => (path.startsWith('/api/dashboard')
+      ? response({...dashboard(), deployments: twins(), open_positions: [pos(11, 2), pos(12, 99, 'Old breakout'), gonePos()]}) : response({}))});
+    await d.viewDashboard(); await settle();
+    const shown = d.root.querySelector('#main').textContent.replace(/\s+/g, ' ');
+    assert.equal(shown.split(LEFT).length, 2, 'Home says it once, for the removed deployment’s position only');
+    assert.match(shown, /Its strategy was deleted, so Tau no longer sells or settles this position\./);
+    d.clearTimers();
+  });
+
+  // Audit 2026-11-01: one strategy on paper with a demo copy is two deployments. Home said "N strategies running" and
+  // Meridian "Deployed strategies N" by deployments, beside the Strategies list's "Deployed (N)" by strategies. Each
+  // count labelled strategies counts strategies.
+  test(`${name}: a count of strategies counts strategies, not their deployments`, async () => {
+    const deps = [twin(1), twin(4, {mode: 'demo'}), twin(5, {strategy_id: 9, title: 'Other'}), twin(6, {strategy_id: 10, title: 'Third'})];
+    const d = frontend({fetchImpl: (path) => (path.startsWith('/api/dashboard') ? response({...dashboard(), deployments: deps, open_positions: []}) : response({}))});
+    await d.viewDashboard(); await settle();
+    const main = d.root.querySelector('#main');
+    if (name === 'Meridian') {
+      const head = main.querySelector('.deployed-monitor h2').textContent.replace(/\s+/g, ' ').trim();
+      assert.equal(head, 'Deployed strategies 3');
+    } else {
+      const said = d.root.querySelector('.said').textContent;
+      assert.match(said, /3 strategies running/);
+      assert.doesNotMatch(said, /4 strateg/);
+    }
     d.clearTimers();
   });
 
