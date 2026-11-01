@@ -639,22 +639,38 @@
   };
   const teamName = (ticker, code) => ((TEAM_NAMES[String(ticker || '').split('-')[0]] || {})[code]) || code;
   const LEAGUE_OF = / (?:game )?(?:winner|result)(?: \(moneyline\))?$/;
+  // A game ticker's parts: its day, its two teams' codes (null when the ticker doesn't say which is which) and the outcome
+  // it pays on (a team's code, or TIE). null for any other contract.
+  const gameParts = (ticker) => {
+    const t = String(ticker || ''), g = GAME_CONTRACT.exec(t), mon = g && TICKER_MON[g[1]];
+    if (!mon) return null;
+    const teams = g[3], out = g[4];
+    const pair = out === 'TIE' ? (teams.length === 6 ? [teams.slice(0, 3), teams.slice(3)] : null)
+      : teams.length > out.length && teams.startsWith(out) ? [out, teams.slice(out.length)]
+      : teams.length > out.length && teams.endsWith(out) ? [teams.slice(0, -out.length), out] : null;
+    return pair || out === 'TIE' ? { day: `${mon} ${+g[2]}`, pair, out } : null;
+  };
+  // Whether Tau names every team a game contract speaks of (TEAM_NAMES): its market page is then headed in Tau's words,
+  // the ones its positions, Home and Deploy use. A league or code not listed keeps Kalshi's title ("New York Y at Boston").
+  const gameNamed = (ticker) => {
+    const g = gameParts(ticker), names = TEAM_NAMES[String(ticker || '').split('-')[0]] || {};
+    return !!(g && (g.pair || []).concat(g.out === 'TIE' ? [] : [g.out]).every((c) => names[c]));
+  };
+  // What a game contract's Yes pays on, in Tau's team names ("Chiefs win", "the game ends in a draw"); '' for another.
+  const gameYes = (ticker) => { const g = gameParts(ticker); return !g ? '' : g.out === 'TIE' ? 'the game ends in a draw' : `${teamName(ticker, g.out)} win`; };
   const contractWords = (ticker, name) => {
-    const t = String(ticker || ''), w = WX_CONTRACT.exec(t), g = !w && GAME_CONTRACT.exec(t), mon = TICKER_MON[(w || g || [])[1]];
-    if (!name || !mon) return '';
-    if (w) {
+    const t = String(ticker || ''), w = WX_CONTRACT.exec(t), mon = w && TICKER_MON[w[1]];
+    if (!name) return '';
+    if (mon) {
       const day = `${mon} ${+w[2]}`, x = +w[4];
       if (w[3] === 'T') return `${name} on ${day}, ${num(x)}°F threshold`;
       const lo = Math.floor(x - 0.5 + 1e-9);
       return `${name} on ${day}, ${lo}° to ${lo + 1}°F`;
     }
-    const day = `${mon} ${+g[2]}`, teams = g[3], out = g[4], lead = name.replace(LEAGUE_OF, '');
-    const pair = out === 'TIE' ? (teams.length === 6 ? [teams.slice(0, 3), teams.slice(3)] : null)
-      : teams.length > out.length && teams.startsWith(out) ? [out, teams.slice(out.length)]
-      : teams.length > out.length && teams.endsWith(out) ? [teams.slice(0, -out.length), out] : null;
-    if (!pair && out !== 'TIE') return '';
-    const nm = (code) => teamName(t, code);
-    return `${lead}: ${pair ? `${nm(pair[0])} vs ${nm(pair[1])} ` : ''}on ${day}, ${out === 'TIE' ? 'a draw' : nm(out) + ' to win'}`;
+    const g = !w && gameParts(t);
+    if (!g) return '';
+    const nm = (code) => teamName(t, code), lead = name.replace(LEAGUE_OF, '');
+    return `${lead}: ${g.pair ? `${nm(g.pair[0])} vs ${nm(g.pair[1])} ` : ''}on ${g.day}, ${g.out === 'TIE' ? 'a draw' : nm(g.out) + ' to win'}`;
   };
   // Bitcoin series the app shows (Explore, the hot rail, a market page, a position held at Kalshi) that no
   // market here covers: KXBTC's hourly price ranges. Each still says its contract and close as the markets above
@@ -1042,14 +1058,26 @@
   const NEVER_CLEARED = { paper: 'its one judgment on its own paper trades didn’t clear it', holdout: 'its one-time final test didn’t clear it',
     paper_held: 'it passed its one judgment on its own paper trades but was held back', holdout_held: 'it passed its one-time final test but was held back' };
   const neverCleared = (why) => `It can’t be cleared to trade: ${NEVER_CLEARED[why] || NEVER_CLEARED.paper}`;
-  const forwardText = (r) => {
+  // A strategy still in its paper forward test, from the server's one figure for it (road_ahead.forward_figure: Deploy's
+  // row `road`, the strategy page's live-readiness `forward`, the autopilot panel's paper_progress): its one judgment
+  // comes first, then the live check. One wording on every page, and the chat's facts say the same words
+  // (road_ahead.forward_words). A walk (2026-11-01) found one strategy's page saying "Next rung ... 8 of 40" over a Road
+  // to live of "8 of 30 ... about 25 days", and Deploy "about 36 days": two gates and two paces, neither explained.
+  const FORWARD_HEAD = 'its paper forward test';
+  const forwardWhen = (r) => (!r.running ? 'paused, so not growing' : r.forward_eta_days != null ? `${roadDays(+r.forward_eta_days)} at its pace` : '');
+  const forwardThen = (r) => (r.then_trades_needed
+    ? `if it passes, the live check then needs ${num(+r.then_trades_needed)} trade${+r.then_trades_needed === 1 ? '' : 's'}${r.then_eta_days != null ? ` (${roadDays(+r.then_eta_days)} at its pace)` : ''} and looks at their P&amp;L, edge and demo orders`
+    : 'if it passes, the live check then looks at the same record’s P&amp;L, edge and demo orders');
+  const forwardBody = (r) => {
     const need = +r.forward_sample, evNeed = +r.forward_events_needed || 20;
-    const parts = [[+r.trades, need, 'trades'], [+r.events, evNeed, 'separate\u00a0events']].filter(([have, n]) => have < n)
-      .map(([have, n, unit]) => `<span class="nobr"${unit === 'trades' ? '' : ` title="${ROAD_EVENTS_TIP}"`}>${num(have)}/${num(n)}\u00a0${unit}</span>`);
-    if (!parts.length) return `In its paper forward test: its ${num(need)} trades from ${num(evNeed)}+ separate events are in, so its one judgment on them is due. Only a pass clears it to trade.`;
-    const when = !r.running ? '\u00a0· paused, so not growing' : r.forward_eta_days != null ? `\u00a0· enough in ${roadDays(r.forward_eta_days)} at its pace` : '';
-    return `In its paper forward test: ${parts.join('\u00a0· ')}${when}, then one judgment on them decides whether it can be cleared to trade.`;
+    const parts = [[+r.trades, need, 'trades'], [r.events == null ? evNeed : +r.events, evNeed, 'separate events']].filter(([have, n]) => have < n)
+      .map(([have, n, unit]) => `<span class="nobr"${unit === 'trades' ? '' : ` title="${ROAD_EVENTS_TIP}"`}>${num(have)} of ${num(n)} ${unit}</span>`);
+    if (!parts.length) return `its ${num(need)} trades from ${num(evNeed)}+ separate events are in, so its one judgment on them is due. Only a pass can clear it to trade; ${forwardThen(r)}.`;
+    const when = forwardWhen(r);
+    return `${parts.concat(when ? [when] : []).join(' · ')}. One judgment on them decides whether it can be cleared to trade; ${forwardThen(r)}.`;
   };
+  // Deploy's row says it so; the strategy page's Road to live and ladder say FORWARD_HEAD and forwardBody in their own lead.
+  const forwardText = (r) => `Toward live, first ${FORWARD_HEAD}: ${forwardBody(r)}`;
   const roadLine = (d, open) => {
     const r = d.road;
     if (!r) return '';
@@ -1688,7 +1716,9 @@
   const PAPER_COUNT_WHY = `instant-fill paper trades left out (${INSTANT_WHY})`;
   // One still in its paper forward test (the server's `forward_sample`, its trades_needed then) counts toward its one
   // judgment there, not toward live: "40 realistic paper trades (30 needed)" read as nearly live.
-  const paperCount = (p) => p.forward_sample ? (+p.trades >= +p.trades_needed ? `${num(+p.trades)} realistic paper trades (its paper forward test judges ${num(+p.trades_needed)})` : `${num(+p.trades)} of the ${num(+p.trades_needed)} realistic paper trades its paper forward test judges`)
+  // Its count, and the estimate at its pace, are Deploy's (the server's road_ahead figure, forward_eta_days): the card said
+  // "8 of the 40" with no estimate while Deploy said "about 36 days" and its page "about 25" (walk 2026-11-01).
+  const paperCount = (p) => p.forward_sample ? (+p.trades >= +p.forward_sample ? `${num(+p.trades)} realistic paper trades (its paper forward test judges ${num(+p.forward_sample)})` : `${num(+p.trades)} of ${num(+p.forward_sample)} realistic paper trades for its paper forward test${p.forward_eta_days != null ? `, ${roadDays(+p.forward_eta_days)} at its pace` : ''}`)
     : +p.trades >= +p.trades_needed ? `${num(+p.trades)} realistic paper trades (${num(+p.trades_needed)} needed)` : `${num(+p.trades)} of ${num(+p.trades_needed)} realistic paper trades`;
   // A backtest trade's exit, in words (backtest.py / spec.exit_signal reasons); an unknown one loses its underscores.
   const EXIT_WORD = { settled: 'settled', take_profit: 'take-profit', stop_loss: 'stop-loss', stop: 'stop', edge_gone: 'edge gone', signal: 'signal', exit: 'signal', mark: 'marked at end' };
@@ -1826,10 +1856,10 @@
     logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, dayWord, daysReaders, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
-    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
+    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, gameNamed, gameYes, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared, FORWARD_HEAD, forwardBody,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, pricesOld, notFoundLine, vsText, vsLab,

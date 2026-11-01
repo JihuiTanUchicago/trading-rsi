@@ -214,12 +214,16 @@ def test_furthest_on_paper_prefers_one_whose_record_counts_toward_live():
 
 def test_the_story_says_a_forward_test_is_no_step_toward_live():
     prog = {"strategy_id": 8, "title": "NFL probe", "trades": 22, "trades_needed": 40, "net_pnl": 48.92, "strategies": 2,
-            "forward_sample": 40}
+            "forward_sample": 40, "forward_events_needed": 20, "events": 18, "running": True, "forward_eta_days": 4.6,
+            "then_trades_needed": None, "then_eta_days": None}
     lines = _story(2, prog)
-    assert ("2 strategies are on paper (pretend money). The furthest along is in its paper forward test: it has 22 of the 40 "
-            "realistic paper trades its one judgment needs and is up $48.92 on them %s. Only a pass there can clear it to "
-            "trade, and that judgment is made once." % customer_text.PAPER_NET_SHORT) in lines
-    assert any("its one judgment needs 40, from 20 separate events" in line for line in _story(1, dict(prog, trades=41)))
+    # Deploy's words for the same figure (road_ahead.forward_words; forwardBody in core.js).
+    assert ("2 strategies are on paper (pretend money). The furthest along is up $48.92 on its realistic paper trades %s, "
+            "and is in its paper forward test: 22 of 40 trades · 18 of 20 separate events · about 5 days at its pace. One "
+            "judgment on them decides whether it can be cleared to trade; if it passes, the live check then looks at the "
+            "same record’s P&L, edge and demo orders." % customer_text.PAPER_NET_SHORT) in lines
+    assert any("its 40 trades from 20+ separate events are in, so its one judgment on them is due" in line
+               for line in _story(1, dict(prog, trades=41, events=24)))
     for line in lines:
         assert "live needs" not in line and "soonest" not in line
 
@@ -250,18 +254,66 @@ def test_the_feed_never_names_the_experiment_a_held_back_pass_repeats():
 def test_the_chats_facts_say_where_a_paper_strategy_stands_past_the_live_counts():
     """The context said "paper evidence: 22/30 realistic paper trades ... not live-ready: it needs 30+ closed paper trades
     (has 22)" for a probation strategy whose one paper judgment needs 40 and comes first, and only the demo check left for
-    one held back for good. Each now carries its stage, as Deploy and its page say it."""
+    one held back for good. Each now carries its stage, as Deploy and its page say it: one in its paper forward test with
+    Deploy's own figure (road_ahead.forward_figure) in Deploy's words, before its live counts."""
     import inspect
-    from app.research import agent
-    from app.services import chat_facts
-    line = chat_facts.paper_stage_line("forward", 40, 22, 18)
-    assert "paper forward test, NOT cleared to trade" in line and "comes at 40 realistic trades from 20 separate events" in line
-    assert "(has 22 trades from 18 events)" in line and "judgment is due" not in line
-    assert "(has 40 trades from 24 events, so that judgment is due)" in chat_facts.paper_stage_line("forward", 40, 40, 24)
+    from app.research import agent, gatekeeper
+    from app.services import chat_facts, road_ahead
+    fig = {"trades": 22, "events": 18, "running": True, "forward_sample": 40, "forward_events_needed": 20, "forward_eta_days": 3.3,
+           "then_trades_needed": None, "then_eta_days": None}
+    line = chat_facts.paper_stage_line("forward", fig)
+    assert "paper forward test, NOT cleared to trade" in line
+    assert ("first its paper forward test: 22 of 40 trades · 18 of 20 separate events · about 3 days at its pace. One judgment on "
+            "them decides whether it can be cleared to trade; if it passes, the live check then looks at the same record’s P&L, "
+            "edge and demo orders.") in line
+    assert "judgment is due" not in line
+    assert "so its one judgment on them is due" in chat_facts.paper_stage_line("forward", dict(fig, trades=40, events=24))
     assert ("passed its one judgment on its own paper trades but the diversification check held it back"
-            in chat_facts.paper_stage_line("paper_held", 40, 44, 26))
-    assert "can never be cleared to trade: its one judgment on its own paper trades didn’t pass" in chat_facts.paper_stage_line("paper", 40, 46, 25)
-    assert chat_facts.paper_stage_line("", 40, 9, 6) == ""
-    assert chat_facts.PAPER_MIN_EVENTS == agent.MIN_PAPER_EVENTS
+            in chat_facts.paper_stage_line("paper_held"))
+    assert "can never be cleared to trade: its one judgment on its own paper trades didn’t pass" in chat_facts.paper_stage_line("paper")
+    assert chat_facts.paper_stage_line("") == ""
+    assert road_ahead.PAPER_MIN_EVENTS == agent.MIN_PAPER_EVENTS == gatekeeper.PAPER_MIN_EVENTS
+    assert road_ahead.LIVE_MIN_TRADES == agent.MIN_REALISTIC_PAPER_TRADES
     src = inspect.getsource(agent._copilot_context)
-    assert "chat_facts.paper_stage_line(" in src and "chat_facts.paper_stage(" in src
+    assert "chat_facts.paper_stage_line(" in src and "chat_facts.paper_stage(" in src and "road_ahead.forward_figure(" in src
+
+
+def test_one_figure_for_a_forward_test_on_deploy_its_page_the_panel_and_the_chat(monkeypatch):
+    """Regression walk 2026-11-01: one strategy in its paper forward test read "8 of 40" on its ladder, "8 of 30 ... about 25
+    days" in its Road to live and "about 36 days" on Deploy. Deploy's road, the strategy page's live-readiness `forward`, the
+    autopilot panel's paper_progress and the chat's facts are one figure (road_ahead.forward_figure) said one way."""
+    from app.services import chat_facts, road_ahead
+    now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
+    deps = [{"id": 5, "strategy_id": 8, "mode": "paper", "status": "running", "created_at": now - timedelta(days=9), "forward_sample": 40,
+             "cleared_never": None, "result": {}}]
+    trips = [{"pnl": 1.0, "opened_at": now - timedelta(days=8) + timedelta(hours=13 * i), "closed_at": now - timedelta(days=8) + timedelta(hours=13 * i + 3),
+              "ticker": "KXHIGHNY-26OCT%02d-B60.5" % (1 + i)} for i in range(8)]
+    deployments._ROADS.clear()
+    monkeypatch.setattr(deployments.repo, "paper_round_trips_by_strategy", lambda cur, uid, sids: {8: trips})
+    road = deployments._deploy_roads(None, 1, deps)[8]
+    deployments._ROADS.clear()
+    # 8 trips in 9 days: 32 more take 36 days, against the live check's own 22 more (about 25 days), never said as next.
+    assert (road["trades"], road["forward_sample"], road["forward_eta_days"], road["eta_days"]) == (8, 40, 36.0, 24.8)
+    paper = {"trades": 8, "events": 8, "span_hours": road["span_hours"], "ready": False, "why": "it needs 30+"}
+    monkeypatch.setattr(deployments.repo, "get_strategy", lambda cur, uid, sid: {"id": 8, "status": "passed"})
+    monkeypatch.setattr(deployments.repo, "list_deployments_brief", lambda cur, uid: deps)
+    monkeypatch.setattr(deployments.agent, "_is_deployment_candidate", lambda cur, sid: False)
+    monkeypatch.setattr(deployments.agent, "paper_evidence", lambda cur, uid, sid: paper)
+    monkeypatch.setattr(deployments.agent, "live_autopilot_ok", lambda cur, user: (False, "off"))
+
+    class _Ctx:
+        cur, uid, user, params, query = None, 1, {"id": 1}, ("8",), {}
+    page = deployments.strategy_live_readiness(_Ctx())["forward"]
+    keys = ("trades", "events", "forward_sample", "forward_events_needed", "forward_eta_days", "then_trades_needed", "then_eta_days", "running")
+    assert {k: page[k] for k in keys} == {k: road[k] for k in keys}
+    panel = road_ahead.forward_figure(deps, 8, 8, 8, 40, road_ahead.live_eta(deps, 8, 8, 8))
+    assert {k: panel[k] for k in keys} == {k: road[k] for k in keys}
+    said = road_ahead.forward_words(road)
+    assert said.startswith("8 of 40 trades · 8 of 20 separate events · about 36 days at its pace.")
+    assert said in chat_facts.paper_stage_line("forward", page)
+    assert said in "".join(_story(1, dict(page, strategy_id=8, title="Fwd", trades_needed=40, net_pnl=12.17, strategies=1)))
+    # A min_sample under the live check's 30: then its 30 trades, at the live check's own estimate, in that order.
+    low = road_ahead.forward_figure(deps, 8, 8, 8, 25, 24.8)
+    assert (low["forward_eta_days"], low["then_trades_needed"], low["then_eta_days"]) == (19.1, 30, 24.8)
+    assert road_ahead.forward_words(low).endswith("if it passes, the live check then needs 30 trades (about 25 days at its pace) and "
+                                                  "looks at their P&L, edge and demo orders.")

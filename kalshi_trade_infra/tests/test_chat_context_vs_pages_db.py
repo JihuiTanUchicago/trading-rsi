@@ -20,6 +20,8 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 
+from app.services import road_ahead
+
 pytestmark = pytest.mark.skipif(os.getenv("APP_TEST_MYSQL") != "1", reason="needs APP_TEST_MYSQL=1 and a MySQL")
 
 TK = {"btc15m": "KXBTC15M-26NOV01%02d00-00", "high_ny": "KXHIGHNY-26NOV%02d-B60.5", "nba_game": "KXNBAGAME-26NOV%02dLALBOS-LAL",
@@ -331,8 +333,8 @@ def _facts(pages, brief):
             out.append((name + ", why paused", ("status=%s (why: %s)" % (r["status"], why), line.__contains__)))
         road = r.get("road") or {}
         if road.get("forward_sample"):
-            out.append((name + ", forward test", "its one judgment on its own paper trades comes at %d realistic trades from %d separate events "
-                        "(has %d trades from %d events" % (road["forward_sample"], road["forward_events_needed"], road["trades"], road["events"])))
+            # Deploy's figure, in Deploy's words (road_ahead.forward_words): its N of M and its estimate, word for word.
+            out.append((name + ", forward test", "first its paper forward test: " + road_ahead.forward_words(road)))
     for sid, page in pages["strategies"].items():
         for mode, tot in (page.get("book_totals") or {}).items():
             out.append(("Strategy page: “%s” %s" % (page["title"], mode), "\"%s\" market=" % page["title"]))
@@ -443,3 +445,36 @@ def test_the_contexts_reads_stay_bounded_as_the_account_grows(conn, quiet):
     after = count()
     from collections import Counter
     assert len(after) == len(before), Counter(after) - Counter(before)
+
+
+def test_a_paper_forward_test_is_one_figure_on_deploy_its_page_the_panel_and_the_chat(conn, quiet):
+    """Regression walk 2026-11-01: one strategy in its paper forward test read "8 of 40" on its ladder, "8 of 30 ... about 25
+    days" in its Road to live a few lines lower, and "about 36 days" on Deploy. Deploy's road, its page's live-readiness
+    `forward`, the autopilot panel's paper_progress and the chat's facts now carry one figure (road_ahead.forward_figure),
+    and the chat says it in Deploy's words."""
+    from app import repository as repo
+    from app import server
+    from app.research import agent
+
+    cur = conn.cursor()
+    s = Seed(cur, "forward1")
+    CASES["forward"](s)
+    # Nine days on paper, so its pace (12 trips in 9 days) gives an estimate in days, as the walk's did.
+    cur.execute("UPDATE app_deployments SET created_at=%s WHERE user_id=%s", (s.now - timedelta(days=9), s.uid))
+    user = repo.get_user(cur, s.uid)
+    pages = _pages(conn, user, cur)
+    row = next(r for r in pages["deployments"]["deployments"] if (r.get("road") or {}).get("forward_sample"))
+    road = row["road"]
+    page = server.strategy_live_readiness(server.Ctx(conn, user, (str(row["strategy_id"]),), {}, {}, None))["forward"]
+    prog = pages["autopilot"]["paper_progress"]
+    keys = ("trades", "events", "forward_sample", "forward_events_needed", "forward_eta_days", "then_trades_needed", "then_eta_days", "running")
+    assert {k: page[k] for k in keys} == {k: road[k] for k in keys} == {k: prog[k] for k in keys}
+    assert (road["trades"], road["forward_sample"], road["then_trades_needed"]) == (12, 40, None)
+    # 28 more trips at 12 in 9 days: 21 days, never the live check's own 18 more (about 14 days).
+    assert road["forward_eta_days"] == 21.0 and road["eta_days"] < road["forward_eta_days"]
+    said = road_ahead.forward_words(road)
+    assert said.startswith("12 of 40 trades · ") and "about 21 days at its pace" in said
+    brief = agent._copilot_context(cur, user)
+    assert "first its paper forward test: " + said in brief
+    # Its forward test comes first in the facts, its live counts after it, said so.
+    assert brief.index("first its paper forward test: ") < brief.index("then the live check, paper evidence: 12/30")

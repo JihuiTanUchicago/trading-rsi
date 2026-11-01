@@ -9,7 +9,7 @@ window.TauPage('explore', (T) => {
   'use strict';
   const {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
-    contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
+    contractMarket, contractMkt, contractShort, contractWords, gameNamed, gameYes, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
     exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketFull, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel, pricesOld,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
@@ -158,7 +158,13 @@ window.TauPage('explore', (T) => {
       return;
     }
     const mid = midOf({ bid: d.yes_bid, ask: d.yes_ask, last: d.last });
-    const label = mktLabel({ ti: d.title, su: d.sub, t: d.ticker });
+    // A game whose teams Tau names is headed in Tau's words, the ones its positions, Home and Deploy use (contractWords:
+    // "NFL: Chiefs vs Bills on Nov 1, Chiefs to win"): it was headed with Kalshi's title, "Kansas City at Buffalo Winner?
+    // · Kansas City", over a line reading "NFL: Chiefs vs Bills on Nov 1, Chiefs to win" (regression walk 2026-11-01).
+    // Kalshi's own words stay in How it settles. A league or team Tau doesn't name keeps Kalshi's title (gameNamed).
+    const gameMkt = gameNamed(d.ticker) && contractMkt(d.ticker);
+    const gameLabel = gameMkt ? contractWords(d.ticker, marketFull(gameMkt.key)) : '';
+    const label = gameLabel || mktLabel({ ti: d.title, su: d.sub, t: d.ticker });
     const gran = d.period_min >= 1440 ? 'daily' : d.period_min >= 60 ? 'hourly' : 'per-minute';
     // Kalshi's "candles" are a trader's word: the chart says how often it has a price ("A price each minute").
     const GRAN_EACH = { daily: 'A price each day', hourly: 'A price each hour', 'per-minute': 'A price each minute' };
@@ -176,7 +182,8 @@ window.TauPage('explore', (T) => {
     const chance = (p) => { const n = Math.round(p * 100); return n < 1 ? 'under\u00a01%' : n > 99 ? 'over\u00a099%' : `≈\u00a0${n}%`; };
     // A game's Yes is one side winning (Kalshi's yes subtitle names it, "Los Angeles L"; "Tie" a draw): "≈ 41% chance of Yes"
     // under "Los Angeles L at Boston Winner? · Los Angeles L" left a newcomer to work out what Yes was (sports walk 2026-11-01).
-    const yesIs = /\swinner\??$/i.test(String(d.title || '').trim()) && String(d.sub || '').trim()
+    // Headed in Tau's team names, it says Yes in them too ("Chiefs win"), not Kalshi's "Kansas City wins".
+    const yesIs = gameLabel ? gameYes(d.ticker) : /\swinner\??$/i.test(String(d.title || '').trim()) && String(d.sub || '').trim()
       ? (/^(?:tie|draw)$/i.test(d.sub.trim()) ? 'the game ends in a draw' : `${d.sub.trim()} wins`) : '';
     const priceSub = [mid == null ? 'No trades yet' : `${chance(mid)} chance of Yes${yesIs ? ` (${esc(yesIs)})` : ''}${bid > 0 && ask > 0 ? '' : ', from the last trade'}`, quote,
       d.as_of ? (d.snapshot ? `Explore snapshot, ${sinceMin(d.as_of)}` : `as\u00a0of\u00a0${dayAt(d.as_of, 'kz')}`) : ''].filter(Boolean).join(SEP);
@@ -229,7 +236,7 @@ window.TauPage('explore', (T) => {
     const pricesFrom = over ? '' : d.snapshot ? d.as_of || '' : d.as_of ? readAt : '';
     // The way back sits at the top as well as the foot: on a 390px phone the foot's "Back to Explore" was about three
     // screens down. Both go to the list this tab last showed, its filter kept (exploreBackHref).
-    shell('/explore', `<p class="mk-back"><a href="${esc(exploreBackHref())}">← Back to Explore</a></p>` + boardTitle(label, [esc(contractMarket(d.ticker)), statusLine].filter(Boolean).join(SEP)) +
+    shell('/explore', `<p class="mk-back"><a href="${esc(exploreBackHref())}">← Back to Explore</a></p>` + boardTitle(label, [gameLabel ? '' : esc(contractMarket(d.ticker)), statusLine].filter(Boolean).join(SEP)) +
       '<dl class="figures measure" style="margin-top:14px">' +
         (settled ? fig('Result', d.result === 'yes' ? 'Yes' : 'No', { small: d.result === 'yes' ? 'each Yes contract paid $1' : 'each No contract paid $1' })
           : cancelled ? fig('Result', 'Cancelled', { small: `Kalshi cancelled this market${paidEach ? ' and ' + paidEach : ''}: no Yes or No result` })

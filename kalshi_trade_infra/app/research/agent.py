@@ -58,6 +58,7 @@ from app.services import gate_explain
 from app.services import customer_text
 from app.services import research_notice
 from app.services import chat_facts
+from app.services import road_ahead
 from app.services import deploy_rows
 from app.research.agent_market_data import AgentMarketData, DataScope
 from app.research.agent_knowledge import AgentKnowledge
@@ -5016,14 +5017,22 @@ def _copilot_context(cur, user: Dict) -> str:
             # paper deployments on what live would actually earn. Best-effort (test stub -> skip).
             try:
                 ev = paper_evidence(cur, user["id"], d["strategy_id"])
-                lines.append("    paper evidence: " + paper_evidence_line(ev))
-                # Where it stands with the gatekeeper past those counts, as Deploy and its page say it.
+                # Where it stands with the gatekeeper past those counts, as Deploy and its page say it. One in its paper
+                # forward test says that first, with Deploy's figure (road_ahead), and its live counts after.
                 rec = rr.experiments_for_strategy(cur, d["strategy_id"], (repo.get_strategy(cur, user["id"], d["strategy_id"]) or {}).get("experiment_id"))
-                stage = chat_facts.paper_stage_line(
-                    chat_facts.paper_stage((rec or {}).get("results") or [], ((rec or {}).get("experiment") or {}).get("min_sample")),
-                    ((rec or {}).get("experiment") or {}).get("min_sample"), ev["trades"], ev.get("events") or 0)
-                if stage:
-                    lines.append("    " + stage)
+                need = ((rec or {}).get("experiment") or {}).get("min_sample")
+                stage = chat_facts.paper_stage((rec or {}).get("results") or [], need)
+                fwd = None
+                if stage == "forward":
+                    n_ev = int(ev.get("events") or 0)
+                    fwd = road_ahead.forward_figure(deps, d["strategy_id"], int(ev["trades"]), n_ev, int(need), road_ahead.live_eta(
+                        deps, d["strategy_id"], int(ev["trades"]), n_ev, float(ev.get("span_hours") or 0)))
+                said = chat_facts.paper_stage_line(stage, fwd)
+                if said and fwd:
+                    lines.append("    " + said)
+                lines.append("    %s: %s" % ("then the live check, paper evidence" if fwd else "paper evidence", paper_evidence_line(ev)))
+                if said and not fwd:
+                    lines.append("    " + said)
             except Exception:
                 pass
     if not deps:

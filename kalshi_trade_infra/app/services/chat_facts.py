@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Callable, Dict, Iterable, List, Optional
 
 from app import repository as repo
-from app.services import trade_why
+from app.services import road_ahead, trade_why
 from trading_core.domain.credits import credit_exact, credit_split, credit_usd, research_week_usd
 from trading_core.domain.money import cents, exact
 
@@ -166,7 +166,6 @@ def open_notional(row: Optional[Dict]) -> Decimal:
 # context's "paper evidence ... not live-ready: it needs 30+ closed paper trades (has 22)" read as eight trades from live
 # for a probation strategy whose one paper judgment needs 40 and comes first, and as only demo orders left for one the
 # diversification check held back for good (walk 2026-11-01, road to live).
-PAPER_MIN_EVENTS = 20  # gatekeeper.PAPER_MIN_EVENTS, the live gate's floor too (agent.MIN_PAPER_EVENTS)
 
 
 def paper_stage(results: List[Dict], min_sample: Optional[int]) -> str:
@@ -193,15 +192,16 @@ _STAGE_NEVER = {
 }
 
 
-def paper_stage_line(stage: str, min_sample: Optional[int], trades: int, events: int) -> str:
-    """The context line for `paper_stage`, or '' when there is nothing past the counts to say."""
-    if stage == "forward":
-        need = int(min_sample or 0)
-        due = int(trades) >= need and int(events) >= PAPER_MIN_EVENTS
-        return ("stage: in its paper forward test, NOT cleared to trade: its one judgment on its own paper trades comes at "
-                "%d realistic trades from %d separate events (has %d trades from %d events%s), and only a pass can clear "
-                "it. Until then the live counts above are no step toward live; say so if asked how close it is."
-                % (need, PAPER_MIN_EVENTS, int(trades), int(events), ", so that judgment is due" if due else ""))
+def paper_stage_line(stage: str, forward: Optional[Dict] = None) -> str:
+    """The context line for `paper_stage`, or '' when there is nothing past the counts to say. A strategy in its paper
+    forward test is said from `forward`, Deploy's figure for it (road_ahead.forward_figure), in Deploy's and its page's
+    words: its "8 of 40 trades" and "about 36 days" there, before the live check's counts. The line said 40 trades with no
+    estimate, beside "8/30 realistic paper trades" (walk 2026-11-01: Deploy said 36 days, its page 25)."""
+    if stage == "forward" and forward:
+        return ("stage: in its paper forward test, NOT cleared to trade. Before live, in this order: first its paper "
+                "forward test: %s The live counts in the paper evidence line come only after that judgment; if asked how "
+                "close it is to live, say it in this order with these figures, as Deploy and its page do."
+                % road_ahead.forward_words(forward))
     if stage in _STAGE_NEVER:
         return ("stage: it can never be cleared to trade: %s. Its paper record doesn’t lead to live, whatever the counts "
                 "above say." % _STAGE_NEVER[stage])

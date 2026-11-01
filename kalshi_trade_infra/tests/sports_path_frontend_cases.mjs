@@ -53,7 +53,7 @@ export function sportsPathCases({name, frontend}) {
 
   test(`${name}: a game's price says what Yes is for it: that side winning, or a draw`, async () => {
     const f = await marketPage(game());
-    assert.match(text(f.root.innerHTML), /≈ 41% chance of Yes \(Los Angeles L wins\) · bid/);
+    assert.match(text(f.root.innerHTML), /≈ 41% chance of Yes \(Lakers win\) · bid/);
     if (f.clearTimers) f.clearTimers();
     const g = await marketPage(game({ticker: 'KXEPLGAME-26NOV01ARSCHE-TIE', series: 'KXEPLGAME', title: 'Arsenal vs Chelsea Winner?', sub: 'Tie'}));
     assert.match(text(g.root.innerHTML), /chance of Yes \(the game ends in a draw\)/);
