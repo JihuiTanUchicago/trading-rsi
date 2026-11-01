@@ -146,6 +146,30 @@ def test_the_boards_spend_is_the_ledger_of_its_sessions_not_their_tokens_reprice
     assert empty["total"]["cost_usd"] == 0.0 and len(asked) == 1
 
 
+def test_each_market_familys_spend_on_the_board_is_its_own_sessions_ledger(monkeypatch):
+    # Walk 2026-11-01 (an autopilot researching crypto, daily highs and sports): the card's per-family lines
+    # say where research spend went, so each family's Spend is its own sessions' debits, from the same read as
+    # the card's total, and the families add up to it. A family whose sessions debited nothing reads $0.00.
+    from app import server
+    from app.web.routes import research as research_routes
+    board = {"total": {"runs": 5, "cost_usd": 0.0},
+             "families": {"crypto": {"runs": 2, "cost_usd": 99.0}, "weather-high": {"runs": 2, "cost_usd": 99.0},
+                          "sports": {"runs": 1, "cost_usd": 99.0}},
+             "cards": [{"run_id": 2, "family": "crypto"}, {"run_id": 4, "family": "weather-high"},
+                       {"run_id": 5, "family": "crypto"}, {"run_id": 7, "family": "weather-high"},
+                       {"run_id": 8, "family": "sports"}]}
+    asked = []
+
+    def runs_spent(cur, uid, ids):
+        asked.append(list(ids))
+        return {2: 12.345678, 4: 45.678912, 5: 0.004213, 7: 8.765432}
+    monkeypatch.setattr(server.repo, "runs_spent", runs_spent)
+    research_routes._board_ledger_spend(object(), 7, board)
+    fam = {k: v["cost_usd"] for k, v in board["families"].items()}
+    assert fam == {"crypto": 12.35, "weather-high": 54.44, "sports": 0.0} and len(asked) == 1
+    assert board["total"]["cost_usd"] == 66.79
+
+
 def test_scoreboard_leaves_out_the_seeded_example_session():
     # A brand-new account's only session is the example it was seeded with: the board counted it as
     # research the user ran ("2 ideas tried, 1 session, $0.00 spent").

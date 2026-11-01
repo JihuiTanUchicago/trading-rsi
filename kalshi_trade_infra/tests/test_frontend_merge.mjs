@@ -51,6 +51,7 @@ import {moneyPagesWalkCases} from './money_pages_walk_frontend_cases.mjs';
 import {moneyAuditCases} from './money_audit_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
+import {multiFamilyCases} from './multi_family_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
@@ -2786,18 +2787,18 @@ test('the autopilot card and panel say where it may trade, with a Change that op
   f.S.me.user.autopilot = true; f.S.ap = {...apOn, focus: ['crypto']};
   await f.viewDashboard(); await flush();
   const card = f.root.querySelector('#dash-ap');
-  assert.match(card.querySelector('.ap-focus').innerHTML, /^Focus: Crypto <button type="button" data-apcard="focus">Change<\/button>$/);
+  assert.match(card.querySelector('.ap-focus').innerHTML, /^Focus: Crypto <button type="button" data-apcard="focus" aria-label="Change focus">Change<\/button>$/);
   await card.querySelector('[data-apcard="focus"]').onclick(); await flush();
   const box = f.root.parent.querySelector('#autopilot-float');
   assert.equal(box.querySelector('.apf-prefs').open, true);  // the control sits in "Model and markets"
   f.apUpdate(box, f.S.ap);
   const line = box.querySelector('#apf-focusline');
-  assert.equal(line.hidden, false); assert.match(line.innerHTML, /^Focus: Crypto <button type="button" data-ap="focus">Change<\/button>$/);
+  assert.equal(line.hidden, false); assert.match(line.innerHTML, /^Focus: Crypto <button type="button" data-ap="focus" aria-label="Change focus">Change<\/button>$/);
   box.querySelector('.apf-prefs').open = false;
   line.querySelector('[data-ap="focus"]').onclick();
   assert.equal(box.querySelector('.apf-prefs').open, true);
   // No focus reads as any market; tokens the presets don't name are spelled out.
-  for (const [focus, text] of [[[], 'any market'], [['btc'], 'Bitcoin'], [['weather-high', 'sports'], 'Daily high temperatures, Sports']]) {
+  for (const [focus, text] of [[[], 'any market'], [['btc'], 'Bitcoin'], [['weather-high', 'sports'], 'Daily high temperatures and sports']]) {
     f.S.ap = {...apOn, focus}; f.paintDashAp();
     assert.match(f.root.querySelector('#dash-ap .ap-focus').innerHTML, new RegExp(`^Focus: ${text} <button`), text);
   }
@@ -6409,6 +6410,7 @@ chatPanelCases({name: 'Tau', frontend, storageFor: m => ({getItem: k => m.get(k)
 a11yCases({name: 'Tau', frontend, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))}), billingPage, cardedBilling,
   source, strategyFrontend, detailStrategy, dashboard: emptyDashboard, fundsData: funds, apStatus: apOn});
 creditsCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, apStatus: apOn});
+multiFamilyCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn});
 timeTruthCases({name: 'Tau', billingPage, cardedBilling});
 midnightCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 dayClockCases({name: 'Tau', frontend, fundsData: funds, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});

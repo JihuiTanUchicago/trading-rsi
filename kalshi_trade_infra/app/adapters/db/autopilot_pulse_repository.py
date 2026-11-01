@@ -24,7 +24,8 @@ def _pulse_list(v) -> List:
     return json.loads(v.decode("utf-8") if isinstance(v, (bytes, bytearray)) else v)
 
 
-def autopilot_pulse(cur, user_id: int, since, review: bool = False, engine: bool = False) -> Dict[str, Any]:
+def autopilot_pulse(cur, user_id: int, since, review: bool = False, engine: bool = False,
+                    day_since: Optional[datetime] = None) -> Dict[str, Any]:
     """One row of what the autopilot panel used to read one statement at a time:
 
       positions       (rows, closed rows, highest id): repo.positions_version, for services.book_memo
@@ -39,6 +40,9 @@ def autopilot_pulse(cur, user_id: int, since, review: bool = False, engine: bool
                       newest first, with the fields views._run_wait reads
       review          with `review`: repo.active_agent_run(kind='review'), else None
       engine_age      with `engine`: repo.engine_last_tick_age_seconds, else None
+      research_24h    with `day_since`: repo.research_token_rows(day_since) summed per model, as
+                      [{model, input_tokens, output_tokens}] in model order (what the autopilot's research
+                      cap prices, agent.research_spend), else None
 
     Each part is the read it replaces, and all of them see the same snapshot. Run times travel as whole
     seconds (the columns are DATETIME) and come back as the same naive datetimes."""
@@ -48,6 +52,9 @@ def autopilot_pulse(cur, user_id: int, since, review: bool = False, engine: bool
                   if review else "NULL")
     engine_sql = ("(SELECT TIMESTAMPDIFF(SECOND, updated_at_utc, UTC_TIMESTAMP()) FROM collector_state "
                   "WHERE state_key='recursive_engine_last_tick' LIMIT 1)" if engine else "NULL")
+    day_sql = ("(SELECT JSON_ARRAYAGG(JSON_ARRAY(g.model, g.i, g.o)) FROM (SELECT model, SUM(input_tokens) AS i, "
+               "SUM(output_tokens) AS o FROM app_agent_runs WHERE user_id=%s AND kind='research' AND created_at>=%s "
+               "GROUP BY model) g)" if day_since is not None else "NULL")
     sql = """SELECT pv.n AS pos_n, pv.closed AS pos_closed, pv.top AS pos_top, wk.runs AS runs_7d, wk.tried AS tested_7d,
                     (SELECT COUNT(*) FROM app_strategies s JOIN app_agent_runs r ON r.id=s.run_id
                       WHERE s.user_id=%s AND s.status='passed' AND r.kind='research' AND r.created_at>=%s) AS passed_7d,
@@ -63,14 +70,15 @@ def autopilot_pulse(cur, user_id: int, since, review: bool = False, engine: bool
                     EXISTS(SELECT 1 FROM app_agent_runs WHERE user_id=%s AND kind='research'
                            AND (direction IS NULL OR direction <> 'random_walk')) AS researched,
                     (SELECT JSON_ARRAYAGG(JSON_ARRAY(id, strategy_id)) FROM app_deployments WHERE user_id=%s) AS dep_strategies,
-                    """ + engine_sql + """ AS engine_age
+                    """ + engine_sql + """ AS engine_age,
+                    """ + day_sql + """ AS research_24h
              FROM (SELECT COUNT(*) AS n, COUNT(CASE WHEN status='closed' THEN 1 END) AS closed, COALESCE(MAX(id),0) AS top
                    FROM app_positions FORCE INDEX (idx_pos_user) WHERE user_id=%s) pv
              CROSS JOIN (SELECT COUNT(*) AS runs, COALESCE(SUM(hypotheses_tried),0) AS tried FROM app_agent_runs
                    WHERE user_id=%s AND kind='research' AND created_at>=%s
                    AND (direction IS NULL OR direction <> 'random_walk')) wk"""
     params = ((user_id, since, user_id, RESEARCH_WINDOW) + ((user_id,) if review else ())
-              + (user_id,) * 7 + (user_id, since))
+              + (user_id,) * 6 + ((user_id, day_since) if day_since is not None else ()) + (user_id, user_id, since))
     cur.execute(sql, params)
     r = cur.fetchone() or {}
     live = sorted(_pulse_list(r.get("research_live")), key=lambda x: -int(x[0]))
@@ -89,4 +97,7 @@ def autopilot_pulse(cur, user_id: int, since, review: bool = False, engine: bool
         "review": ({"id": int(rv[0]), "kind": "review", "status": rv[1], "created_at": _pulse_at(rv[2]),
                     "heartbeat_at": _pulse_at(rv[3])} if rv else None),
         "engine_age": int(r["engine_age"]) if r.get("engine_age") is not None else None,
+        "research_24h": (sorted(({"model": m, "input_tokens": int(i or 0), "output_tokens": int(o or 0)}
+                                 for m, i, o in _pulse_list(r.get("research_24h"))), key=lambda x: str(x["model"] or ""))
+                         if day_since is not None else None),
     }

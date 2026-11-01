@@ -73,8 +73,8 @@ export function chatPanelCases({name, frontend, storageFor}) {
       return [p.box.querySelector('#apf-focusline').textContent.replace(/\s*Change$/, ''), p.box.querySelector('#apf-focus').innerHTML];
     };
     let [line, options] = said(['btc', 'eth']);
-    assert.equal(line, 'Focus: Bitcoin, Ethereum');
-    assert.match(options, /<option value="btc,eth" selected>Only Bitcoin, Ethereum<\/option>/);
+    assert.equal(line, 'Focus: Bitcoin and Ethereum');
+    assert.match(options, /<option value="btc,eth" selected>Only Bitcoin and Ethereum<\/option>/);
     [line, options] = said(['weather-high']);
     assert.equal(line, 'Focus: Daily high temperatures');
     assert.match(options, /<option value="weather-high" selected>Only Daily high temperatures<\/option>/);

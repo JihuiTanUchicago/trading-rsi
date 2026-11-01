@@ -426,3 +426,54 @@ def test_the_engines_real_loss_guard_pause_is_the_last_move_after_an_older_deplo
                             "$10.00 loss guard.")
     assert "#" not in last["text"] and "deployment" not in last["text"].lower()
     assert last["at"] > before["last_action"]["at"]
+
+
+def test_the_research_cap_figure_is_what_the_cap_counts_and_rides_the_pulse(conn, frozen, monkeypatch):
+    """The panel's research cap line (walk 2026-11-01: it said "It has no daily spending cap" under a $240 cap):
+    the last 24 hours' research tokens ride the pulse summed per model, answer as the single read the cap uses
+    (repo.research_token_rows), and price to agent.research_spend, the figure the worker and act() hold to the
+    cap: the user's own sessions in, a check-in and an older session out. Off, it isn't read at all."""
+    from app import repository as repo
+    from app.adapters.llm import models_catalog as catalog
+    from app.research import agent
+    from tests.autopilot_status_parts import pulse_reference
+
+    cur = conn.cursor()
+    uid = _account(conn, "capped", busy=False)["uid"]
+    repo.save_stripe_customer(cur, uid, "cus_" + uuid.uuid4().hex[:12])  # ready to spend: the story is told
+    repo.set_default_pm(cur, uid, "pm_capped")
+    repo.add_credit(cur, uid, "bonus", 50, "Welcome credit")
+    other =sorted(k for k in catalog.MODELS if k != catalog.DEFAULT_KEY)[0]
+
+    def run(kind, ago, inp, out, model=None, brief=True):
+        rid = repo.create_run(cur, uid, kind, market="high_ny", model=model, brief=brief)
+        cur.execute("UPDATE app_agent_runs SET status='succeeded', created_at=%s, input_tokens=%s, output_tokens=%s WHERE id=%s",
+                    (NOW - ago, inp, out, rid))
+    run("research", timedelta(hours=2), 4_000_000, 300_000)                       # the autopilot's, today
+    run("research", timedelta(hours=20), 2_000_000, 100_000, brief=False)         # the user's own counts too
+    run("research", timedelta(hours=23), 1_000_000, 50_000, model=other)          # another model
+    run("research", timedelta(hours=30), 9_000_000, 900_000)                      # older than 24 hours
+    run("review", timedelta(hours=1), 5_000_000, 500_000)                         # a check-in isn't research
+    since, day = NOW - timedelta(days=7), NOW - timedelta(hours=24)
+    got = repo.autopilot_pulse(cur, uid, since, review=True, engine=False, day_since=day)
+    assert got == pulse_reference(cur, uid, since, review=True, day_since=day)
+    assert sum(r["input_tokens"] for r in got["research_24h"]) == 7_000_000 and len(got["research_24h"]) == 2
+    assert repo.autopilot_pulse(cur, uid, since)["research_24h"] is None
+
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 240.0)
+    counting = Counting(conn)
+    out, log = _status(counting, uid)
+    spent = agent.research_spend(cur, uid)
+    assert spent > 0
+    assert out["research_cap"] == {"usd": 240.0, "spent_24h": round(spent, 2), "reached": False}
+    assert not any(s.startswith("SELECT model, input_tokens") for s in log), "read in the pulse, not on its own"
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", round(spent, 2) - 1)
+    out, _ = _status(counting, uid)
+    assert out["research_cap"]["reached"] is True
+    assert any(line.startswith("It has reached its research cap: $%.2f spent in the last 24 hours" % spent) for line in out["story"])
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 0.0)
+    assert _status(counting, uid)[0]["research_cap"] is None  # no cap
+    cur.execute("UPDATE app_users SET autopilot=0 WHERE id=%s", (uid,))
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 240.0)
+    out, log = _status(counting, uid)
+    assert out["research_cap"] is None and not any("SUM(input_tokens)" in s for s in log)

@@ -48,7 +48,7 @@ window.TauPage('research', (T) => {
   // getting better, what it has learned per market family (playbooks under A/B test), where the
   // free scan points it next, and which ideas the pipeline (not the market) killed. Fetched at
   // most once a minute; the 5s page poll re-renders from the cached board.
-  const LOOP_FAMILY = { 'weather-high': 'Daily high temps', 'weather-low': 'Daily low temps', crypto: 'Crypto' };
+  const LOOP_FAMILY = { 'weather-high': 'Daily high temps', 'weather-low': 'Daily low temps', crypto: 'Crypto', unknown: 'Market not picked' };
   const loopFamily = (f) => LOOP_FAMILY[f] || (f ? f.charAt(0).toUpperCase() + f.slice(1).replace(/-/g, ' ') : '');
   const LOOP_TAG = { feature_unavailable: 'feature missing', no_data: 'no data', zero_trades: 'never traded', fee_floor: 'under the fee', loses: 'loses money', spec_invalid: 'spec rejected', missing_context: 'needs data we lack', thin_sample: 'too few examples', no_signal: 'no signal', wrong_fit: 'wrong for this market', known_dead: 'already ruled out', other: 'other' };
   const loopRate = (r) => (r == null ? '—' : Math.round(r * 100) + '%');
@@ -106,6 +106,14 @@ window.TauPage('research', (T) => {
     const pt = b.paper && b.paper.total, byPb = (b.paper && b.paper.by_playbook) || {};
     // Live trading closed (liveOpen), a strategy that clears every check waits on paper, as its bell notice says: "ready for live" read as if it could go.
     const paperP = pt && pt.strategies ? `<p class="loop-trend">On paper at the market’s real prices: ${num(pt.strategies)} passed strateg${pt.strategies === 1 ? 'y' : 'ies'}, ${num(pt.trading)} trading, ${num(pt.round_trips)} closed trade${pt.round_trips === 1 ? '' : 's'}, net ${usd(pt.net_pnl, true)}${pt.realization == null ? '' : pt.realization < 0 ? ', losing money where the backtest expected a profit' : `, earning ${Math.round(pt.realization * 100)}% of what the backtest expected`}${pt.live_ready ? `${SEP}${num(pt.live_ready)} ${liveOpen() ? 'ready for live' : 'cleared every paper-to-live check'}` : ''}.</p>` : '';
+    // Where the spend went and what each kind of market produced, each on its own line (the server's families, each
+    // one's Spend its own sessions' credits, as the card's): a focus across crypto, daily highs and sports read only
+    // the one total above (walk 2026-11-01). Shown once there are two kinds to tell apart.
+    const famOf = b.families || {}, famKeys = Object.keys(famOf).filter((f) => famOf[f] && +famOf[f].runs > 0);
+    const famRows = famKeys.length < 2 ? '' : famKeys.sort((x, y) => (+famOf[y].cost_usd || 0) - (+famOf[x].cost_usd || 0) || x.localeCompare(y)).map((f) => {
+      const r = famOf[f], g = +r.gated || 0, n = +r.runs || 0, ideas = +r.explored || 0;
+      return `<li><span class="loop-k">${esc(loopFamily(f))}</span><span class="loop-v"><b>${usd(+r.cost_usd || 0)}</b> spent${SEP}${num(n)} session${n === 1 ? '' : 's'}${SEP}${num(ideas)} idea${ideas === 1 ? '' : 's'} tried${SEP}${num(g)} reached the gate${SEP}${num(+r.passed || 0)} passed${g ? `${SEP}${usd((+r.cost_usd || 0) / g)} per idea that reached the gate` : ''}</span></li>`;
+    }).join('');
     const fams = {};
     (b.playbooks || []).forEach((p) => { (fams[p.family] = fams[p.family] || {})[p.status] = p; });
     const pbRows = Object.keys(fams).sort().map((f) => {
@@ -130,6 +138,7 @@ window.TauPage('research', (T) => {
       + (tnEnt.length && tnCash ? `<li><span class="loop-k">Cash</span><span class="loop-v"><b>${Math.round(tnCash.weight * 100)}% of the book</b>${SEP}held back until a strategy shows it makes money</span></li>` : '');
     const tnSub = tn && tn.pooled ? `Every strategy on paper takes part at once, and a ${usd(tn.book.capital).replace(/\.00$/, '')} practice book shifts toward the ones that earn. Together they have ${num(tn.pooled.trips)} of the ${num(tn.pooled.target)} separate bets it takes to judge them${tn.pooled.days_to_target != null ? `, about ${Math.round(tn.pooled.days_to_target)} days to go at ${tn.pooled.per_day} a day` : ''}${tn.pooled.mean_return != null ? `, averaging ${pct(tn.pooled.mean_return)} of the stake a bet` : ''}. ${tn.book.trips ? `Practice book so far: ${usd(tn.book.pnl, true)} over ${num(tn.book.trips)} trade${tn.book.trips === 1 ? '' : 's'}.` : 'The practice book has no trades yet.'}` : '';
     const body = figs + trendP + days + paperP
+      + sect('By kind of market', `Each kind of market on its own: the same 14 days and sessions as the figures above, ${LOOP_SPEND_LEAVES}.`, famRows)
       + sect('Paper tournament', tnSub, tnRows)
       + sect('What it has learned', 'After every session the loop rewrites a playbook for that kind of market from its verdicts. A rewrite is tried on new sessions and kept only if more of its ideas reach the gate.', pbRows)
       + sect('Where it looks next', 'A free scan of every market for prices that disagree with how they settle, after fees. Leads steer research; they still have to pass on unseen data.', scout)
