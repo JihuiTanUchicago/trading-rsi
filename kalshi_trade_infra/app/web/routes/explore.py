@@ -16,6 +16,7 @@ from app.services import btc_spot
 from app.trading.markets import MARKETS, NEW_YORK
 from app.web.http import ApiError, Ctx
 from app.web.routes.strategies import _mark_fields
+from app.web.views import _open_book
 
 
 # The collector writes a small gzipped feed of the hottest collected markets to S3; the
@@ -214,7 +215,10 @@ def _market_mine(ctx: Ctx, ticker: str, open_ts: Optional[int]) -> Optional[Dict
     """The reader's own positions in one contract, for its market page: open ones marked to market,
     and those settled since the contract opened (30 days back when its open time is unknown). Each
     row keeps its mode; the page totals each money book apart. None when the read failed, so the
-    page says so instead of showing an empty book."""
+    page says so instead of showing an empty book. `books` is each book's open money over the open rows
+    listed (views._open_book: the exact sum, rounded once), for the book's "N open at cost + fees" line:
+    the page added the rows' rounded costs, so two positions of $0.335 read $0.68 beside the dashboard's,
+    Funds' and the strategy page's $0.67 for the same two. Books are never added together. Display only."""
     since = datetime.fromtimestamp(open_ts, timezone.utc) if open_ts else datetime.now(timezone.utc) - timedelta(days=30)
     try:
         rows = repo.user_positions_in_ticker(ctx.cur, ctx.uid, ticker, since.replace(tzinfo=None))
@@ -223,7 +227,8 @@ def _market_mine(ctx: Ctx, ticker: str, open_ts: Optional[int]) -> Optional[Dict
         return None
     pick = lambda p: {**{k: p.get(k) for k in _MINE_FIELDS},
                       "cost": _mark_fields(p)["cost"]}  # contracts x entry price plus the fee, as every page rounds it
-    return {"open": [{**pick(p), **_mark_fields(p)} for p in rows["open"]], "closed": [pick(p) for p in rows["closed"]]}
+    return {"open": [{**pick(p), **_mark_fields(p)} for p in rows["open"]], "closed": [pick(p) for p in rows["closed"]],
+            "books": {m: _open_book(rows["open"], m) for m in sorted({p["mode"] for p in rows["open"]})}}
 
 
 def _my_strategy_markets(ctx: Ctx, ticker: str) -> Optional[List[str]]:

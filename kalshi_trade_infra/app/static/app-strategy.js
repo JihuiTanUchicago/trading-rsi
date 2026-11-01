@@ -10,7 +10,7 @@ window.TauPage('strategy', (T) => {
     depActed, depSaid, depWrite, dirLabel, equityChart, esc, EXAMPLE_NOTE, EXAMPLE_TAG, exitWord, FEES_NET, fig, flash, fmt0, fold, fundsLinked,
     gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
-    researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4,
+    researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
     tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly
   } = T;
 
@@ -355,11 +355,13 @@ window.TauPage('strategy', (T) => {
     // the note above says the track record leaves out. A book of instant fills alone has no line.
     const pace = (ds, n) => {
       if (!n || !oos || !(+oos.trades > 0) || !(stake > 0)) return '';
-      const per = (+oos.pnl || 0) / +oos.trades;
       const real = (d) => Math.max(0, (+d.closed_trades || 0) - (d.mode === 'paper' ? +d.instant_fills || 0 : 0));
       const m = ds.reduce((a, d) => a + real(d), 0);
       if (!m) return '';
-      const exp = ds.reduce((a, d) => a + real(d) * per * ((+d.stake || stake) / stake), 0);
+      // The backtest's P&L a trade, times each deployment's trades scaled to its stake, worked on whole numbers (stakes in
+      // cents) and rounded once (usdShare): the float average times the trades could read a cent under the exact figure.
+      const c = (v) => Math.round(+v * 100);
+      const exp = usdShare(+oos.pnl || 0, ds.reduce((a, d) => a + real(d) * c(+d.stake || stake), 0), +oos.trades * c(stake));
       // "later-period pace" plus whether it was held out, as the list's rows say it ("unseen-data pace" read otherwise).
       return `<p class="sub-fig real-pace">At the backtest’s later-period pace (${!s.experiment && (['passed', 'backtest-only'].includes(s.status) || s.no_gatekeeper_record) ? 'not held out' : 'unseen data'}), ${m} trade${m === 1 ? '' : 's'}${m < n ? ' on realistic fills' : ''} would have made ${usd(exp, true)}${m < 10 ? `${SEP}too few trades to judge yet` : ''}</p>`;
     };
