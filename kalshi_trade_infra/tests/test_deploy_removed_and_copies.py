@@ -156,3 +156,34 @@ def test_the_strategy_page_lists_its_removed_deployments(monkeypatch):
     monkeypatch.setattr(strategy_routes.repo, "deployment_closed_totals",
                         lambda cur, ids, sim=False: {9: (14, Decimal("5.7249"), 14), 8: (2, Decimal("1"), 0)})
     assert [("instant_fills" in views._past_deployment_out(r)) for r in strategy_routes._removed_with_totals(None, 7, 4)] == [False, False]
+
+
+def test_the_open_book_read_sends_every_open_row_so_counts_cost_and_equity_cover_the_whole_book():
+    """Walk 2026-11-01, 40 deployments holding 123 open positions: the open read stopped at 100 rows, so the dashboard's
+    and Deploy's "Open positions" said 78 paper and 22 demo, and the paper book's open cost and equity left out the rest,
+    with nothing saying so. The open read has no LIMIT (each deployment's max_positions bounds it); closed reads keep theirs."""
+    from app.adapters.db import position_repository as pr
+
+    rows = [{"id": i, "deployment_id": 1 + i % 40, "mode": "paper" if i % 5 else "demo", "status": "open", "qty": 2,
+             "entry_price": Decimal("0.5"), "entry_fee": Decimal("0.0349"), "title": "Late fade"} for i in range(150, 0, -1)]
+
+    class Cur:
+        def __init__(self):
+            self.sent, self.rows = [], []
+
+        def execute(self, sql, params=()):
+            self.sent.append((sql, params))
+            # As MySQL would: a LIMIT in the statement cuts the rows.
+            limit = params[-1] if "LIMIT" in sql else None
+            self.rows = rows[:limit] if limit else rows
+
+        def fetchall(self):
+            return list(self.rows)
+
+    cur = Cur()
+    got = pr.user_positions(cur, 7, "open")
+    assert len(got) == 150 and len(cur.sent) == 1
+    assert "LIMIT" not in cur.sent[0][0] and cur.sent[0][1] == (7, "open")
+    book = views._open_book(got, "paper")
+    assert book["open_positions"] == 120 and views._open_book(got, "demo")["open_positions"] == 30
+    assert book["open_cost"] == 124.19  # 120 x (2 x 0.50 + 0.0349) = 124.188, rounded once

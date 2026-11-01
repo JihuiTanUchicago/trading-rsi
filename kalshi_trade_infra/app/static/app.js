@@ -15,7 +15,7 @@
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, btCheckLine, roadDays, roadLine,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
     depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, glueTarget, compactCondition, marketSpot, MKT_GONE, vsHtml, spotListNote,
@@ -2002,7 +2002,7 @@
   // A demo copy the demo-copy sync paused waits on its paper deployment: Resume would be paused again
   // at the sync's next pass, so it is offered disabled with the server's reason (resume_block), which
   // the row's status line also says.
-  const resumeButton = (d, why = resumeBlock(d)) => `<button class="btn sm" data-dep="${d.id}" data-act="resume"${why ? ` disabled title="${esc(why)}"` : ''}>Resume<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book${why ? ': ' + esc(why) : ''}</span></button>`;
+  const resumeButton = (d, why = resumeBlock(d)) => `<button class="btn sm" data-dep="${d.id}" data-act="resume"${why ? ` disabled title="${esc(why)}"` : ''}>Resume<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book${esc(d._apart || '')}${why ? ': ' + esc(why) : ''}</span></button>`;
   // `reloaded`: the dashboard's demo book was reloaded, so a demo row says its figure counts from its first demo trade.
   function deploymentSlip(d, regs, controls, reloaded = false) {
     const exp = d.backtest && d.backtest.out_of_sample;
@@ -2017,9 +2017,9 @@
     // A paused row names its book too: "Paused" alone didn't say whether real money had stopped.
     const modeTag = live ? '<span class="mk live">LIVE</span>' : d.mode === 'demo' ? '<span class="mk dep">DEMO</span>' : '<span class="mk">PAPER</span>';
     const actions = controls ? `<td class="act" data-lab="">
-        ${d.status === 'running' ? `<button class="btn sm" data-dep="${d.id}" data-act="pause" data-open="${+d.open_positions || 0}">Pause<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book</span></button>` : ''}
+        ${d.status === 'running' ? `<button class="btn sm" data-dep="${d.id}" data-act="pause" data-open="${+d.open_positions || 0}">Pause<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book${esc(d._apart || '')}</span></button>` : ''}
         ${d.status === 'paused' ? resumeButton(d) : ''}
-        <button class="btn sm danger" data-dep="${d.id}" data-act="stop" data-open="${+d.open_positions || 0}">Remove<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book</span></button></td>` : '';
+        <button class="btn sm danger" data-dep="${d.id}" data-act="stop" data-open="${+d.open_positions || 0}">Remove<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book${esc(d._apart || '')}</span></button></td>` : '';
     return `<tr class="${live ? 'live-row' : ''}">
       <td class="name" data-lab=""><a href="/strategies/${d.strategy_id}">${esc(d.title)}</a>
         <div class="sub-fig">${depSizing(d)}${d.status !== 'running' && (d.status_why || d.status_reason) ? SEP + fundsLinked(esc(d.status_why || d.status_reason)) : ''}</div>${idle ? `<div class="sub-fig dep-idle">${esc(idle.why)}</div>` : ''}${demoRowLine(d)}${btCheckLine(d.backtest_check)}${depInstant(d)}${roadLine(d, liveOpen())}</td>
@@ -2509,7 +2509,7 @@
       // The dashboard is a summary: the first few deployments (paused ones, which need the user, then
       // real money, demo, paper) and a link to Deploy for the rest. Six phone cards ran ~1,400px.
       const depRank = (x) => x.status === 'paused' ? 0 : x.mode === 'live' ? 1 : x.mode === 'demo' ? 2 : 3;
-      const dashDeps = [...d.deployments].sort((a, b) => depRank(a) - depRank(b)).slice(0, DASH_ROWS);
+      const dashDeps = withTwins(d.deployments).sort((a, b) => depRank(a) - depRank(b)).slice(0, DASH_ROWS);
       const more = (n, what) => n > DASH_ROWS ? `<a class="stub-all" href="/deploy">See all ${num(n)} ${what} on Deploy \u2192</a>` : '';
       const deps = d.deployments.length
         ? deploymentTable(dashDeps.map((x) => deploymentSlip(x, regs, true, !!(d.demo && +d.demo.before_reload))).join(''), true) + more(d.deployments.length, 'deployments') + depsBookNote(d)  // same controls as Deploy
@@ -2519,10 +2519,13 @@
       // Its worth says when its mark was read (the engine's mark_ts), as Deploy's Unrealized does: with the engine
       // stopped, a mark hours old read as this minute's. An old mark's worth is dimmed and says how old (markFig).
       const depMarket = (r) => (d.deployments.find((x) => x.id === r.deployment_id) || {}).market;
+      // An open position of a removed deployment says so, and one of a strategy's twin deployments says which (posDep).
+      const twinned = withTwins(d.deployments);
+      const posTag = (r) => { if (r.status !== 'open') return ''; const w = posDep(r, twinned); return w.removed ? ` (${POS_REMOVED})` : w.apart ? ` (${esc(w.apart)})` : ''; };
       const stubs = (rows, closed) => rows.length
         ? rows.map((r) => `<div class="stub"><b>${esc(r.side.toUpperCase())} ${esc(r.qty)} × ${cents(+r.entry_price)}</b>
             <span>${closed ? money(+r.pnl) : (r.unrealized != null ? markFig(r.mark_ts, r.value != null ? `worth ${usd(r.value)} (${money(r.unrealized)})` : money(r.unrealized)) : openCost({ open_cost: r.cost, open_at_cost: r.at_cost != null ? r.at_cost : r.qty * r.entry_price }))}</span>
-            <small>${esc(r.title)}\u00a0· <span class="pos-name">${contractLink(r.ticker, depMarket(r))}</span>${closed ? '' : `\u00a0· ${liveClose(r.market_close_time, 'settles')}`}\u00a0· ${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'DEMO' : 'PAPER'}\u00a0· ${when(closed ? r.closed_at : r.opened_at)}${!closed && r.unrealized != null && r.mark_ts ? `\u00a0· ${markedAt(r.mark_ts, 'worth as of')}` : ''}</small>${r.why ? `<small class="stub-why">${sepLine(r.why)}</small>` : ''}</div>`).join('')
+            <small>${esc(r.title)}${posTag(r)}\u00a0· <span class="pos-name">${contractLink(r.ticker, depMarket(r))}</span>${closed ? '' : `\u00a0· ${liveClose(r.market_close_time, 'settles')}`}\u00a0· ${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'DEMO' : 'PAPER'}\u00a0· ${when(closed ? r.closed_at : r.opened_at)}${!closed && r.unrealized != null && r.mark_ts ? `\u00a0· ${markedAt(r.mark_ts, 'worth as of')}` : ''}</small>${r.why ? `<small class="stub-why">${sepLine(r.why)}</small>` : ''}</div>`).join('')
         : `<p class="hint">${closed ? 'No closed trades yet.' : 'No open positions.'}</p>`;
       const main = `<div class="dash-wrap"><div class="dash">
           <div>
@@ -2689,7 +2692,7 @@
         // listed but not running (paused) keeps "nothing running" on live money: it may still hold live positions.
         fig('Money', live.length ? '<span class="mk live">Live</span>' : runDemo || demoPaused ? `${runPaper || (demoPaused && paperDeps.length) ? '<span class="mk">Paper</span> ' : ''}<span class="mk dep">Demo</span>` : '<span class="mk">Paper</span>', { small: live.length ? `${live.length} on live money` : liveIdle ? liveIdleCount(liveIdle) : liveDeps.length ? 'Nothing running on live money' : runDemo ? (runPaper ? 'Paper and demo only, nothing live' : 'Demo only, nothing live') : demoPaused ? `${runPaper ? 'Paper running, demo paused' : paperDeps.length ? 'Paper and demo paused' : 'Demo paused'}, nothing live` : 'Paper money only, nothing live' }));
       const regs = curveRegs(d.deployments);
-      paintKeep(root.querySelector('#deps'), d.deployments.length ? deploymentTable(pausedFirst(d.deployments).map((x) => deploymentSlip(x, regs, true)).join(''), true)
+      paintKeep(root.querySelector('#deps'), d.deployments.length ? deploymentTable(pausedFirst(withTwins(d.deployments)).map((x) => deploymentSlip(x, regs, true)).join(''), true)
         : `<div class="empty"><h3>Nothing deployed</h3><p>${passedN === 0 ? 'Nothing has passed yet. A strategy goes on the board once it passes every test in a research session, paper first.' : 'Open a passed strategy and deploy it here. Paper first: it trades the live market with paper money.'}</p>${S.me && S.me.user && S.me.user.autopilot ? '<p>Autopilot is on: strategies that pass every research test deploy here on their own, on paper.</p>' : ''}${apNudge('Rather not pick strategies yourself?', 'and it deploys the ones that pass, on paper.')}${passedN === 0 ? '<a class="btn" href="/research?new=1">Start a research session</a>' : '<a class="btn" href="/strategies?status=passed">See passed strategies</a>'}</div>`);
       paint(root.querySelector('#demo-health'), d.demo_health ? `<div class="notice bad" role="status">${ICON.warn}<span>${demoHealthLine(d.demo_health)}</span></div>` : '');
       // The board's read never waits on Kalshi: a demo check that needs the demo cash while the server's memo
@@ -2702,6 +2705,10 @@
       }
       bindDeploymentActions(root.querySelector('#deps'), loadBoard);
       const depMarket = (p) => (d.deployments.find((x) => x.id === p.deployment_id) || {}).market;
+      // A position of a removed deployment says so (it read as a running one's), and one of a strategy's twin
+      // deployments says which: its stake and the day it was deployed (posDep).
+      const twinned = withTwins(d.deployments);
+      const posWhose = (p) => { const w = posDep(p, twinned); return w.removed ? `<div class="sub-fig pos-dep">Removed deployment</div>` : w.apart ? `<div class="sub-fig pos-dep">${esc(w.apart)}</div>` : ''; };
       // Every open position says its book, paper included: a paper row had no mark beside a Demo one, so on a
       // board holding both, its Cost + fee read as nobody's money (or real money).
       const posBook = (p) => p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : '<span class="mk">Paper</span>';
@@ -2713,7 +2720,7 @@
       // is dimmed and its time says how old (markFig, markedAt).
       const posUnreal = (p) => `<div class="pos-unreal">${markFig(p.mark_ts, money(p.unrealized))}${posMarked(p)}</div>`;
       paintKeep(root.querySelector('#openpos'), d.open_positions.length ? `<table class="table stack"><thead><tr><th>Strategy</th><th>Market</th><th>Position</th><th class="num">Cost + fee</th><th class="num">Unrealized</th><th class="num">Settles</th></tr></thead><tbody>
-        ${d.open_positions.map((p) => `<tr><td class="name" data-lab="Strategy">${esc(p.title)} ${posBook(p)}</td><td class="pos-name" data-lab="Market">${contractLink(p.ticker, depMarket(p))}<div class="sub-fig">${kalshiRef(p.ticker)}</div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost != null ? p.cost : p.qty * p.entry_price + +p.entry_fee)}</td><td class="num" data-lab="Unrealized">${p.unrealized == null ? NO_MARK : posUnreal(p)}</td><td class="num"${closeData(p.market_close_time, 'settleTime')} data-lab="Settles">${esc(closeWords(p.market_close_time, 'settleTime'))}</td></tr>`).join('')}</tbody></table>`
+        ${d.open_positions.map((p) => `<tr><td class="name" data-lab="Strategy">${esc(p.title)} ${posBook(p)}${posWhose(p)}</td><td class="pos-name" data-lab="Market">${contractLink(p.ticker, depMarket(p))}<div class="sub-fig">${kalshiRef(p.ticker)}</div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost != null ? p.cost : p.qty * p.entry_price + +p.entry_fee)}</td><td class="num" data-lab="Unrealized">${p.unrealized == null ? NO_MARK : posUnreal(p)}</td><td class="num"${closeData(p.market_close_time, 'settleTime')} data-lab="Settles">${esc(closeWords(p.market_close_time, 'settleTime'))}</td></tr>`).join('')}</tbody></table>`
         : '<p class="hint">No open positions.</p>');
     };
     await loadBoard();
