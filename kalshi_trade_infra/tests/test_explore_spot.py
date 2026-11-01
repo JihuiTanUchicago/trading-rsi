@@ -346,6 +346,79 @@ def test_explores_bitcoin_filter_keeps_the_bitcoin_series_alone_and_pages_over_t
     assert d["markets"] == [] and d["matched"] == 0 and d["total"] == 1
 
 
+def test_the_weather_and_sports_groups_come_from_the_market_catalog():
+    """Weather is the catalog's "Weather" and "Climate and Weather" (Kalshi's name for the cities the catalog adds),
+    Sports its "Sports"; crypto, perpetuals and Bittensor are in neither. The live catalog's curated markets are in."""
+    from types import SimpleNamespace as M  # the two fields of a catalog Market the grouping reads
+    got = explore_routes._series_by_show([
+        M(series="KXHIGHNY", category="Weather"), M(series="KXHIGHCHI", category="Climate and Weather"),
+        M(series="KXNFLGAME", category="Sports"), M(series="KXBTCD", category="Crypto"), M(series="", category="Bittensor")])
+    assert got == {"weather": frozenset({"KXHIGHNY", "KXHIGHCHI"}), "sports": frozenset({"KXNFLGAME"})}
+    assert {"KXHIGHNY"} <= explore_routes._SHOW_SERIES["weather"]
+    assert {"KXNBAGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME", "KXMLBGAME", "KXEPLGAME"} <= explore_routes._SHOW_SERIES["sports"]
+    assert not any(s.startswith("KXBTC") for g in explore_routes._SHOW_SERIES.values() for s in g)
+
+
+def test_explores_weather_and_sports_filters_keep_their_series_alone_page_over_them_and_read_nothing(monkeypatch):
+    """?show=weather and ?show=sports keep the feed rows whose series the catalog files under that group (by the row's
+    series, else its ticker's prefix), before the search and the page, as ?show=bitcoin does. With no Bitcoin row on the
+    page there is no spot or strike read: the filter is a set lookup over the cached feed, no query and no Kalshi call."""
+    reads = []
+    _stub(monkeypatch, spot={"at": _now(), "price": 113420.0}, reads=reads)
+    monkeypatch.setattr(explore_routes, "_SHOW_SERIES", {"weather": frozenset({"KXHIGHNY", "KXHIGHCHI"}),
+                                                         "sports": frozenset({"KXNBAGAME", "KXNFLGAME"})})
+    feed = _feed("KXHIGHNY-26NOV01-B58.5", *LADDER[:3], "KXNFLGAME-26NOV01KCBUF-KC", "KXHIGHCHI-26NOV01-B48.5",
+                 "KXETHD-26OCT2717-T4000", "KXNBAGAME-26OCT26MINDEN-MIN", "KXHIGHNYX-26NOV01-B1")
+    feed["markets"][5]["s"] = ""  # a row with no series: its ticker's prefix says it
+    d = _list(monkeypatch, feed, show="weather")
+    assert [m["t"] for m in d["markets"]] == ["KXHIGHNY-26NOV01-B58.5", "KXHIGHCHI-26NOV01-B48.5"]
+    assert d["matched"] == 2 and d["show"] == "weather" and d["total"] == 9 and "spot" not in d
+    d = _list(monkeypatch, feed, show="sports")
+    assert [m["t"] for m in d["markets"]] == ["KXNFLGAME-26NOV01KCBUF-KC", "KXNBAGAME-26OCT26MINDEN-MIN"]
+    assert d["matched"] == 2 and d["show"] == "sports" and "spot" not in d
+    assert reads == [], "no spot or strike read for a list with no Bitcoin in it"
+    # A search narrows within the group; a search for another group's market finds none.
+    assert [m["t"] for m in _list(monkeypatch, feed, show="weather", q="chi")["markets"]] == ["KXHIGHCHI-26NOV01-B48.5"]
+    assert _list(monkeypatch, feed, show="sports", q="kxhigh")["markets"] == []
+    # Exactly the lowercase name, as the page sends it; anything else is every market.
+    for query in ({"show": "Weather"}, {"show": "SPORTS"}, {"show": "weather,sports"}):
+        assert _list(monkeypatch, feed, **query)["show"] == "all", query
+    # Pages over the group alone, and past its last page an empty page, never another market.
+    feed = _feed(*["KXNFLGAME-26NOV%02dAB-A%d" % (1 + i % 28, i) for i in range(45)], *LADDER[:2], "KXHIGHNY-26NOV01-B58.5")
+    d = _list(monkeypatch, feed, show="sports", page="1")
+    assert d["matched"] == 45 and len(d["markets"]) == 5 and all(m["t"].startswith("KXNFLGAME-") for m in d["markets"])
+    assert _list(monkeypatch, feed, show="sports", page="2")["markets"] == []
+    # No weather row in the feed: an empty list for the page to say so, still filtered to Weather (never switched).
+    d = _list(monkeypatch, _feed(*LADDER[:2]), show="weather")
+    assert d["markets"] == [] and d["matched"] == 0 and d["show"] == "weather" and d["groups"] == []
+
+
+def test_explore_says_which_groups_the_feed_holds_once_per_copy_of_the_feed(monkeypatch):
+    """`groups` names Weather and Sports only while the cached feed holds a market of theirs (over the whole feed, whatever
+    the filter, search or page), so the page offers only a filter that can show something. It is worked out once per
+    copy of the feed, not per request, and reads nothing (no query, no outside call)."""
+    reads = []
+    _stub(monkeypatch, spot={"at": _now(), "price": 113420.0}, reads=reads)
+    monkeypatch.setattr(explore_routes, "_SHOW_SERIES", {"weather": frozenset({"KXHIGHNY"}), "sports": frozenset({"KXNBAGAME"})})
+    both = _feed("KXHIGHNY-26NOV01-B58.5", "KXNBAGAME-26OCT26MINDEN-MIN", "KXETHD-26OCT2717-T4000")
+    assert _list(monkeypatch, both)["groups"] == ["weather", "sports"]
+    assert _list(monkeypatch, both, show="sports", q="minden", page="3")["groups"] == ["weather", "sports"]
+    assert _list(monkeypatch, _feed("KXNBAGAME-26OCT26MINDEN-MIN", "KXETHD-26OCT2717-T4000"))["groups"] == ["sports"]
+    assert _list(monkeypatch, _feed("KXETHD-26OCT2717-T4000", *LADDER[:2]))["groups"] == []
+    assert _list(monkeypatch, {"at": None, "total": 0, "shown": 0, "markets": []})["groups"] == []
+    reads.clear()
+    calls = []
+    real = explore_routes._in_show
+    monkeypatch.setattr(explore_routes, "_in_show", lambda show, m: calls.append(show) or real(show, m))
+    feed = _feed("KXHIGHNY-26NOV01-B58.5", "KXETHD-26OCT2717-T4000")
+    _list(monkeypatch, feed)
+    first = len(calls)
+    for _ in range(3):
+        assert _list(monkeypatch, feed)["groups"] == ["weather"]
+    assert len(calls) == first, "the same copy of the feed is not scanned again"
+    assert reads == []
+
+
 def test_a_bucket_alone_in_the_feed_gets_no_distance_and_a_gap_in_its_ladder_doesnt_widen_it(monkeypatch):
     _stub(monkeypatch, spot={"at": _now(), "price": 113420.0})
     assert "vs" not in _list(monkeypatch, _feed("KXBTC-26OCT2717-B113250"))["markets"][0], "its edges aren't known"

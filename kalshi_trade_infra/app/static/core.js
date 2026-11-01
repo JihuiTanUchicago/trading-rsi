@@ -1191,13 +1191,33 @@
   const exploreNoFeed = (d) => !d.at && !+d.total;
   const EXPLORE_NO_FEED = fig('Market feed', 'Not in yet', { small: 'the market list arrives about once a minute' });
   const exploreEmpty = (title, text) => `<div class="empty"><h2>${esc(title)}</h2><p>${esc(text)}</p><button class="btn sm" type="button" data-xretry>Try again</button></div>`;
-  // Explore's Bitcoin filter (?show=bitcoin, kept with the search and sort): the server keeps the contracts of the
-  // Bitcoin series it reads spot for (btc_spot.BTC_SERIES, as BTC_CONTRACT), so the list pages over Bitcoin alone.
-  const EXPLORE_SHOW = [['all', 'All markets'], ['bitcoin', 'Bitcoin']];
-  const exploreShowChips = (btc) => `<div class="chips xshow" role="group" aria-label="Show">${EXPLORE_SHOW.map(([v, l]) => `<button class="chip" type="button" data-show="${v}" aria-pressed="${btc === (v === 'bitcoin')}">${l}</button>`).join('')}</div>`;
-  // A Bitcoin list with nothing in it says so in plain words, with the way back to every market; one a search emptied
-  // offers to clear the search (page-explore.js wires data-xclear), as its words say.
-  const exploreNoBtc = (q) => `<div class="empty"><h2>${q ? `No Bitcoin markets match “${esc(q)}”` : 'No Bitcoin markets are open right now'}</h2><p>${q ? 'Try a broader search, or clear it to see every open Bitcoin market.' : 'Kalshi opens new Bitcoin markets through the day, and they show here within about a minute.'}</p><p>${q ? '<button class="btn sm" type="button" data-xclear>Clear search</button> ' : '<button class="btn sm" type="button" data-xretry>Try again</button> '}<button class="btn sm" type="button" data-xall>Show all markets</button></p></div>`;
+  // Explore's market filters (?show=bitcoin|weather|sports, kept with the search and sort; anything else is every market).
+  // The server keeps the contracts of the Bitcoin series it reads spot for (btc_spot.BTC_SERIES, as BTC_CONTRACT), or of
+  // the series its market catalog files under Weather or Sports (the research picker's groups), so the list pages over
+  // that group alone. One pressed button at a time, in a group named "Show" (aria-pressed), as the sort chips are.
+  const EXPLORE_SHOW = [['all', 'All markets'], ['bitcoin', 'Bitcoin'], ['weather', 'Weather'], ['sports', 'Sports']];
+  const exploreShowOf = (v) => (EXPLORE_SHOW.some(([k]) => k !== 'all' && k === v) ? v : 'all');
+  // Weather and Sports show only while the feed holds a market of theirs (the server's `groups`): a button that always
+  // came up empty read as broken. The one the address names stays, pressed, so its plain empty state says why it's empty.
+  const exploreShowButtons = (show, groups) => EXPLORE_SHOW.filter(([v]) => v === 'all' || v === 'bitcoin' || v === exploreShowOf(show) || (groups || []).includes(v))
+    .map(([v, l]) => `<button class="chip" type="button" data-show="${v}" aria-pressed="${exploreShowOf(show) === v}">${l}</button>`).join('');
+  const exploreShowChips = (show, groups) => `<div class="chips xshow" role="group" aria-label="Show">${exploreShowButtons(show, groups)}</div>`;
+  // What a filtered list counts and calls its markets ("Weather markets 12"); '' for every market.
+  const exploreShowNoun = (show) => ({bitcoin: 'Bitcoin', weather: 'weather', sports: 'sports'})[show] || '';
+  const exploreShowFig = (show) => { const n = exploreShowNoun(show); return n && `${n.charAt(0).toUpperCase() + n.slice(1)} markets`; };
+  // A filtered list with nothing in it says what it is filtered to, in plain words, with the way back to every market;
+  // one a search emptied offers to clear the search (page-explore.js wires data-xclear), as its words say. Bitcoin's
+  // ladders open through the day. Weather and sports say what the list holds instead of that none is open: Explore
+  // lists the most traded markets Tau tracks, and a game or a city's high can be open on Kalshi but outside that list.
+  const EXPLORE_NONE = {
+    bitcoin: ['No Bitcoin markets are open right now', 'Kalshi opens new Bitcoin markets through the day, and they show here within about a minute.'],
+    weather: ['No weather markets to show right now', 'Explore lists the most traded markets Tau tracks, refreshed about once a minute. Daily high-temperature markets show here when they’re in that list.'],
+    sports: ['No sports markets to show right now', 'Explore lists the most traded markets Tau tracks, refreshed about once a minute. Game markets show here when they’re in that list.'],
+  };
+  const exploreNoShow = (show, q) => {
+    const noun = exploreShowNoun(show), [none, why] = EXPLORE_NONE[show] || EXPLORE_NONE.bitcoin;
+    return `<div class="empty"><h2>${q ? `No ${noun} markets match “${esc(q)}”` : none}</h2><p>${q ? `Try a broader search, or clear it to see every open ${noun} market.` : why}</p><p>${q ? '<button class="btn sm" type="button" data-xclear>Clear search</button> ' : '<button class="btn sm" type="button" data-xretry>Try again</button> '}<button class="btn sm" type="button" data-xall>Show all markets</button></p></div>`;
+  };
   // When a hot market closes (`ct`, as Explore's rows say it) and, for a Bitcoin contract, how far spot is
   // from its strike; a rail with no fresh spot says why above its rows, as the list does.
   const hotWhen = (m) => (m.ct || rowVs(m) ? `<span class="hot-when">${m.ct ? liveClose(m.ct, 'chip', { cap: true }) : ''}${vsHtml(m)}</span>` : '');
@@ -1542,8 +1562,8 @@
     depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
-    rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips,
-    exploreNoBtc, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
+    rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
+    exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,

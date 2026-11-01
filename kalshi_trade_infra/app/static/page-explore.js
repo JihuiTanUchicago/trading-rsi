@@ -1,4 +1,4 @@
-/* Explore, in both themes: every market Tau is tracking (the list at /explore, its search, sort, Bitcoin choice and
+/* Explore, in both themes: every market Tau is tracking (the list at /explore, its search, sort, market filter (Bitcoin, Weather, Sports) and
    pages, kept current while it shows) and one market's own page (/explore?m=TICKER: its price, your positions in it,
    how it settles, its price history, and Bitcoin against the strike for a Bitcoin contract). The hot-markets rail (on
    every page) and the close clock (Dashboard's positions use it too) stay in each bundle.
@@ -10,7 +10,7 @@ window.TauPage('explore', (T) => {
   const {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
-    exploreNoBtc, exploreNoFeed, exploreShowChips, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
+    exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
     settleAt, dayAt, shell, sinceMin, smooth, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
@@ -261,9 +261,9 @@ window.TauPage('explore', (T) => {
   // distance to spot, which the collector stores every 20s. The server answers from its cached feed and one spot
   // read shared by every reader for 5s (about 2ms a call, never a Kalshi call), as fast as the market page's spot.
   const EXPLORE_POLL_MS = 15000;
-  const exploreParams = (f) => new URLSearchParams({ q: f.q, sort: f.sort, page: String(f.page), ...(f.btc ? { show: 'bitcoin' } : {}) });
+  const exploreParams = (f) => new URLSearchParams({ q: f.q, sort: f.sort, page: String(f.page), ...(f.show !== 'all' ? { show: f.show } : {}) });
   // Where a market page's "Back to Explore" goes: the Explore list this tab last showed, with its search, sort, page and
-  // Bitcoin choice. It went to /explore, which dropped them: a reader who picked Bitcoin came back to every market. Kept
+  // market filter (Bitcoin, Weather or Sports). It went to /explore, which dropped them: a reader who picked Bitcoin came back to every market. Kept
   // for the tab (sessionStorage), so a reload of the market page keeps it; a tab that never showed the list gets Explore.
   const XBACK = 'tau_xback';
   let xBack = '';
@@ -276,7 +276,7 @@ window.TauPage('explore', (T) => {
   async function viewExplore() {
     const q = new URLSearchParams(location.search);
     if (q.get('m')) return viewMarketDetail(q.get('m'));
-    const f = { q: q.get('q') || '', sort: ['v24', 'oi', 'last'].includes(q.get('sort')) ? q.get('sort') : 'v24', page: Math.max(0, +(q.get('page') || 0)), btc: q.get('show') === 'bitcoin' };
+    const f = { q: q.get('q') || '', sort: ['v24', 'oi', 'last'].includes(q.get('sort')) ? q.get('sort') : 'v24', page: Math.max(0, +(q.get('page') || 0)), show: exploreShowOf(q.get('show')) };
     // Tau heads the list with its figures under the title and its sort as chips over the list; Meridian keeps its
     // figures in the filter row and sorts by its table's column heads.
     if (tau) shell('/explore', boardTitle('Explore', 'Every market Tau is tracking right now, across crypto, politics, sports, weather and more, hottest first. Prices refresh each minute.') +
@@ -284,7 +284,7 @@ window.TauPage('explore', (T) => {
       <div class="section-head filters">
         <label class="field xsearch" style="margin:0"><span class="vh">Search markets</span>
           <input class="input" id="xq" type="search" placeholder="Search markets" value="${esc(f.q)}" autocomplete="off"></label>
-        ${exploreShowChips(f.btc)}
+        ${exploreShowChips(f.show)}
         <div class="chips" role="group" aria-label="Sort by">${[['v24', 'Hottest'], ['oi', 'Open interest'], ['last', 'Price']].map(([v, l]) => `<button class="chip" data-sort="${v}" aria-pressed="${f.sort === v}">${l}</button>`).join('')}</div>
       </div>
       <div id="xbody" style="margin-top:16px">${loading(240)}</div>`);
@@ -292,7 +292,7 @@ window.TauPage('explore', (T) => {
       <div class="section-head filters explore-filters">
         <label class="field xsearch" style="margin:0"><span class="vh">Search markets</span>
           <input class="input" id="xq" type="search" placeholder="Search markets" value="${esc(f.q)}" autocomplete="off"></label>
-        ${exploreShowChips(f.btc)}
+        ${exploreShowChips(f.show)}
         <div class="figures measure" id="xfigs"></div>
       </div></div>`, `<p class="stale-note" id="xstale" role="status"></p><div id="xbody">${loading(240)}</div>`);
     const body = root.querySelector('#xbody'), figs = root.querySelector('#xfigs'), staleNote = root.querySelector('#xstale'), gen = S.gen;
@@ -345,7 +345,7 @@ window.TauPage('explore', (T) => {
     const figsHtml = (d) => {
       if (exploreNoFeed(d)) return EXPLORE_NO_FEED;
       const atMs = Date.parse(d.at || ''), behind = Number.isFinite(atMs) && Date.now() - atMs > 180000;
-      return fig('Markets tracked', num(d.total)) + fig('In this list', num(d.shown), { small: 'the most traded' }) + (f.q ? fig('Matching', num(d.matched)) : f.btc ? fig('Bitcoin markets', num(d.matched)) : '') +
+      return fig('Markets tracked', num(d.total)) + fig('In this list', num(d.shown), { small: 'the most traded' }) + (f.q ? fig('Matching', num(d.matched)) : exploreShowFig(f.show) ? fig(exploreShowFig(f.show), num(d.matched)) : '') +
         fig('Prices updated', sinceMin(d.at), behind ? { small: 'Behind: prices normally refresh each minute', cls: 'fig-behind' } : {});
     };
     // How old the prices are, as Tau says it ("Prices updated 2m ago"); past three minutes it says the list is behind.
@@ -354,7 +354,7 @@ window.TauPage('explore', (T) => {
       if (exploreNoFeed(d)) { paint(figs, '<dl class="explore-counts">' + EXPLORE_NO_FEED + '</dl>'); return; }
       const snapshotAt = d.at ? Date.parse(d.at) : NaN;
       const snapshotOld = !Number.isFinite(snapshotAt) || Date.now() - snapshotAt > 180000;
-      paint(figs, '<dl class="explore-counts">' + fig('In this list', num(d.shown)) + (d.total !== d.shown ? fig('Tracked', num(d.total)) : '') + (f.btc && !f.q ? fig('Bitcoin markets', num(d.matched)) : f.q || d.matched !== d.shown ? fig('Matching', num(d.matched)) : '') + '</dl><dl class="explore-freshness">' + fig('Prices updated', Number.isFinite(snapshotAt) ? `<time class="snapshot-age" datetime="${esc(d.at)}" title="${esc(new Date(snapshotAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC').replace('Z', ' UTC'))}">${sinceMin(d.at)}</time>${snapshotOld ? '<span class="snapshot-behind">Behind: prices normally refresh each minute</span>' : ''}` : 'Time unavailable', { cls: 'snapshot-time' + (Number.isFinite(snapshotAt) ? (snapshotOld ? ' snapshot-old' : '') : ' snapshot-unknown') }) + '</dl>');
+      paint(figs, '<dl class="explore-counts">' + fig('In this list', num(d.shown)) + (d.total !== d.shown ? fig('Tracked', num(d.total)) : '') + (exploreShowFig(f.show) && !f.q ? fig(exploreShowFig(f.show), num(d.matched)) : f.q || d.matched !== d.shown ? fig('Matching', num(d.matched)) : '') + '</dl><dl class="explore-freshness">' + fig('Prices updated', Number.isFinite(snapshotAt) ? `<time class="snapshot-age" datetime="${esc(d.at)}" title="${esc(new Date(snapshotAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC').replace('Z', ' UTC'))}">${sinceMin(d.at)}</time>${snapshotOld ? '<span class="snapshot-behind">Behind: prices normally refresh each minute</span>' : ''}` : 'Time unavailable', { cls: 'snapshot-time' + (Number.isFinite(snapshotAt) ? (snapshotOld ? ' snapshot-old' : '') : ' snapshot-unknown') }) + '</dl>');
       figs.querySelector('.snapshot-time').setAttribute('title', Number.isFinite(snapshotAt) ? 'Source snapshot: ' + d.at : 'Source snapshot time unavailable');
     };
     // The list stays current while it shows (EXPLORE_POLL_MS, paused while the tab is hidden, read at once on
@@ -363,6 +363,19 @@ window.TauPage('explore', (T) => {
     // the line under the figures says how old it is. Only the newest read draws: a poll answering after a
     // search doesn't put the old list back.
     let seq = 0, shown = null;
+    // The groups (Weather, Sports) the feed holds a market of, as the server last said (`groups`): only those get a
+    // button, beside All markets and Bitcoin, and whichever the address names. The buttons are drawn again only when that
+    // set changes, so a poll leaves them (and focus on one) alone; focus on a button that went goes to the pressed one.
+    let groups = [];
+    const paintShow = () => {
+      const box = root.querySelector('.xshow'), html = exploreShowButtons(f.show, groups);
+      const keys = (s) => (s.match(/data-show="\w+"/g) || []).join();
+      if (!box || keys(html) === [...box.querySelectorAll('[data-show]')].map((b) => `data-show="${b.dataset.show}"`).join()) return;
+      const a = document.activeElement, had = a && box.contains(a);
+      paint(box, html);
+      bindShow();
+      if (had) { const b = box.querySelector(`[data-show="${a.dataset && a.dataset.show}"]`) || box.querySelector('[aria-pressed="true"]'); if (b) b.focus(); }
+    };
     // The list's Try again: the list drew over the button, and focus fell to the page's body. The list has no heading of
     // its own, so focus goes to the page's (Explore), or to the new Try again when the read failed again.
     const reread = () => load().then(() => retried(body, root.querySelector('main h1')));
@@ -384,6 +397,8 @@ window.TauPage('explore', (T) => {
       }
       if (mine !== seq || !tau && gen !== S.gen) return;
       staleNote.hidden = false;
+      if (Array.isArray(d.groups)) groups = d.groups;
+      paintShow();
       paintFigs(d);
       if (typed && f.q) announce(d.markets.length ? `${num(d.matched)} ${+d.matched === 1 ? 'market matches' : 'markets match'} “${f.q}”.` : `No markets match “${f.q}”.`);
       // A page past the list's end (a link kept from a longer list, or the last page while a refresh shortened the list)
@@ -393,13 +408,13 @@ window.TauPage('explore', (T) => {
       if (!d.markets.length && +d.matched > 0 && f.page > lastPage) { f.page = lastPage; sync(); return load(cfg, typed); }
       if (!d.markets.length) {
         // No search and no markets is the feed not having arrived yet, not a search that missed. With the feed in,
-        // an empty Bitcoin list is no Bitcoin market open, and says so.
+        // an empty filtered list (Bitcoin, Weather, Sports) says what it is filtered to and how to show every market.
         shown = null;
-        if (f.btc && !exploreNoFeed(d)) {
-          paint(body, exploreNoBtc(f.q));
+        if (f.show !== 'all' && !exploreNoFeed(d)) {
+          paint(body, exploreNoShow(f.show, f.q));
           const again = body.querySelector('[data-xretry]');
           if (again) again.onclick = reread;
-          body.querySelector('[data-xall]').onclick = () => setShow(false);
+          body.querySelector('[data-xall]').onclick = () => setShow('all');
         } else if (f.q) paint(body, `<div class="empty"><h2>No markets match “${esc(f.q)}”</h2><p>Try a broader search, or clear it to see the hottest markets.</p><button class="btn sm" type="button" data-xclear>Clear search</button></div>`);
         else { paint(body, exploreEmpty('No markets to show yet', EXPLORE_WAIT)); body.querySelector('[data-xretry]').onclick = reread; }
         // A search that missed said "clear it" with nothing to press: Clear search empties the box, keeps the reader in
@@ -472,8 +487,9 @@ window.TauPage('explore', (T) => {
     };
     let t; root.querySelector('#xq').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); f.page = 0; sync(); load(undefined, true); }, 220); });
     if (tau) root.querySelectorAll('[data-sort]').forEach((b) => b.onclick = () => { f.sort = b.dataset.sort; f.page = 0; root.querySelectorAll('[data-sort]').forEach((o) => o.setAttribute('aria-pressed', o === b)); sync(); load(); });
-    const setShow = (btc) => { f.btc = btc; f.page = 0; root.querySelectorAll('[data-show]').forEach((o) => o.setAttribute('aria-pressed', String(btc === (o.dataset.show === 'bitcoin')))); sync(); load(); };
-    root.querySelectorAll('[data-show]').forEach((b) => b.onclick = () => setShow(b.dataset.show === 'bitcoin'));
+    const setShow = (show) => { f.show = exploreShowOf(show); f.page = 0; root.querySelectorAll('[data-show]').forEach((o) => o.setAttribute('aria-pressed', String(o.dataset.show === f.show))); sync(); load(); };
+    const bindShow = () => root.querySelectorAll('[data-show]').forEach((b) => b.onclick = () => setShow(b.dataset.show));
+    bindShow();
     await load();
     // The rows' closes ("in 3 min", "closed") are worked out afresh on each poll, and the close clock rewrites them (and
     // the hot rail's) every 5s between polls: walked 2026-10-31 with the polls failing, a row and the rail said "in under
