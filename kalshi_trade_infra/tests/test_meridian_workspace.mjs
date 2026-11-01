@@ -4388,7 +4388,7 @@ test('Meridian: a finished session says what to do next: your own idea after the
   const html = await at({status: 'succeeded'}, [{id: 42, title: '<b>Late</b> momentum', status: 'passed'}, {id: 43, title: 'Fade', status: 'rejected'}]);
   assert.match(html, /Passed: <a href="\/strategies\/42">&lt;b&gt;Late&lt;\/b&gt; momentum<\/a>\. Open it to deploy it on paper\./);
   assert.doesNotMatch(html, /strategies\/43/);
-  assert.match(await at({status: 'succeeded'}, [{id: 43, title: 'Fade', status: 'rejected'}]), /Nothing passed this time\. Most ideas don’t\. Each strategy below says which check it missed and what to try next\. <a href="\/research\?new=1">Try another idea<\/a>/);
+  assert.match(await at({status: 'succeeded'}, [{id: 43, title: 'Fade', status: 'rejected'}]), /Nothing passed this time\. Most ideas don’t\. Each strategy below says which check it missed and what to try next\. <a href="\/research\?new=1&amp;market=btc15m">Try another idea<\/a>/);
   assert.equal(await at({status: 'running'}, []), '');  // still going: nothing to do yet
 });
 
@@ -4403,7 +4403,7 @@ test('Meridian: a finished session ends with the way on: another idea or autopil
   const main = f.root.querySelector('#main').innerHTML;
   assert.ok(main.indexOf('id="run-artifacts"') < main.indexOf('id="runend"') && main.indexOf('id="runend"') < main.indexOf('id="rsibox"'));
   const end = f.root.querySelector('#runend').innerHTML;
-  assert.match(end, /<a class="btn" href="\/research\?new=1">Try another idea<\/a><p class="research-ap">Rather not write ideas yourself\? <button type="button" data-research-ap>Turn on autopilot<\/button>/);
+  assert.match(end, /<a class="btn" href="\/research\?new=1&amp;market=btc15m">Try another idea<\/a><p class="research-ap">Rather not write ideas yourself\? <button type="button" data-research-ap>Turn on autopilot<\/button>/);
   assert.doesNotMatch(end, /btn primary/);
   assert.equal(f.root.querySelector('#runend-log').innerHTML, '');
   assert.doesNotMatch((await at({status: 'succeeded'}, [], true)).root.querySelector('#runend').innerHTML, /Turn on autopilot/);  // already on
@@ -4688,6 +4688,9 @@ test('a brand-new user sees "See an example session first" on the dashboard and 
     const page = ['#boardbody', '#main', '#dash-ap'].map((sel) => f.root.querySelector(sel).innerHTML).join('');
     assert.equal((page.match(/href="\/example"/g) || []).length, shown ? 1 : 0, String(own));
     assert.deepEqual(page.match(/class="btn primary[^>]*>[^<]*/g), ['class="btn primary" data-apcard="on">Turn on autopilot'], String(own));
+    // "or research by hand" opens Research with New session unfolded (?new=1): it opened the folded page, one more
+    // press before there was anywhere to type (walk 2026-11-01).
+    assert.match(f.root.querySelector('#dash-ap').innerHTML, /<a class="apcard-alt" href="\/research\?new=1">or research by hand<\/a>/, String(own));
   }
   // Research: only the seeded example so far, so it leads with it (one tap, straight to the session).
   let f = exResearch([exRun]);
@@ -5321,7 +5324,7 @@ test('Meridian: a running session counts its ideas and passes live; a stopped on
   const stamp = f.root.querySelector('#log').querySelector('[data-stamp]');
   assert.equal(stamp.textContent, 'Not finished'); assert.equal(stamp.classList.contains('pending'), false);
   assert.doesNotMatch(f.root.querySelector('#runnext').innerHTML, /stopped on an error/);
-  assert.match(f.root.querySelector('#runnext').innerHTML, /so the session stopped\. Start it again in a little while\. <a href="\/research\?new=1">Start a new session<\/a>/);
+  assert.match(f.root.querySelector('#runnext').innerHTML, /so the session stopped\. Start it again in a little while\. <a href="\/research\?new=1&amp;market=btc15m">Start a new session<\/a>/);
 });
 
 test('Meridian: a long session shows its first strategies and folds the rest behind Show all', async () => {
@@ -5343,7 +5346,7 @@ test('Meridian: a long session shows its first strategies and folds the rest beh
   // A failed session says why and how to start again, above the folded log.
   const bad = frontend({fetchImpl: path => path.startsWith('/api/runs/9') ? response({run: {...run, status: 'failed', error: 'The model <i>timed out</i>.'}, events: [], strategies: []}) : response({})});
   await bad.viewRun(9); bad.clearTimers();
-  assert.match(bad.root.querySelector('#runnext').innerHTML, /This session stopped on an error\. The model &lt;i&gt;timed out&lt;\/i&gt;\. <a href="\/research\?new=1">Start a new session<\/a>/);
+  assert.match(bad.root.querySelector('#runnext').innerHTML, /This session stopped on an error\. The model &lt;i&gt;timed out&lt;\/i&gt;\. <a href="\/research\?new=1&amp;market=btc15m">Start a new session<\/a>/);
 });
 
 test('Meridian: the strategy page lists what it missed under Verdict and names the first in the Deploy notice', async () => {

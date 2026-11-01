@@ -948,13 +948,22 @@ def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age,
         return _idle(code, "Nothing is on paper: %s that passed %s stopped on paper, and no new one has passed since. %s" % (
             "the strategy" if len(retired) == 1 else "the %d strategies" % len(retired),
             "was" if len(retired) == 1 else "were", doing), watch)
-    if research.get("researched", True) is False and code in ("no_strategies", "reviewing"):
+    # Until its first session has finished, a new autopilot's line also says how a strategy reaches paper and that
+    # no time can be given for it: someone who just switched it on had to guess when the first one would show
+    # (walk 2026-11-01). Display only; the to_deploy line above already says "the next review puts it on paper".
+    first = research.get("researched", True) is False
+    when = (" " + FIRST_PAPER_WHEN) if first else ""
+    if first and code in ("no_strategies", "reviewing"):
         # Nothing has been researched, so nothing could pass its tests: say so, not "no strategy has passed".
         # The review that starts when autopilot is switched on said "no strategy has passed its research
         # tests" in a new user's first minute, as if research had already failed.
-        return _idle(code, "Nothing is on paper yet: no research has run yet. %s" % (
-            doing if code == "reviewing" else "Its first research session starts at its next check-in."))
-    return _idle(code, "Nothing is on paper yet: no strategy has passed its research tests. %s" % doing, watch)
+        return _idle(code, "Nothing is on paper yet: no research has run yet. %s%s" % (
+            doing if code == "reviewing" else "Its first research session starts at its next check-in.", when))
+    return _idle(code, "Nothing is on paper yet: no strategy has passed its research tests. %s%s" % (doing, when), watch)
+
+
+FIRST_PAPER_WHEN = ("If a session passes a strategy through every test, the next check-in puts it on paper. "
+                    "There’s no set time for that, and most ideas don’t pass.")
 
 
 def _furthest(sids: List[int], prog: Dict[int, Tuple[int, float]], never: Dict[int, str]) -> Tuple[int, List[int]]:

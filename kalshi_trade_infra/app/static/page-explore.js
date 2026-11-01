@@ -108,7 +108,9 @@ window.TauPage('explore', (T) => {
     const own = (mine || []).includes(m.key) ? `<a class="btn sm" href="/strategies?market=${k}">Your ${esc(marketShort(m.key))} strategies</a>` : '';
     // The button is on one contract's page, so it names that contract's strike as the line under the heading does
     // ("Research BTC $113,000 or above at 5pm ET"), not the family's words; the session it starts researches the market.
-    return `<p class="mk-next"><a class="btn sm primary" href="/research?new=1&amp;market=${k}">Research ${esc(strikeIn(marketShort(m.key), ticker))}</a>${own}</p>`;
+    // What the button leads to, so a newcomer doesn't guess how a market becomes something running: nothing can be
+    // deployed on a market until a session's strategy passes, and that one goes on paper from its own page (walk 2026-11-01).
+    return `<p class="mk-next"><a class="btn sm primary" href="/research?new=1&amp;market=${k}">Research ${esc(strikeIn(marketShort(m.key), ticker))}</a>${own}</p><p class="hint mk-next-hint">A session writes strategies for this market and tests each on data it never saw. You can put one that passes on paper from its page.</p>`;
   }
   function mountSpot(ticker, first, d) {
     const path = '/api/explore/spot?ticker=' + encodeURIComponent(ticker);

@@ -2608,9 +2608,10 @@
       const lv = cashNow(d.live);
       const liveCf = lv.connected && cashFig(lv);
       // While autopilot is off its card's "Turn on autopilot" is the one primary button on the page.
+      // New research opens Research at its form (?new=1): a phone with sessions put the list first (walk 2026-11-01).
       const board = `
         <h1 class="vh">Dashboard</h1>
-        <div class="statusline ${needs ? 'needs' : ''}"><p class="said">${said}</p><a class="btn${S.me.user.autopilot ? ' primary' : ''}" href="/research">New research</a></div>
+        <div class="statusline ${needs ? 'needs' : ''}"><p class="said">${said}</p><a class="btn${S.me.user.autopilot ? ' primary' : ''}" href="/research?new=1">New research</a></div>
         ${apFirst ? '' : sinceStrip(d, '#dash-deps')}
         <section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-deps') : ''}
         <dl class="figures measure">
@@ -3363,7 +3364,7 @@
       host.innerHTML = `<div class="apcard-main"><span class="apcard-kick"><span class="apf-dot" aria-hidden="true"></span>Autopilot off</span>
         <h2>Let the autopilot trade for you</h2>
         <p>It picks markets, tests ideas on data it never saw, and runs the ones that pass on paper money. Every move shows up in its activity feed. ${liveOpen() ? 'Real money stays off until you turn it on separately.' : 'Real money stays off: live trading isn\u2019t open yet.'}</p>${apOffRunning(d)}${apCostLine()}${apOffCost(d, 'apcard-cost')}${d && Array.isArray(d.focus) ? `<p class="ap-focus">${apFocusLine(d.focus, 'data-apcard="focus"')}</p>` : ''}</div>
-        <div class="apcard-act"><button type="button" class="btn primary" data-apcard="on">Turn on autopilot</button><a class="apcard-alt" href="/research">or research by hand</a></div>
+        <div class="apcard-act"><button type="button" class="btn primary" data-apcard="on">Turn on autopilot</button><a class="apcard-alt" href="/research?new=1">or research by hand</a></div>
         <p class="apcard-err error-text" role="alert"></p>`;
       const b = host.querySelector('[data-apcard="on"]');
       if (apTurning) { b.classList.add('busy'); b.disabled = true; apTurning.place(b); }
@@ -3772,7 +3773,7 @@
       ? `<div class="empty"><h3>Nothing deployed yet</h3><p>Autopilot is on. Strategies that pass every research test land here on paper first, with no real money.</p></div>`
       : `<div class="empty"><h3>Nothing deployed yet</h3><p>Turn on autopilot above, or research an idea yourself.</p></div>`) : on
       ? `<div class="empty"><h3>Nothing deployed yet</h3><p>Autopilot is on. Strategies that pass every research test land here on paper first, with no real money.</p><a class="btn" href="/research">See its research</a></div>`
-      : `<div class="empty"><h3>Nothing deployed yet</h3><p>Turn on autopilot above and the strategies that pass every research test on data they never saw land here on their own, on paper first. Or research an idea yourself.</p><a class="btn" href="/research">Research an idea</a></div>`;
+      : `<div class="empty"><h3>Nothing deployed yet</h3><p>Turn on autopilot above and the strategies that pass every research test on data they never saw land here on their own, on paper first. Or research an idea yourself.</p><a class="btn" href="/research?new=1">Research an idea</a></div>`;
   }
   // Copy that depends on the switch follows it without a reload, so turning autopilot on doesn't leave
   // "Turn on autopilot above" or a Turn on nudge under a card that already says it's on.

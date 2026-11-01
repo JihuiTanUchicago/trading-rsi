@@ -111,7 +111,7 @@ export function trustGlitchCases({name, frontend}) {
     ]) {
       const next = await at(r);
       assert.match(next, said, JSON.stringify(r));
-      assert.match(next, /<a href="\/research\?new=1">Try another idea<\/a>/);
+      assert.match(next, /<a href="\/research\?new=1&amp;market=btc15m">Try another idea<\/a>/);
       assert.doesNotMatch(next, /below|which check it missed/, JSON.stringify(r));
     }
     // Out of credits with nothing listed: the credits line, and no list to point at.

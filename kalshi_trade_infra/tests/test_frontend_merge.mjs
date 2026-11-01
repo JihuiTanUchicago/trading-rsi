@@ -1001,10 +1001,10 @@ test('while autopilot is off, Turn on autopilot is the only primary button on th
   }});
   await f.viewDashboard(); await flush();
   const head = () => f.root.querySelector('#boardbody .statusline').innerHTML;
-  assert.match(head(), /<a class="btn" href="\/research">New research<\/a>/);
+  assert.match(head(), /<a class="btn" href="\/research\?new=1">New research<\/a>/);
   f.S.me.user.autopilot = true;
   await f.viewDashboard(); await flush();
-  assert.match(head(), /<a class="btn primary" href="\/research">New research<\/a>/);
+  assert.match(head(), /<a class="btn primary" href="\/research\?new=1">New research<\/a>/);
 });
 
 test('the dashboard offers one-click autopilot, and once on shows what it is doing and the paper P&L', async () => {
@@ -1017,6 +1017,8 @@ test('the dashboard offers one-click autopilot, and once on shows what it is doi
   await f.viewDashboard(); await flush();
   const card = () => f.root.querySelector('#dash-ap');
   assert.match(card().innerHTML, /Let the autopilot trade for you/);
+  // "or research by hand" opens Research at its form (?new=1), as the strip's New research does (walk 2026-11-01).
+  assert.match(card().innerHTML, /<a class="apcard-alt" href="\/research\?new=1">or research by hand<\/a>/);
   assert.doesNotMatch(f.root.querySelector('#boardbody').innerHTML, /backtest history/i);  // operator-only
   await card().querySelector('[data-apcard="on"]').onclick(); await flush(); await flush();
   assert.equal(f.S.me.user.autopilot, true);
@@ -1088,7 +1090,7 @@ test('the empty Deployed box\'s button says what its sentence says, "Research an
   await f.viewDashboard(); await flush(); f.clearTimers();
   const box = f.root.querySelector('#deps-empty');
   // "Or research an idea yourself." sat over a "New session" button: the sentence and the button named two things.
-  assert.match(box.innerHTML, /Or research an idea yourself\.<\/p><a class="btn" href="\/research">Research an idea<\/a>/);
+  assert.match(box.innerHTML, /Or research an idea yourself\.<\/p><a class="btn" href="\/research\?new=1">Research an idea<\/a>/);
   assert.doesNotMatch(box.innerHTML, /New session/);
 });
 
@@ -3393,13 +3395,16 @@ test('Tau: a finished session says what to do next: your own idea after the exam
   const html = await at({status: 'succeeded'}, [{id: 42, title: '<b>Late</b> momentum', status: 'passed'}, {id: 43, title: 'Fade', status: 'rejected'}]);
   assert.match(html, /Passed: <a href="\/strategies\/42">&lt;b&gt;Late&lt;\/b&gt; momentum<\/a>\. Open it to deploy it on paper\./);
   assert.doesNotMatch(html, /strategies\/43/);
-  assert.match(await at({status: 'succeeded'}, [{id: 43, title: 'Fade', status: 'rejected'}]), /Nothing passed this time\. Most ideas don’t\. Each idea below says which check it missed; tap one for what to try next\. <a href="\/research\?new=1">Try another idea<\/a>/);
+  assert.match(await at({status: 'succeeded'}, [{id: 43, title: 'Fade', status: 'rejected'}]), /Nothing passed this time\. Most ideas don’t\. Each idea below says which check it missed; tap one for what to try next\. <a href="\/research\?new=1&amp;market=btc15m">Try another idea<\/a>/);
   assert.equal(await at({status: 'running'}, []), '');  // still going: nothing to do yet
   // A failed session says why (escaped) and how to start again; a cancelled one says so too.
   assert.match(await at({status: 'failed', error: 'The model <i>timed out</i>.'}, []),
-    /This session stopped on an error\. The model &lt;i&gt;timed out&lt;\/i&gt;\. <a href="\/research\?new=1">Start a new session<\/a>/);
+    /This session stopped on an error\. The model &lt;i&gt;timed out&lt;\/i&gt;\. <a href="\/research\?new=1&amp;market=btc15m">Start a new session<\/a>/);
   assert.match(await at({status: 'cancelled'}, [{id: 43, title: 'Fade', status: 'rejected'}]),
-    /You stopped this session before it finished\. The ideas it tested are listed below\. <a href="\/research\?new=1">Try another idea<\/a>/);
+    /You stopped this session before it finished\. The ideas it tested are listed below\. <a href="\/research\?new=1&amp;market=btc15m">Try another idea<\/a>/);
+  // The way on keeps the session's market (the form picks it from ?market=); it opened the form on Agent's choice, the
+  // market lost (walk 2026-11-01). A session the agent picked the market for leaves it to the agent again.
+  assert.match(await at({status: 'succeeded', market: null}, [{id: 43, title: 'Fade', status: 'rejected'}]), /<a href="\/research\?new=1">Try another idea<\/a>/);
 });
 
 const OUT_OF_CREDITS_STEP = {id: 7, kind: 'step', message: 'Paused — out of credits. Add more (or turn on auto-reload) and start a new session to keep researching.', created_at: '2026-10-25T11:00:00Z'};
@@ -3456,7 +3461,7 @@ test('Tau: a stopped session leaves no idea spinning on "Testing", and a provide
   const f = await RUN_AT({status: 'failed', error}, [{id: 1, kind: 'hypothesis', message: 'Vol', data: {}, created_at: '2026-10-25T10:00:00Z'}]);
   const stamp = f.root.querySelector('#log').querySelector('[data-stamp]');
   assert.equal(stamp.textContent, 'Not finished'); assert.equal(stamp.classList.contains('pending'), false);
-  assert.match(f.root.querySelector('#runnext').innerHTML, /^<p class="run-next">The research models are at capacity right now, so the session stopped\. Start it again in a little while\. <a href="\/research\?new=1">Start a new session<\/a><\/p>$/);
+  assert.match(f.root.querySelector('#runnext').innerHTML, /^<p class="run-next">The research models are at capacity right now, so the session stopped\. Start it again in a little while\. <a href="\/research\?new=1&amp;market=btc15m">Start a new session<\/a><\/p>$/);
   // Still running: the idea is still being tested.
   const live = await RUN_AT({status: 'running'}, [{id: 1, kind: 'hypothesis', message: 'Vol', data: {}, created_at: '2026-10-25T10:00:00Z'}]);
   assert.equal(live.root.querySelector('#log').querySelector('[data-stamp]').classList.contains('pending'), true);
@@ -3490,7 +3495,7 @@ test('Tau: a finished session ends under its last log line with the way on: your
   // Nothing passed: another idea, or let autopilot pick them (the same one-click switch as elsewhere).
   f = await at({status: 'succeeded'}, [{id: 43, title: 'Fade', status: 'failed'}]);
   const end = f.root.querySelector('#runend').innerHTML;
-  assert.match(end, /<a class="btn" href="\/research\?new=1">Try another idea<\/a><p class="research-ap">Rather not write ideas yourself\? <button type="button" data-research-ap>Turn on autopilot<\/button>/);
+  assert.match(end, /<a class="btn" href="\/research\?new=1&amp;market=btc15m">Try another idea<\/a><p class="research-ap">Rather not write ideas yourself\? <button type="button" data-research-ap>Turn on autopilot<\/button>/);
   assert.doesNotMatch(end, /btn primary/);
   assert.doesNotMatch((await at({status: 'stopped'}, [], true)).root.querySelector('#runend').innerHTML, /Turn on autopilot/);  // already on
   assert.match((await at({status: 'stopped'}, [], true)).root.querySelector('#runend').innerHTML, /Try another idea/);
