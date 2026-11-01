@@ -166,6 +166,10 @@ def test_autopilot_research_stops_at_the_daily_spend_cap(monkeypatch):
     msg, _ = agent.act(None, USER, {"type": "research", "market": None,
                                     "idea": "Order-flow imbalance on short-dated contracts."}, True)
     assert "$240" in msg and runs == []
+    # The cap is the autopilot's own: "the cap you set" told every other customer they had set one (walk 2026-11-01).
+    assert msg == ("Autopilot research has used its $240 for the last 24 hours, which is its research cap. I’ll start "
+                   "more as that spend rolls off; research you start yourself isn’t limited.")
+    assert "you set" not in msg
     monkeypatch.setattr(worker.billing, "is_ready", lambda cur, uid: True)
     monkeypatch.setattr(worker.repo, "list_runs", lambda cur, uid, limit=1: [
         {"created_at": NOW - worker.timedelta(minutes=worker.RESEARCH_FLOOR_MINUTES + 1)}])

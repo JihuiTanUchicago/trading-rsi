@@ -3622,17 +3622,19 @@
   function apWhenSpan() { return `<span data-ap-when>${apWhen()}</span>`; }
   // The market focus is binding on research, deploys and the picker, so it reads as a plain line on
   // the card and the panel, with a Change that opens the control (it lives in "Model and markets").
-  function apFocusText(focus) {
+  // `inSentence`: said after other words ("Only crypto, daily high temperatures and sports", "stay on sports"), where a
+  // family keeps its lower case; "Only Crypto, daily high temperatures and sports" sat in the focus picker.
+  function apFocusText(focus, inSentence) {
     const f = focus || [];
     if (!f.length) return 'any market';
     const preset = AP_FOCUS.find(([v]) => v && v === f.join(','));
-    if (preset) return preset[1].replace(/ only$/, '');
+    if (preset) { const w = preset[1].replace(/ only$/, ''); return inSentence && !FOCUS_WORDS[preset[0]] ? w.toLowerCase() : w; }
     const keys = new Set(((S.me && S.me.markets) || []).map((m) => m.key));
     // One list, as the story says it: "Crypto, daily high temperatures and sports". "Crypto, Daily high temperatures,
     // Sports" read like three stored keys (walk 2026-11-01, a focus widened from crypto to weather and sports).
     const words = f.map((t) => FOCUS_WORDS[t] || (keys.has(t) ? marketShort(t) : t.replace(/[-_]/g, ' ')));
     const list = words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0];
-    return list.charAt(0).toUpperCase() + list.slice(1);
+    return inSentence ? list : list.charAt(0).toUpperCase() + list.slice(1);
   }
   // Its button says what it changes: tabbed to, a screen reader read a bare "Change, button".
   const apFocusLine = (focus, attr) => `Focus: ${esc(apFocusText(focus))} <button type="button" ${attr} aria-label="Change focus">Change</button>`;

@@ -264,3 +264,31 @@ def test_story_says_a_queued_or_running_review_is_happening_now(monkeypatch):
     # Research already running is the more specific answer.
     assert server._autopilot_story({"autopilot": True, "reviewing": True,
                                     "research": {"active": ["Bitcoin"]}})[0] == "Right now it’s researching Bitcoin."
+
+
+def test_an_older_research_cap_line_reads_as_the_autopilots_own_cap():
+    """Walk 2026-11-01 (research reopened on weather and sports under a $240 cap): the feed's cap line said "the cap
+    you set" to customers who never set a cap. A stored line reads as new ones are written (agent.act); the panel's
+    Last move says it the same way."""
+    from app.services import customer_text
+    from app.web.routes import chat as chat_routes
+    old = ("Autopilot research has used its $240 for the last 24 hours, the cap you set. I’ll start more as that spend "
+           "rolls off.")
+    new = ("Autopilot research has used its $240 for the last 24 hours, which is its research cap. I’ll start more as "
+           "that spend rolls off; research you start yourself isn’t limited.")
+    assert customer_text.chat_rows([{"role": "system", "content": old}])[0]["content"] == new
+    assert chat_routes._last_move({"text": old, "at": "2026-11-01T00:00:00Z"}, [])["text"] == new
+    assert customer_text.unmarked(new) == new
+    # The agent's reply that quotes it is the agent's own words, as said.
+    assert customer_text.chat_rows([{"role": "agent", "content": old}])[0]["content"] == old
+
+
+def test_the_bell_says_a_paper_forward_pass_in_the_dashboards_words():
+    """The bell read "passed the paper forward gate and is a deployment candidate" (services.forward_gate), where the
+    dashboard says the same pass as "passed its paper forward test: a candidate for live"."""
+    from app.services import customer_text
+    body = "“NFL home favourites late” passed the paper forward gate and is a deployment candidate."
+    got = customer_text.notification_rows([{"kind": "passed", "body": body}])[0]["body"]
+    assert got == "“NFL home favourites late” passed its paper forward test: a candidate for live."
+    other = "Autopilot put “NFL home favourites late” on paper: it passed every research gate."
+    assert customer_text.notification_rows([{"kind": "deployed", "body": other}])[0]["body"] == other

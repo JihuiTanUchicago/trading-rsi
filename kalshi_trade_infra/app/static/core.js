@@ -514,8 +514,14 @@
   // A city's daily high or low the catalog adds (Kalshi titles it "Highest temperature in Chicago") has no MKT_SHORT
   // entry, since the catalog's series aren't known here ahead of time: its short name says it as the NYC high's does
   // ("Chicago high temp"). A chip clipped the title to "HIGHEST TEMPERATURE IN CHICAG" (walk 2026-11-01). '' otherwise.
+  // The server now sends such a city's long name as the NYC high's reads ("Chicago daily high temperature", markets.py
+  // customer_label); an older server sent Kalshi's title. Either says the same short name.
   const WX_TITLE = /^(Highest|Lowest) temperature in (.+?)(?: today| tomorrow)?\??$/i;
-  const wxShort = (label) => { const m = WX_TITLE.exec(String(label || '').trim()); return m ? `${m[2]} ${/^h/i.test(m[1]) ? 'high' : 'low'} temp` : ''; };
+  const WX_LONG = /^(.+?) daily (high|low) temperature$/i;
+  const wxShort = (label) => {
+    const s = String(label || '').trim(), m = WX_TITLE.exec(s), l = !m && WX_LONG.exec(s);
+    return m ? `${m[2]} ${/^h/i.test(m[1]) ? 'high' : 'low'} temp` : l ? `${l[1]} ${l[2].toLowerCase()} temp` : '';
+  };
   const mktLong = (k, me) => (!k ? NO_MARKET : mktCatalog(k, me) || MKT_SHORT[k] || UNLISTED_MARKET);
   const mktShort = (k, me) => (!k ? NO_MARKET : MKT_SHORT[k] || wxShort(mktCatalog(k, me)) || mktCatalog(k, me) || UNLISTED_MARKET);
   // Whether a key is a market the app can name (a line quoting one by its key can be said in words).

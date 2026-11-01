@@ -193,11 +193,19 @@ FORMER_LABELS = (
 _FORMER = dict(FORMER_LABELS)
 _FORMER_LABEL = re.compile(r"(?<![\w-])(%s)(?=$|[.…,;:!?)]| market data\b| history\b| data\b)"
                            % "|".join(re.escape(old) for old, _ in FORMER_LABELS))
+# A catalog city's high or low, named by Kalshi's title until 2026-11-01 ("Started a fresh research session on Highest
+# temperature in Chicago.", "Loading Highest temperature in Chicago market data…"), reads as it is named today
+# ("Chicago daily high temperature", markets.Market.customer_label), in the same places as a retired label.
+_FORMER_WX = re.compile(r"(?<![\w-])(Highest|Lowest) temperature in ([A-Z][\w.'-]*(?: [A-Z][\w.'-]*)*)"
+                        r"(?=$|[.…,;:!?)]| market data\b| history\b| data\b)")
 
 
 def former_names(text: Optional[str]) -> Optional[str]:
     """``text`` with each retired market label (FORMER_LABELS) said as that market is named today."""
-    return _FORMER_LABEL.sub(lambda m: _FORMER[m.group(1)], text) if text else text
+    if not text:
+        return text
+    text = _FORMER_LABEL.sub(lambda m: _FORMER[m.group(1)], text)
+    return _FORMER_WX.sub(lambda m: "%s daily %s temperature" % (m.group(2), "high" if m.group(1) == "Highest" else "low"), text)
 
 
 # The research agent's housekeeping lines (its playbook and long-term memory, the quicker screening model's hand-offs,
@@ -295,10 +303,19 @@ def grouped_dollars(text: Optional[str]) -> Optional[str]:
     return _UNGROUPED_DOLLARS.sub(lambda m: "$" + "{:,}".format(int(m.group(1))), text) if text else text
 
 
+# The paper forward gate's bell line (services.forward_gate) in its own terms: "“NFL home favourites late” passed the
+# paper forward gate and is a deployment candidate." It reads as the dashboard's New results says the same pass
+# (app.js fwdText) and the autopilot's feed line does. The stored notice is unchanged.
+_FORWARD_PASS = re.compile(r"^(“.+”) passed the paper forward gate and is a deployment candidate\.$")
+
+
 def notification_rows(items: List[Dict]) -> List[Dict]:
-    """The bell's lines: a name in one is another person's, a reason the engine's or the agent's."""
+    """The bell's lines: a name in one is another person's, a reason the engine's or the agent's. A paper forward
+    gate pass reads in the dashboard's words (_FORWARD_PASS)."""
     for n in items:
         n["body"] = ladder_words(clean(n.get("body"), NOTICE_FALLBACK))
+        if n["body"]:
+            n["body"] = _FORWARD_PASS.sub(r"\1 passed its paper forward test: a candidate for live.", n["body"])
         if n.get("kind") in CURLY_KINDS:
             n["body"] = grouped_dollars(curly(n["body"]))
     return items
@@ -355,12 +372,20 @@ def focus_set_line(text: Optional[str], focus_words: Optional[Callable[[List[str
 _ONCE_MARKER = re.compile(r"^\[[a-z-]+ #\d+\]\s*")
 
 
+# The autopilot's research-cap line (agent.act) said "the cap you set" until 2026-11-01, to customers who never set
+# one: the cap is the autopilot's own (agent.AUTOPILOT_RESEARCH_USD_PER_DAY). A stored line reads as new ones do.
+_CAP_YOU_SET = re.compile(r"^(Autopilot research has used its \$[\d,]+ for the last 24 hours), the cap you set\. "
+                          r"I’ll start more as that spend rolls off\.$")
+CAP_LINE_TAIL = (", which is its research cap. I’ll start more as that spend rolls off; research you start yourself "
+                 "isn’t limited.")
+
+
 def unmarked(text: Optional[str]) -> Optional[str]:
-    """``text`` without its leading once-only marker ("[live-ready #12] "), and a paper tournament line
-    (tournament_line) in the app's words, else as given."""
+    """``text`` without its leading once-only marker ("[live-ready #12] "), a paper tournament line
+    (tournament_line) and an older research-cap line (_CAP_YOU_SET) in the app's words, else as given."""
     if not text:
         return text
-    return tournament_line(_ONCE_MARKER.sub("", str(text), count=1))
+    return _CAP_YOU_SET.sub(lambda m: m.group(1) + CAP_LINE_TAIL, tournament_line(_ONCE_MARKER.sub("", str(text), count=1)))
 
 
 # The hourly paper tournament (research/tournament.rebalance) leads its chat lines with "[tournament]" and says

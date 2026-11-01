@@ -77,7 +77,12 @@ export function chatPanelCases({name, frontend, storageFor}) {
     assert.match(options, /<option value="btc,eth" selected>Only Bitcoin and Ethereum<\/option>/);
     [line, options] = said(['weather-high']);
     assert.equal(line, 'Focus: Daily high temperatures');
-    assert.match(options, /<option value="weather-high" selected>Only Daily high temperatures<\/option>/);
+    // In the select, after "Only", a family keeps its lower case (walk 2026-11-01: "Only Crypto, daily high temperatures
+    // and sports"); a coin keeps its name.
+    assert.match(options, /<option value="weather-high" selected>Only daily high temperatures<\/option>/);
+    [line, options] = said(['crypto', 'weather-high', 'sports']);
+    assert.equal(line, 'Focus: Crypto, daily high temperatures and sports');
+    assert.match(options, /<option value="crypto,weather-high,sports" selected>Only crypto, daily high temperatures and sports<\/option>/);
     assert.equal(said(['btc'])[0], 'Focus: Bitcoin');
     assert.equal(said([])[0], 'Focus: any market');
     p.f.clearTimers && p.f.clearTimers();
@@ -263,6 +268,22 @@ export function chatPanelCases({name, frontend, storageFor}) {
     const html = feed.querySelectorAll('.apf-md').map((el) => el.innerHTML).join('\n');
     assert.ok(html.includes(TAILS) && html.includes('more than its $10.00 loss guard'), html);
     assert.doesNotMatch(html, /deployment #|#\d/);
+  });
+
+  // Walked 2026-11-01 with research widened to weather and sports: each research session the autopilot started, and the
+  // research cap stopping the next one, sat under "Reviewed". A stored cap line said "the cap you set" to customers who
+  // never set one (the server says it as new lines do: customer_text.unmarked).
+  test(`${name}: a research session it started and the research cap are headed as what they are, not "Reviewed"`, async () => {
+    const lines = [
+      'Started a fresh research session on Chicago daily high temperature. Anything it finds has to pass the same tests as any session before it trades, even on paper. Follow it on the Research page.',
+      'Started a fresh research session on a market the research specialist picks. NFL game winner (moneyline) was researched in the last few hours, so this angle goes to one that isn’t on cooldown. Follow it on the Research page.',
+      'Started a new research session digging deeper into “NYC morning forecast edge”: I’ll refine and stress-test its mechanism, and every variant still has to pass the same gates. Follow it on the Research page.',
+      'Autopilot research has used its $240 for the last 24 hours, which is its research cap. I’ll start more as that spend rolls off; research you start yourself isn’t limited.',
+      'I didn’t start that — a research line is already running on NBA game winner (moneyline). I’ll hunt a different market instead of re-running the same line.',
+    ];
+    const p = await panel({autopilot: true, chat: () => lines.map((content, i) => ({id: i + 1, role: 'system', content, created_at: AT}))});
+    const kinds = p.box.querySelector('#apf-messages').querySelectorAll('.say-kind').map((el) => el.textContent);
+    assert.deepEqual(kinds, ['Started research', 'Started research', 'Started research', 'Research cap reached', 'Reviewed']);
   });
 
   // Walked 2026-10-27: changing the market focus, deploying from the Deploy page, the kill switch, the engine's

@@ -61,6 +61,18 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     assert.doesNotMatch(html, /Climate and Weather|Highest temperature in/);
   });
 
+  // The server names a catalog city's high as the NYC high's long name reads ("Chicago daily high temperature",
+  // markets.Market.customer_label) since walk 2026-11-01; its short name is the same as from Kalshi's title.
+  test(`${name}: a catalog city high sent by its long name keeps its short city name in chips and the picker`, () => {
+    const f = frontend();
+    const named = MARKETS.map((m) => (m.key === 'kxhighchi' ? {...m, label: 'Chicago daily high temperature'}
+      : m.key === 'kxhightokc' ? {...m, label: 'Oklahoma City daily high temperature'} : m));
+    f.S.me.markets = named;
+    const names = [...f.marketPicker(named).matchAll(/<span class="mktrow-name">([^<]+)/g)].map((m) => m[1].trim());
+    for (const n of ['NYC high temp', 'Chicago high temp', 'Oklahoma City high temp']) assert.ok(names.includes(n), `${n} in ${names}`);
+    assert.ok(!names.some((n) => /daily high temperature/.test(n) && n !== 'NYC daily high temperature'), names.join(' | '));
+  });
+
   test(`${name}: the Strategies market filter lists the daily highs in one Weather group by short names`, async () => {
     const f = frontend({fetchImpl: (path) => (path.startsWith('/api/strategies')
       ? response({counts: {total: 1, passed: 1}, matched: 1, pages: 1, strategies: [detailStrategy({id: 70, title: 'Chicago gap', status: 'passed', market: 'kxhighchi'})]}) : response({}))});
