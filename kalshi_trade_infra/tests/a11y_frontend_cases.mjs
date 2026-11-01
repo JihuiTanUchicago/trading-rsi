@@ -61,6 +61,15 @@
 // - Meridian's Explore links were named "event · source condition · market · close" over rows that show
 //   "event ≥ $113,000 …" (axe label-content-name-mismatch); its dashboard positions read market, strategy, book over a
 //   row that shows market then book, the words run together.
+//
+// From a keyboard-only and screen-reader pass over the money pages (Tab, Shift+Tab, Enter, Space, Escape; Playwright ARIA
+// snapshots; both themes, 390px and 1366px; a seeded account with paper, demo and live books, 2026-11-01):
+// - The autopilot card's Change (beside "Focus:") and Open autopilot open the panel, but closing it (Esc or its X) put focus
+//   on the pill, at the other end of the page from the card: a keyboard reader lost their place. It goes back to the card's
+//   button that opened it.
+// - A finished session's outcome in Meridian's research table was named "0 2 passed": the "of" was an aria-label on a
+//   plain <span>, which nothing reads, over a visible "0/2". Meridian's deployment card's "Closed / open 6 / 2" had the
+//   same on its <dd>. The words are visually hidden text now, read in place of the slash.
 import assert from './assert_text.mjs';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
@@ -1019,6 +1028,55 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     assert.match(host.textContent, /Is research getting better\?/);
     assert.ok(focused(host), 'the results back: focus goes into them');
     r.clearTimers();
+  });
+
+  test(`${name}: closing the autopilot panel the card's Change or Open autopilot opened puts focus back on that button`, async () => {
+    const store = new Map([['tau_ap_open', '0']]);
+    const f = frontend({storage: storageFor(store), fetchImpl: (path) => {
+      if (path.startsWith('/api/dashboard')) return response(dashboard());
+      if (path === '/api/autopilot/status') return response({...apStatus, focus: ['crypto']});
+      if (path.startsWith('/api/chat')) return response({messages: [], agent_busy: false});
+      if (path === '/api/models') return response({models: [], default: ''});
+      return response({});
+    }});
+    f.S.me.user.autopilot = true; f.S.ap = {...apStatus, focus: ['crypto']};
+    await f.viewDashboard(); await flush();
+    f.S.ap = {...apStatus, focus: ['crypto']}; f.paintDashAp();
+    const box = f.document.getElementById('autopilot-float');
+    const cardButton = (key) => f.root.querySelector(`#dash-ap [data-apcard="${key}"]`);
+    const esc = async () => { box.onkeydown({key: 'Escape', stopPropagation() {}}); await flush(); await flush(); };
+    const back = (el) => !!(el && el.focusOptions && el.focusOptions.preventScroll === true);
+    for (const key of ['focus', 'open']) {
+      cardButton(key).focusOptions = undefined;
+      await cardButton(key).onclick(); await flush(); await flush();
+      assert.equal(store.get('tau_ap_open'), '1', `${key}: the panel opened`);
+      await esc();
+      assert.equal(store.get('tau_ap_open'), '0', `${key}: Esc closed it`);
+      assert.ok(back(cardButton(key)), `${key}: focus went back to the card's button`);
+    }
+    // Its X closes it the same way.
+    cardButton('focus').focusOptions = undefined;
+    await cardButton('focus').onclick(); await flush(); await flush();
+    box.querySelector('.apf-x').onclick({currentTarget: box.querySelector('.apf-x')}); await flush(); await flush();
+    assert.equal(store.get('tau_ap_open'), '0');
+    assert.ok(back(cardButton('focus')), 'the X: focus went back to Change');
+    // Opened from the pill, it closes to the pill as before, never to a card button an earlier open left behind.
+    cardButton('focus').focusOptions = undefined; cardButton('open').focusOptions = undefined;
+    box.querySelector('.apf-pill').onclick({currentTarget: box.querySelector('.apf-pill')}); await flush(); await flush();
+    assert.equal(store.get('tau_ap_open'), '1');
+    await esc();
+    assert.equal(back(cardButton('focus')) || back(cardButton('open')), false, 'opened from the pill: no card button takes focus');
+    f.clearTimers();
+  });
+
+  test(`${name}: a session's outcome and a deployment's closed and open counts read their words, not bare numbers`, async () => {
+    const f = frontend();
+    const row = f.runRow({id: 9, seq: 3, status: 'succeeded', market: 'btc15m', direction: 'momentum', prompt: 'Idea', hypotheses_tried: 2, strategies_passed: 0, created_at: '2026-10-25T08:00:00Z'});
+    // What a screen reader reads: the text, less what is hidden from it.
+    const heard = (html) => html.replace(/<span aria-hidden="true">[^<]*<\/span>/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+    assert.match(heard(row), /\b0 of 2 passed/);
+    assert.doesNotMatch(row, /<span[^>]* aria-label=/, 'no name on a plain span, which nothing reads');
+    assert.doesNotMatch(source, /<dd aria-label=/, 'no name on a <dd>, which nothing reads');
   });
 
   test(`${name}: a session's working spinner is hidden from a screen reader, not named "in process"`, async () => {

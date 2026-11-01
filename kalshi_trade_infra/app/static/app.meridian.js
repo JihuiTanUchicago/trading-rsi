@@ -2247,7 +2247,7 @@
         <div class="monitor-realized"><dt>Realized P&amp;L</dt><dd>${realizedCell(d, '<span class="unavailable">None yet</span>')}${spark(d.curve, regs && regs[d.mode], d.closed_trades, d.mode)}</dd>${d.mode === 'paper' ? `<dd class="sub-fig paper-net">${gl(PAPER_NET, 'paperfills')}</dd>` : d.closed_trades ? `<dd class="sub-fig book-net">${monitorNet(d.mode, demoRowSince(d, reloaded))}</dd>` : ''}</div>
         <div class="monitor-unrealized"><dt>${d.unrealized_pnl != null && d.open_positions ? 'Unrealized (est.)' : 'Unrealized P&amp;L'}</dt><dd>${d.unrealized_pnl == null ? `<span class="unavailable">${+d.open_positions ? NOT_MARKED : 'None open'}</span>` : markFig(d.oldest_mark_ts, money(d.unrealized_pnl))}</dd>${d.unrealized_pnl != null && markOld(d.oldest_mark_ts) ? `<dd class="sub-fig mark-when">${markedAt(d.oldest_mark_ts)}</dd>` : ''}${d.unrealized_pnl != null && markedOf(d.marked_open, d.open_positions) ? `<dd class="sub-fig mark-part">${markedOf(d.marked_open, d.open_positions)} marked</dd>` : ''}</div>
       </dl>
-      <div class="monitor-footer"><dl class="monitor-counts"><div><dt>Closed / open</dt><dd aria-label="${num(d.closed_trades)} closed trades, ${num(d.open_positions || 0)} open positions">${num(d.closed_trades)} / ${num(d.open_positions || 0)}</dd></div></dl><div class="monitor-controls">${deploymentActions(d, false)}${deploymentEvidence(d, true)}</div></div>
+      <div class="monitor-footer"><dl class="monitor-counts"><div><dt>Closed / open</dt><dd><span aria-hidden="true">${num(d.closed_trades)} / ${num(d.open_positions || 0)}</span><span class="vh">${num(d.closed_trades)} closed trades, ${num(d.open_positions || 0)} open positions</span></dd></div></dl><div class="monitor-controls">${deploymentActions(d, false)}${deploymentEvidence(d, true)}</div></div>
     </article>`;
   }
   function replaceDeploymentContent(host, html) {
@@ -3682,9 +3682,9 @@
         <p class="ap-focus">${apFocusLine(d.focus, 'data-apcard="focus"')}</p>` : ''}
         <dl class="apcard-figs">${cells.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl><p class="stale-note" id="dash-ap-stale" role="status">${apStale()}</p>${apWeek(d.week, d, open)}</div>
       <div class="apcard-act"><button type="button" class="btn" data-apcard="open">Open autopilot</button></div>`);
-    host.querySelector('[data-apcard="open"]').onclick = () => apOpen();
+    host.querySelector('[data-apcard="open"]').onclick = () => apOpen('open');
     const idleFocus = host.querySelector('[data-apcard="idle-focus"]');
-    if (idleFocus) idleFocus.onclick = () => { apOpen(); apShowFocus(document.getElementById('autopilot-float')); };
+    if (idleFocus) idleFocus.onclick = () => { apOpen('idle-focus'); apShowFocus(document.getElementById('autopilot-float')); };
     apBindFocus(host);
   }
   // The autopilot's latest move (the server's last_action: its newest system line about itself) as one
@@ -3794,7 +3794,7 @@
   const apFocusLine = (focus, attr) => `Focus: ${esc(apFocusText(focus))} <button type="button" ${attr} aria-label="Change focus">Change</button>`;
   function apBindFocus(host) {
     const b = host.querySelector('[data-apcard="focus"]');
-    if (b) b.onclick = () => { apOpen(); apShowFocus(document.getElementById('autopilot-float')); };
+    if (b) b.onclick = () => { apOpen('focus'); apShowFocus(document.getElementById('autopilot-float')); };
   }
   function apFocusPaint(box, focus) {
     const fline = box.querySelector('#apf-focusline'); if (!fline) return;
@@ -3947,8 +3947,10 @@
       ? `. When they fall to ${usd(ar.threshold)}, auto-reload charges your card ${usd(ar.charge)} for ${usd(ar.amount)} more. Turn it off any time, or change auto-reload on <a href="/billing">Billing</a>.`
       : ' and pauses when they run out. Turn it off any time.'}</p>`;
   }
-  function apOpen() {
+  // `from`: the card's button that opened it (its data-apcard), which takes focus back when the panel closes.
+  function apOpen(from) {
     S.apAutoOpen = null;  // opened by the reader: it stays open from page to page
+    S.apOpener = from || null;
     try { localStorage.setItem('tau_ap_open', '1'); } catch (e) { /* private mode */ }
     const box = document.getElementById('autopilot-float');
     if (box) renderAutopilot(box, S.ap);
@@ -4170,10 +4172,16 @@
   async function apAction(box, action, e) {
     if (action === 'toggle') {
       const opening = !apExpanded();
+      // Opened from the autopilot card's Change or Open autopilot (apOpen), focus goes back to that button: it went to
+      // the pill, in the masthead, far from the card (walk 2026-11-01, keyboard, both themes).
+      const card = !opening && S.apOpener; S.apOpener = null;
       S.apAutoOpen = null;
       localStorage.setItem('tau_ap_open', opening ? '1' : '0'); renderAutopilot(box, S.ap);
-      // Opened, focus goes into the panel (its close button comes first); closed, back to the pill.
-      const to = opening && box.querySelector('.apf-x'); if (to && to.focus) to.focus({ preventScroll: true });
+      // Opened, focus goes into the panel (its close button comes first); closed, back to the pill, or to the card's
+      // button that opened it while that is still on screen (scrolled away, the pill keeps it).
+      const to = opening ? box.querySelector('.apf-x') : card && root.querySelector(`[data-apcard="${card}"]`);
+      const r = to && !opening && to.getBoundingClientRect ? to.getBoundingClientRect() : null;
+      if (to && to.focus && !(r && (r.bottom <= 0 || (typeof innerHeight === 'number' && r.top >= innerHeight)))) to.focus({ preventScroll: true });
       return;
     }
     if (action === 'livearm') {

@@ -128,7 +128,8 @@ export function stopReasonCases({name, frontend}) {
     // The server's not_cleared: passes whose one-time holdout then failed, or that the diversification check held
     // back (Missed final test, Held back on the session page). The run's counter still holds them.
     const f = frontend();
-    const words = (html) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+    // The words a screen reader hears: Meridian's "0/2" hides its slash and reads " of " in its place.
+    const words = (html) => html.replace(/<span aria-hidden="true">[^<]*<\/span>/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
     const band = (html) => html.match(/class="run-card ([a-z]+)"/)[1];
     let row = f.runRow(run({hypotheses_tried: 10, strategies_passed: 2, not_cleared: 1}));
     assert.match(words(row), /\b1(?: of |\/)10 passed(?: ?· ?| )?\+1 passed, not cleared/);
@@ -141,7 +142,7 @@ export function stopReasonCases({name, frontend}) {
     assert.doesNotMatch(row, /class="gain"/);
     // A stopped session says the same; one with nothing uncleared reads as before.
     row = f.runRow(run({status: 'stopped', hypotheses_tried: 10, strategies_passed: 3, not_cleared: 1}));
-    assert.match(words(row), /\b2(?:\/10)? passed(?: ?· ?| )?\+1 passed, not cleared/);
+    assert.match(words(row), /\b2(?:\/10| of 10)? passed(?: ?· ?| )?\+1 passed, not cleared/);
     row = f.runRow(run({hypotheses_tried: 10, strategies_passed: 2}));
     assert.match(words(row), /\b2(?: of |\/)10 passed/);
     assert.doesNotMatch(row, /not cleared/);

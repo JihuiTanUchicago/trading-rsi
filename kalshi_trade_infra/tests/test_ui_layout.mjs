@@ -308,6 +308,23 @@ for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css
   });
 }
 
+// Walk 2026-11-01 (390px phone, keyboard, both themes): the open sheet pins its head (47px) at the top and its composer
+// (110px with its note) at the foot. "Change" beside the card's focus line focused the market select, which the sheet
+// scrolled to its last row, under the composer; Shift+Tab could leave it under the head. The sheet's scroll padding
+// keeps what takes focus clear of both. Measured in Chromium at 320, 390 and 600px.
+for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css']]) {
+  test(`${bundle}: on a phone what takes focus in the open autopilot sheet scrolls clear of its pinned head and composer`, () => {
+    const all = rules(read(file));
+    assert.equal(decl(all, '.apf.open .apf-head', 'position', SHEET), 'sticky');
+    assert.equal(decl(all, '.apf.open .apf-composer-row', 'position', SHEET), 'sticky');
+    const lead = (v) => px(((v || '').match(/calc\(\s*([\d.]+px)/) || [])[1] || v);
+    const top = decl(all, '.apf.open', 'scroll-padding-top', SHEET), bottom = decl(all, '.apf.open', 'scroll-padding-bottom', SHEET);
+    assert.ok(lead(top) >= 47, `scroll-padding-top ${top} clears the 47px head`);
+    assert.ok(lead(bottom) >= 110, `scroll-padding-bottom ${bottom} clears the 110px composer`);
+    assert.match(top, /safe-area-inset-top/); assert.match(bottom, /safe-area-inset-bottom/);
+  });
+}
+
 // Walk 2026-10-27 (390px phone): content sat under the floating autopilot pill (Billing's "Add another card" form,
 // a market page's settlement note). The room under every page is now worked out from the pill's own offset and
 // height, which the pill itself is placed and sized by, so the two can't drift apart; the pill keeps to one line

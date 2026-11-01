@@ -1215,8 +1215,10 @@ test('Overview deployment monitors preserve every mode, status, risk field and u
     assert.equal(field('Realized').textContent, d.status === 'running' ? '—' : d.status === 'paused' ? '$0.00' : '−$3.25');
     assert.equal(field('Unrealized').textContent.trim(), d.status === 'running' ? 'Not marked yet' : d.status === 'paused' ? '$0.00' : '−$2.50');
     assert.equal(monitor.querySelectorAll('.monitor-metrics dt')[1].textContent.includes('(est.)'), d.unrealized_pnl != null && d.open_positions > 0);
-    assert.equal(field('Closed').textContent, `${d.closed_trades} / ${d.open_positions}`);
-    assert.equal(field('Closed').getAttribute('aria-label'), `${d.closed_trades} closed trades, ${d.open_positions} open positions`);
+    // Shown as "5 / 0"; read as words (visually hidden text: an aria-label on a <dd> is a name nothing reads).
+    assert.equal(field('Closed').querySelector('[aria-hidden="true"]').textContent, `${d.closed_trades} / ${d.open_positions}`);
+    assert.equal(field('Closed').querySelector('.vh').textContent, `${d.closed_trades} closed trades, ${d.open_positions} open positions`);
+    assert.equal(field('Closed').getAttribute('aria-label'), null);
     const evidence = evidenceFor(monitor, d.id); assert.equal(evidence.tag, 'details'); assert.equal(evidence.open, false);
     // No backtest figure (a research session's strategy keeps its unseen result with the gatekeeper): no "Later-period P&L —".
     if (d.status === 'running') assert.ok(!evidence.textContent.includes('P&amp;L'), evidence.textContent);
@@ -4059,7 +4061,7 @@ test('Research says a low balance before Start, shows a running session’s spen
   // A session that ran until stopped reads like a finished one, not a red "Failed".
   const card = f.root.querySelector('#runs a[href="/research/4"]');
   assert.doesNotMatch(card.innerHTML, /Failed|loss/);
-  assert.match(card.querySelector('.run-state').textContent, /1\/4 passed/);
+  assert.match(card.querySelector('.run-state').textContent, /1\/ of 4 passed/, 'shows 1/4; a screen reader hears 1 of 4 (the slash hidden from it)');
   assert.match(card.getAttribute('class'), /\bvoid\b/);
   assert.equal(f.root.querySelector('#runs a[href="/research/3"] .run-state').textContent, 'Outcome Paused');
   // Enough credits: no notice.
