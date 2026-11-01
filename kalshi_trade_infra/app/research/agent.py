@@ -743,7 +743,9 @@ def _scope_coin_words(conj: str) -> str:
 # "Yes, weather + sports, $240/day cap". The autopilot starts no research once the user's research runs
 # created in the last 24 hours cost this much, priced as the research watch prices them (rsi.run_cost_usd).
 # Research a person starts by hand is not limited. 0 = no cap.
-AUTOPILOT_RESEARCH_USD_PER_DAY = float(os.getenv("TAU_AUTOPILOT_RESEARCH_USD_PER_DAY", "240"))
+# Todd 2026-11-01 20:59Z (card "Cut the weather and sports research budget after 0 gated in 24h?"):
+# "Cut to $60/day". 24h at $240 bought 104 runs, 9 developed, 0 gated; a $60 probe keeps learning.
+AUTOPILOT_RESEARCH_USD_PER_DAY = float(os.getenv("TAU_AUTOPILOT_RESEARCH_USD_PER_DAY", "60"))
 
 
 def research_spend(cur, user_id: int, hours: float = 24) -> float:
