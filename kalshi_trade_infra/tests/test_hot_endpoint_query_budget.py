@@ -67,7 +67,7 @@ from app.web.routes import chat as chat_routes
 # A steady-state poll: the process-wide shared reads (series list, data freshness) and the run page's
 # dream line are warm, as they are for every request but one a minute. get_run's run is queued past
 # the overdue limit, so it also counts the queue ahead (5 for a run that is working normally).
-BUDGET = {"autopilot_status": 9, "me": 5, "get_run": 6, "dashboard": 14}  # dashboard: the trades CSV counts ride the realized-P&L pass
+BUDGET = {"autopilot_status": 9, "me": 4, "get_run": 6, "dashboard": 14}  # dashboard: the trades CSV counts ride the realized-P&L pass
 # Counted cold, as above: each page that sums the positions reads their version first (book_memo), +1
 # (not the strategy page, which sums only its own deployments).
 # The Deploy board polls /api/deployments every 10s; /api/strategies/<id> is the strategy page. Both
@@ -650,6 +650,42 @@ def test_the_presence_reads_answer_as_the_key_reads_did():
             assert not any(c in probe for c in KEY_COLUMNS)
 
 
+# /api/me, which every signed-in page's shell carries, asked for both Kalshi key rows (the key's id and its encrypted
+# bytes) only to say whether each is saved. It asks both in one statement selecting constants
+# (repo.kalshi_keys_saved): me 5 -> 4 statements on every page load (measured 2026-11-01 on the seeded heavy account,
+# local MariaDB; the shells of /, /deploy, /strategies, /research, /funds and the rest each one fewer).
+KEYS_SAVED = "SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live"
+
+
+@pytest.mark.parametrize("live_key,demo_key", [(True, True), (True, False), (False, True), (False, False)])
+def test_me_asks_whether_each_kalshi_key_is_saved_in_one_statement_and_never_reads_one(production, live_key, demo_key):
+    log = []
+    out = server.me(_ctx(log, 10.0, extra={KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]}))
+    keys = [(s, p) for s, p in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]
+    assert keys == [("SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live, "
+                     "EXISTS(SELECT 1 FROM app_kalshi_dev_keys WHERE user_id=%s) AS demo", (7, 7))], keys
+    assert not [s for s, _ in log if any(c in s for c in KEY_COLUMNS)], log
+    assert (out["kalshi_connected"], out["kalshi_dev_connected"]) == (live_key, demo_key)
+
+
+def test_me_answers_as_it_did_reading_the_key_rows(production, monkeypatch):
+    """The same reply as when me read each key row and asked whether it was there, for each pair of keys."""
+    import json
+
+    for live_key in (True, False):
+        for demo_key in (True, False):
+            saved = server.me(_ctx([], 10.0, extra={KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]}))
+            row = {"key_id": "placeholder", "private_key_enc": b"\x00", "created_at": None}
+            with monkeypatch.context() as m:
+                m.setattr(server.repo, "kalshi_keys_saved", lambda cur, uid: (
+                    server.repo.get_kalshi_key(cur, uid) is not None, server.repo.get_kalshi_dev_key(cur, uid) is not None))
+                rows = {"FROM app_kalshi_keys WHERE user_id=%s": [row] if live_key else [],
+                        "FROM app_kalshi_dev_keys WHERE user_id=%s": [row] if demo_key else []}
+                read = server.me(_ctx([], 10.0, extra=rows))
+            assert json.dumps(saved, default=server._json_default, sort_keys=True) == json.dumps(
+                read, default=server._json_default, sort_keys=True)
+
+
 # The run page's first read of a long run-until-stopped session: the newest RUN_EVENTS_PAGE lines and, in the same
 # statement, the older lines its figures count (never their thinking). The same statements as any first read, one
 # of them on the event table, and the answer carries one page of lines however long the session is.
@@ -823,6 +859,116 @@ def test_the_research_scoreboard_reads_the_same_for_two_paper_strategies_as_for_
         assert not any("FROM app_positions p JOIN app_deployments d" in s for s, _ in log)  # no per-strategy trips
         counts.append(len(log))
     assert counts[0] == counts[1], counts
+
+
+# The scoreboard's three reads of the paper book: the deployments (stopped ones included), every paper strategy's
+# round trips at once, and the trips' count and net per strategy (repo.paper_progress).
+SB_DEPLOYMENTS = "FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id LEFT JOIN app_positions p"
+SB_TRIPS = "SELECT d.strategy_id, p.order_ref, SUM(p.pnl) AS pnl, MIN(p.opened_at)"
+SB_PROGRESS = "SELECT t.strategy_id, COUNT(*) AS trips"
+
+
+def _paper_trips(k):
+    """Each of _paper_book(k)'s strategies' 40 realistic round trips, as repo.paper_round_trips_by_strategy reads
+    them: down $2.50 in all, in 4-place amounts that don't add up evenly as floats."""
+    t0 = datetime(2026, 10, 22)
+    return [{"strategy_id": s, "pnl": (0.1235 if i % 2 else -0.2485), "opened_at": t0 + timedelta(hours=i),
+             "closed_at": t0 + timedelta(hours=i, minutes=14), "ticker": "KXBTC15M-26OCT22%02d00-00" % (i % 24)}
+            for s in range(1, k + 1) for i in range(40)]
+
+
+def test_the_research_scoreboard_reads_the_paper_book_once_for_its_paper_outcomes_and_its_tournament(production):
+    """The research loop board's paper outcomes and its tournament each read the deployments (stopped ones
+    included), and the paper outcomes summed the same round trips the tournament reads (repo.paper_progress).
+    Read once and handed to both: measured 2026-11-01 on a seeded heavy account (80 strategies, 46 deployments,
+    1,400 closed trades, 60 sessions), 69 -> 66 statements cold. Each half answers as it does reading for itself."""
+    from app.research import rsi, tournament
+
+    server._SHARED.clear()
+    rows = dict(_paper_book(6), **{SB_TRIPS: _paper_trips(6)})
+    log = []
+    board = server.research_scoreboard(_ctx(log, 10.0, query={"days": "14"}, extra=rows))
+    assert sum(SB_DEPLOYMENTS in s for s, _ in log) == 1, [s for s, _ in log if SB_DEPLOYMENTS in s]
+    assert sum(SB_TRIPS in s for s, _ in log) == 1
+    assert not [s for s, _ in log if SB_PROGRESS in s]  # the trips' count and net come from the trips read
+    # Each half reading for itself (paper_progress summing the same trips in SQL) answers the same.
+    alone = dict(rows, **{SB_PROGRESS: [{"strategy_id": s, "trips": 40, "pnl": Decimal("-2.5000")} for s in range(1, 7)]})
+    cur = CountingCursor([], alone)
+    assert board["paper"] == rsi.paper_outcomes(cur, 7)
+    assert board["paper"]["total"]["round_trips"] == 240 and board["paper"]["total"]["net_pnl"] == -15.0
+    assert board["tournament"] == server.customer_text.tournament_standings(tournament.standings(cur, 7))
+
+
+# The research scoreboard cold, with each paper strategy's checks kept by the Deploy board (its startup warm-up or
+# its polls): the statements it sends whatever the number of paper strategies up on paper with enough trips.
+SCOREBOARD_KEPT_BUDGET = 10
+
+
+def _up_book(k):
+    """_paper_book(k) with each strategy 40 realistic trips in and up $3.40: the paper outcomes ask whether each
+    clears the live check."""
+    rows = dict(_paper_book(k), **{SB_TRIPS: [dict(t, pnl=0.085) for t in _paper_trips(k)]})
+    for d in rows[SB_DEPLOYMENTS]:
+        d.update(realized_pnl=3.4, closed_trades=40)
+    return rows
+
+
+def test_the_research_scoreboard_takes_live_ready_from_the_deploy_boards_kept_checks(production, monkeypatch):
+    """Each paper strategy up on paper with 30+ realistic trips asked agent.paper_evidence whether it clears the
+    live check (~5 reads and a bootstrap each): most of a cold board. The Deploy board keeps that answer per paper
+    record (services.paper_checks), and the board now takes it when kept. Measured 2026-11-01 on a seeded heavy
+    account (12 such strategies, 3 of them live-ready), local MariaDB, after the startup warm-up: 66 -> 17
+    statements and ~165 -> ~95ms cold, byte-identical JSON. Nothing kept: the gate is asked, as before."""
+    from app.research import agent
+    from app.services import paper_checks
+    from app.web.routes.deployments import _paper_record
+
+    asked = []
+    ready_ids = {2, 5}
+
+    def evidence(cur, uid, sid):
+        asked.append(sid)
+        checks = {"realistic_trades": True, "net_pnl": True, "demo": sid in ready_ids}
+        return {"ready": all(checks.values()), "checks": checks}
+
+    monkeypatch.setattr(agent, "paper_evidence", evidence)
+    monkeypatch.setattr(agent, "_is_deployment_candidate", lambda cur, sid: sid != 5)
+    counts, boards = [], []
+    for k in (2, 6):
+        rows = _up_book(k)
+        paper_checks.KEPT.clear()
+        server._SHARED.clear()
+        asked.clear()
+        alone = server.research_scoreboard(_ctx([], 10.0, query={"days": "14"}, extra=rows))["paper"]
+        assert sorted(asked) == list(range(1, k + 1))  # nothing kept: the gate, for each one
+        # The Deploy board keeps each one's checks ("candidate" for 5, which live-ready never asked).
+        trips = {}
+        for t in rows[SB_TRIPS]:
+            trips.setdefault(t["strategy_id"], []).append(t)
+        for sid, ts in trips.items():
+            rec = _paper_record(ts)
+            assert paper_checks.failing(None, 7, sid, (rec["trades"], rec["events"], rec["span_hours"])) == (
+                ["candidate"] if sid == 5 else []) + ([] if sid in ready_ids else ["demo"])
+        server._SHARED.clear()
+        asked.clear()
+        log = []
+        board = server.research_scoreboard(_ctx(log, 10.0, query={"days": "14"}, extra=rows))
+        assert asked == [] and board["paper"] == alone
+        assert board["paper"]["total"]["live_ready"] == len(ready_ids & set(range(1, k + 1)))
+        counts.append(len(log))
+        boards.append(board)
+    assert counts[0] == counts[1] <= SCOREBOARD_KEPT_BUDGET, counts
+    paper_checks.KEPT.clear()
+
+
+def test_the_paper_progress_worked_out_from_the_trips_is_the_sums_read():
+    """rsi.paper_progress_of gives what repo.paper_progress reads: each strategy's trips and their exact sum
+    (amounts that drift as floats: 0.1 + 0.2 is not 0.3), and nothing for a strategy with no closed trip."""
+    from app.research import rsi
+
+    trips = {4: [{"pnl": 0.1}, {"pnl": 0.2}, {"pnl": -0.3}], 9: [{"pnl": 0.1235}] * 7 + [{"pnl": -0.0005}], 11: []}
+    assert rsi.paper_progress_of(trips) == {4: (3, 0.0), 9: (8, 0.864)}
+    assert sum(t["pnl"] for t in trips[4]) != 0.0  # what adding the floats would have said
 
 
 # The positions' version (services.book_memo) and the full-history sums a page keeps behind it.

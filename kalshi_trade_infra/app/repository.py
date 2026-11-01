@@ -21,7 +21,7 @@ from app.adapters.db.billing_repository import (  # noqa: F401
 )
 from app.adapters.db.autopilot_pulse_repository import _pulse_at, _pulse_list, _pulse_secs, autopilot_pulse  # noqa: F401
 from app.adapters.db.kalshi_keys_repository import (  # noqa: F401
-    delete_kalshi_key, get_kalshi_key, has_kalshi_key, save_kalshi_key,
+    delete_kalshi_key, get_kalshi_key, has_kalshi_key, kalshi_keys_saved, save_kalshi_key,
 )
 from app.adapters.db.kalshi_dev_keys_repository import (  # noqa: F401
     delete_kalshi_dev_key, get_kalshi_dev_key, has_kalshi_dev_key, set_kalshi_dev_key,

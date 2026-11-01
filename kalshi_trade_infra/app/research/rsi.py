@@ -29,7 +29,8 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
-from typing import Dict, Iterable, List, Optional, Tuple
+from decimal import Decimal
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.trading.markets import MARKETS
 
@@ -506,7 +507,19 @@ def _paper_rollup(rows: List[Dict]) -> Dict:
     }
 
 
-def paper_outcomes(cur, user_id: int) -> Dict:
+def paper_progress_of(trips_by: Dict[int, List[Dict]]) -> Dict[int, Tuple[int, float]]:
+    """repo.paper_progress worked out from those strategies' round trips already read
+    (repo.paper_round_trips_by_strategy: the same rows, one per order_ref, open slices left out): each
+    strategy's trips and their P&L summed exactly (money.exact, as the SQL's DECIMAL sum), so the figures
+    are the ones that read gives. A strategy with no closed trip is absent from both."""
+    from trading_core.domain.money import exact
+    return {int(sid): (len(trips), float(sum((exact(t["pnl"]) for t in trips), Decimal(0))))
+            for sid, trips in trips_by.items() if trips}
+
+
+def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
+                   trips_by: Optional[Dict[int, List[Dict]]] = None,
+                   kept_ready: Optional[Callable[[int], Optional[bool]]] = None) -> Dict:
     """RSI part 3: what research's passes earned once they met the live book on paper. The other
     half of the loop's scorecard: the scoreboard counts what passed the backtest gate, this counts
     what survived realistic fills (the live kernel over SimulatedVenue). Per family (same keys as
@@ -514,15 +527,22 @@ def paper_outcomes(cur, user_id: int) -> Dict:
     yields gate passes which then bleed on paper stops looking like a winner.
 
     Read-only. Strategies with too few trips to clear the paper gate, or down on them, skip the
-    (bootstrap) live-ready check, so this stays cheap enough for the panel."""
+    (bootstrap) live-ready check, so this stays cheap enough for the panel. `all_deps` is
+    repo.list_deployments(include_stopped=True) and `trips_by` repo.paper_round_trips_by_strategy for
+    every strategy those ran on paper, when the caller has already read them (the scoreboard, which
+    hands the same rows to the tournament); without them they are read here. `kept_ready(strategy_id)`,
+    when given, is a display's kept answer to whether paper_evidence clears the strategy (the Deploy
+    board's, services.paper_checks), or None to ask paper_evidence as before."""
     from app.research import agent
     from app import repository as repo
-    deps = [d for d in repo.list_deployments(cur, user_id, include_stopped=True) if d.get("mode") == "paper"]
+    if all_deps is None:
+        all_deps = repo.list_deployments(cur, user_id, include_stopped=True)
+    deps = [d for d in all_deps if d.get("mode") == "paper"]
     by_strategy: Dict[int, Dict] = {}
     for d in deps:
         by_strategy.setdefault(int(d["strategy_id"]), d)
     ids = sorted(by_strategy)
-    progress = repo.paper_progress(cur, user_id, ids)
+    progress = paper_progress_of(trips_by) if trips_by is not None else repo.paper_progress(cur, user_id, ids)
     playbooks = _playbook_of(cur, ids)
     rows = []
     for sid in ids:
@@ -534,10 +554,14 @@ def paper_outcomes(cur, user_id: int) -> Dict:
         # `net` is the same trips' P&L summed exactly (DECIMAL); below zero, paper_evidence's net check
         # refuses it whatever else it reads, so its five reads and its bootstrap are skipped.
         if trips >= agent.MIN_REALISTIC_PAPER_TRADES and net >= 0:
-            try:
-                ready = bool(agent.paper_evidence(cur, user_id, sid)["ready"])
-            except Exception:  # noqa: BLE001 - informational; never fail the scoreboard
-                ready = False
+            kept = kept_ready(sid) if kept_ready is not None else None
+            if kept is not None:
+                ready = kept
+            else:
+                try:
+                    ready = bool(agent.paper_evidence(cur, user_id, sid)["ready"])
+                except Exception:  # noqa: BLE001 - informational; never fail the scoreboard
+                    ready = False
         rows.append({"strategy_id": sid, "family": family(d.get("market")), "playbook_id": playbooks.get(sid),
                      "round_trips": int(trips), "net_pnl": float(net),
                      "backtest_per_trade": float(oos.get("pnl") or 0) / n_bt if n_bt else None,

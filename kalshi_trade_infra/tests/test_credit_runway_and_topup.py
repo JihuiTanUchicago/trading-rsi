@@ -183,6 +183,7 @@ def test_api_me_carries_a_declined_reload_only_while_it_is_why_credits_are_short
     monkeypatch.setattr(account_routes, 'models', lambda ctx: [])
     monkeypatch.setattr(server.repo, 'get_kalshi_key', lambda cur, uid: None)
     monkeypatch.setattr(server.repo, 'get_kalshi_dev_key', lambda cur, uid: None)
+    monkeypatch.setattr(server.repo, 'kalshi_keys_saved', lambda cur, uid: (False, False))
     ctx = server.Ctx(SimpleNamespace(cursor=lambda: object()),
                      {'id': 7, 'email': 'trader@example.invalid', 'name': 'Sample', 'picture_url': None, 'autopilot': 1},
                      (), {}, {}, SimpleNamespace(headers={}))

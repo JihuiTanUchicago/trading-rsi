@@ -317,16 +317,25 @@ def book(trips: List[Dict], history: Dict[int, List[Tuple]]) -> Dict:
 
 # -- the referee ---------------------------------------------------------------------------------
 
-def standings(cur, user_id: int) -> Dict:
+def paper_strategy_ids(deps: List[Dict]) -> List[int]:
+    """The strategies `deps` ran on paper, sorted: whose round trips standings reads."""
+    return sorted({d["strategy_id"] for d in deps if d.get("mode") == "paper"})
+
+
+def standings(cur, user_id: int, deps: Optional[List[Dict]] = None,
+              trips_by: Optional[Dict[int, List[Dict]]] = None) -> Dict:
     """Read-only: current entrants with their allocation, plus the pooled sample and the book. Two
     reads feed both halves: the deployments (stopped ones included; the entrants are the others) and
     every paper strategy's round trips at once (repo.paper_round_trips_by_strategy). Each half read
-    them again, and the trips one strategy at a time: 2 + 2x strategies statements per scoreboard."""
+    them again, and the trips one strategy at a time: 2 + 2x strategies statements per scoreboard.
+    `deps` and `trips_by` are those two reads when the caller has already made them (the scoreboard,
+    whose paper outcomes read the same deployments); without them each is read here."""
     from app import repository as repo
     now = _now()
-    deps = repo.list_deployments(cur, user_id, include_stopped=True)
-    trips_by = repo.paper_round_trips_by_strategy(
-        cur, user_id, sorted({d["strategy_id"] for d in deps if d.get("mode") == "paper"}))
+    if deps is None:
+        deps = repo.list_deployments(cur, user_id, include_stopped=True)
+    if trips_by is None:
+        trips_by = repo.paper_round_trips_by_strategy(cur, user_id, paper_strategy_ids(deps))
     ents = entrants(cur, user_id, [d for d in deps if d.get("status") != "stopped"], trips_by)
     arms = allocate(ents, seed="%s:%s" % (user_id, now.strftime("%Y%m%d%H")))
     by_sid = {e["strategy_id"]: e for e in ents}

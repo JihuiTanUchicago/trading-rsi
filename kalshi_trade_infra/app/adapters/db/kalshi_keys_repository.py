@@ -1,7 +1,7 @@
 """Per-user production Kalshi API key storage (encrypted at rest by the caller)."""
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from app.adapters.db.sql import now_utc
 
@@ -25,6 +25,16 @@ def has_kalshi_key(cur, user_id: int) -> bool:
     constant, never the key's id or its encrypted bytes (get_kalshi_key, for the paths that use the key)."""
     cur.execute("SELECT 1 AS present FROM app_kalshi_keys WHERE user_id=%s LIMIT 1", (user_id,))
     return cur.fetchone() is not None
+
+
+def kalshi_keys_saved(cur, user_id: int) -> Tuple[bool, bool]:
+    """(a live key is saved, a demo key is saved), for /api/me, which every signed-in page's shell carries and
+    only says whether each is there: both primary-key probes in one statement, selecting constants, never a
+    key's id or its encrypted bytes. True exactly when get_kalshi_key / get_kalshi_dev_key find a row."""
+    cur.execute("SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live, "
+                "EXISTS(SELECT 1 FROM app_kalshi_dev_keys WHERE user_id=%s) AS demo", (user_id, user_id))
+    row = cur.fetchone() or {}
+    return bool(row.get("live")), bool(row.get("demo"))
 
 
 def delete_kalshi_key(cur, user_id: int) -> None:

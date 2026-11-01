@@ -74,6 +74,7 @@ def test_me_says_the_name_other_people_see(monkeypatch):
     monkeypatch.setattr(account_routes, "_researchable_markets", lambda cur: [])
     monkeypatch.setattr(server.repo, "get_kalshi_key", lambda cur, uid: None)
     monkeypatch.setattr(server.repo, "get_kalshi_dev_key", lambda cur, uid: None)
+    monkeypatch.setattr(server.repo, "kalshi_keys_saved", lambda cur, uid: (False, False))
     base = {"id": 3, "email": "a@example.invalid", "picture_url": None, "autopilot": 0, "username": "a"}
     for name, shown in (("Ada", "Ada"), (None, "Trader"), ("a@example.invalid", "Trader"), ("  ", "Trader")):
         c = server.Ctx(SimpleNamespace(cursor=lambda: Cur()), dict(base, name=name), (), {}, {}, None)

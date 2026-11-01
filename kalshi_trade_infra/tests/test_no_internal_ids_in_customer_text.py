@@ -190,13 +190,13 @@ def test_the_research_scoreboard_sends_each_tournament_reason_in_plain_words(mon
     figures = [(r["weight"], r["trips"], r.get("p_positive")) for r in rows]
     standings = {"entrants": rows, "pooled": {"trips": 34, "target": 400}, "book": {"capital": 100.0, "pnl": -1.2}}
     monkeypatch.setattr(rsi, "load_scoreboard", lambda cur, days, uid: {"cards": []})
-    monkeypatch.setattr(rsi, "paper_outcomes", lambda cur, uid: None)
+    monkeypatch.setattr(rsi, "paper_outcomes", lambda cur, uid, *shared: None)
     monkeypatch.setattr(rsi_playbook, "summary", lambda cur, uid: [])
     monkeypatch.setattr(rsi_scout, "ranking", lambda cur, n: [])
     monkeypatch.setattr(rsi_repair, "summary", lambda cur, uid: [])
     monkeypatch.setattr(repo, "get_user", lambda cur, uid: {"id": uid})
     monkeypatch.setattr(repo, "early_exit_scorecard", lambda cur, uid: None)
-    monkeypatch.setattr(tournament, "standings", lambda cur, uid: standings)
+    monkeypatch.setattr(tournament, "standings", lambda cur, uid, *shared: standings)
     got = research._research_scoreboard(None, 1, 14)["tournament"]["entrants"]
     assert [r["verdict"] for r in got] == [customer_text.tournament_reason(losing),
                                          customer_text.tournament_reason(dormant), None, None]

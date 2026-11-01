@@ -21,6 +21,7 @@ def me(ctx: Ctx):
     _sync_ui_cookie(ctx, ctx.user.get("ui_theme") if ctx.user.get("ui_theme") in UI_THEMES else "tau")
     reads = billing.Reads(ctx.cur, ctx.uid)  # needs_card, auto_reload and credit_balance share one read each
     listed = _researchable_markets(ctx.cur)
+    live_key, demo_key = repo.kalshi_keys_saved(ctx.cur, ctx.uid)  # whether each is saved; never the key itself
     return {
         "user": {
             "id": ctx.user["id"], "email": ctx.user["email"], "name": ctx.user["name"],
@@ -33,8 +34,8 @@ def me(ctx: Ctx):
             "autopilot_live": bool(ctx.user.get("autopilot_live")),
             "autopilot_daily_loss_limit": float(ctx.user.get("autopilot_daily_loss_limit") or 50),
         },
-        "kalshi_connected": repo.get_kalshi_key(ctx.cur, ctx.uid) is not None,
-        "kalshi_dev_connected": repo.get_kalshi_dev_key(ctx.cur, ctx.uid) is not None,
+        "kalshi_connected": live_key,
+        "kalshi_dev_connected": demo_key,
         "live_trading_available": engine.LIVE_TRADING_ENABLED,
         # Demo (sandbox) always supports NO/either; live NO is behind the staged-rollout flag.
         "no_side_live_enabled": engine.NO_SIDE_LIVE_ENABLED,
