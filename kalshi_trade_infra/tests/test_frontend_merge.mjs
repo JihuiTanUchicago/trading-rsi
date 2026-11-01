@@ -1495,6 +1495,9 @@ test('Funds paper history says prices in cents, a lost settlement as lost, and e
   const how = f.root.querySelector('.ledger-how').textContent;
   assert.match(how, /A buy takes the contracts’ price plus Kalshi’s fee/);
   assert.match(how, /each winning contract pays \$1 and each losing one pays \$0/);
+  // A market Kalshi cancels (a postponed game) settles at a price it sets, often 50¢: "$1 or $0" alone read that payout
+  // as neither (walk 2026-11-01, a voided NBA game on paper and demo).
+  assert.match(how, /and a market Kalshi cancels \(a postponed game, say\) pays the price Kalshi sets; a sale before then/);
   assert.doesNotMatch(how, /latest 50/);
   const g = frontend({fetchImpl: () => { const d = funds(); d.paper.ledger = Array.from({length: 50}, () => ledger[4]); return response(d); }});
   await g.viewFunds(); await flush();

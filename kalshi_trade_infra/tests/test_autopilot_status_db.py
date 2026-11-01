@@ -510,3 +510,39 @@ def test_the_research_cap_figure_is_what_the_cap_counts_and_rides_the_pulse(conn
     assert out["research_cap"] is None and not any("SUM(input_tokens)" in s for s in log)
     # Off, the cap alone still rides the status (nothing read for it), so the off card can say it before the switch.
     assert out["research_cap_usd"] == 240.0
+
+
+def test_a_focus_across_three_families_reads_one_cap_and_the_coins_its_crypto_research_keeps_to(conn, frozen, monkeypatch):
+    """Walk 2026-11-01, the owner's focus widened from crypto to crypto, daily highs and sports under a $240 cap: the
+    story's cap line read "$240.00 per 24 hours" with nothing to say it is one figure for all three (not $240 each),
+    and "It sticks to the focus you set: crypto, ..." with nothing of the autopilot's own crypto research being kept
+    to Bitcoin (agent.AUTOPILOT_CRYPTO_COINS). The focus is read from the user's row; nothing here changes it."""
+    from app import repository as repo
+    from app.research import agent
+
+    cur = conn.cursor()
+    uid = _account(conn, "threefam", busy=False)["uid"]
+    repo.save_stripe_customer(cur, uid, "cus_" + uuid.uuid4().hex[:12])
+    repo.set_default_pm(cur, uid, "pm_threefam")
+    repo.add_credit(cur, uid, "bonus", 50, "Welcome credit")
+    repo.set_autopilot_focus(cur, uid, ["crypto", "weather-high", "sports"])
+    rid = repo.create_run(cur, uid, "research", market="high_ny", brief=True)
+    cur.execute("UPDATE app_agent_runs SET status='succeeded', created_at=%s, input_tokens=4000000, output_tokens=300000 WHERE id=%s",
+                (NOW - timedelta(hours=2), rid))
+    monkeypatch.setattr(agent, "AUTOPILOT_CRYPTO_COINS", ["btc"])
+    monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 0.01)
+    out, _ = _status(Counting(conn), uid)
+    assert out["focus"] == ["crypto", "weather-high", "sports"] and out["research_cap"]["reached"] is True
+    cap = next(line for line in out["story"] if line.startswith("It has reached its research cap"))
+    assert "and the cap is $0.01 per 24 hours, one cap for crypto, daily high temperatures and sports together, so it" in cap
+    assert "It sticks to the focus you set: crypto, daily high temperatures and sports." in out["story"]
+    assert ("In crypto, the research it starts itself is on Bitcoin markets only; research you start yourself can be on "
+            "any coin.") in out["story"]
+    assert not any("weather-high" in line or " btc" in line for line in out["story"])
+    assert agent.focus_tokens(repo.get_user(cur, uid)) == ["crypto", "weather-high", "sports"]  # never changed by a read
+    # A focus of one family: the cap line as before, and no coin line without crypto in it.
+    repo.set_autopilot_focus(cur, uid, ["sports"])
+    out, _ = _status(Counting(conn), uid)
+    assert any(line.endswith("and the cap is $0.01 per 24 hours, so it starts no new research until enough of them are over "
+                             "24 hours old. Research you start yourself isn\u2019t limited.") for line in out["story"])
+    assert not any("one cap for" in line or "In crypto" in line for line in out["story"])

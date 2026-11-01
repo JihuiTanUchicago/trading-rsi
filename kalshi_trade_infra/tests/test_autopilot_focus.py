@@ -135,6 +135,31 @@ def test_a_focus_of_several_families_reads_as_one_list_in_the_story_and_the_idle
     assert agent.focus_words(focus) == "crypto, daily high temperatures, sports"  # the chat's words, unchanged
 
 
+def test_a_focus_across_families_says_one_cap_and_the_coins_its_own_crypto_research_keeps_to(monkeypatch):
+    # Walk 2026-11-01 (focus widened to crypto, daily highs and sports under a $240 cap): the reached-cap line read
+    # "the cap is $240.00 per 24 hours" with nothing to say it is one figure for all three, not $240 each; and the
+    # focus line read as every coin while the autopilot's own crypto sessions are on Bitcoin only.
+    monkeypatch.setattr(agent, "AUTOPILOT_CRYPTO_COINS", ["btc"])
+    focus = ["crypto", "weather-high", "sports"]
+    cap = {"usd": 240.0, "spent_24h": 251.3, "reached": True}
+    story = server._autopilot_story({"autopilot": True, "focus": focus, "research_cap": cap})
+    assert story[1] == ("It has reached its research cap: research sessions started in the last 24 hours, your own included, "
+                        "have cost $251.30, and the cap is $240.00 per 24 hours, one cap for crypto, daily high temperatures "
+                        "and sports together, so it starts no new research until enough of them are over 24 hours old. "
+                        "Research you start yourself isn\u2019t limited.")
+    i = story.index("It sticks to the focus you set: crypto, daily high temperatures and sports.")
+    assert story[i + 1] == ("In crypto, the research it starts itself is on Bitcoin markets only; research you start "
+                            "yourself can be on any coin.")
+    monkeypatch.setattr(agent, "AUTOPILOT_CRYPTO_COINS", ["btc", "eth"])
+    assert "on Bitcoin and Ethereum markets only" in " ".join(server._autopilot_story({"autopilot": True, "focus": focus}))
+    # One family: the cap line as it was; no coin line without crypto in the focus, nor with every coin open.
+    one = server._autopilot_story({"autopilot": True, "focus": ["crypto"], "research_cap": cap})
+    assert not any("one cap for" in line for line in one) and any("In crypto" in line for line in one)
+    assert not any("In crypto" in line for line in server._autopilot_story({"autopilot": True, "focus": ["weather-high", "sports"]}))
+    monkeypatch.setattr(agent, "AUTOPILOT_CRYPTO_COINS", [])
+    assert not any("In crypto" in line for line in server._autopilot_story({"autopilot": True, "focus": focus}))
+
+
 def test_focus_endpoint_validates_and_stores(monkeypatch):
     from types import SimpleNamespace
     stored, chat = [], []

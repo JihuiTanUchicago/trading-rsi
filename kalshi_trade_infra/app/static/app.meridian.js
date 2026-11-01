@@ -23,7 +23,7 @@
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS,
     shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
-    exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, apCapShort, pageLede, deploymentMode,
+    exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, apCapShort, apCapTogether, pageLede, deploymentMode,
     sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
   } = window.TauCore;
 
@@ -3903,8 +3903,8 @@
     // 2026-11-01).
     const rc = d && d.research_cap && +d.research_cap.usd > 0 ? d.research_cap : null;
     const limit = !rc ? `It has no daily spending cap: ${cap}`
-      : `${rc.reached ? `Its research reached its cap of ${usd(rc.usd)} per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>${usd(rc.spent_24h)}</b>, so it starts no new research until enough of them are over 24 hours old`
-        : `Its research is capped at ${usd(rc.usd)} per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>${usd(rc.spent_24h)}</b>. At the cap it starts no new research until enough of them are over 24 hours old`}; research you start yourself isn’t limited. Within the cap, ${cap}`;
+      : `${rc.reached ? `Its research reached its cap of ${usd(rc.usd)} per 24 hours${apCapFor(d)}: research sessions started in the last 24 hours, your own included, have cost <b>${usd(rc.spent_24h)}</b>, so it starts no new research until enough of them are over 24 hours old`
+        : `Its research is capped at ${usd(rc.usd)} per 24 hours${apCapFor(d)}: research sessions started in the last 24 hours, your own included, have cost <b>${usd(rc.spent_24h)}</b>. At the cap it starts no new research until enough of them are over 24 hours old`}; research you start yourself isn’t limited. Within the cap, ${cap}`;
     return `<p class="ap-week-left">Credits left: <b>${usd(w.credits_left)}</b>${pace}.${est ? ' ' + est : ''} ${limit}${d && d.reload_failed ? ` <b>Auto-reload failed.</b> ${esc(d.reload_failed)} <a href="/billing">Update your card</a>.` : ''} <a href="/billing">Billing</a> lists every charge.</p>`;
   }
   // What a research session on the autopilot's model usually costs and how far the credits go at that rate
@@ -3937,7 +3937,9 @@
   // The same line on its own, in a paragraph of `cls`: under the off card's cost line, in the off panel, and in an
   // autopilot week with nothing in it yet.
   // Beside it, the autopilot's research cap per 24 hours (the status's research_cap, or research_cap_usd while it is off).
-  const apCapLine = (d) => !d || !S.me || !S.me.billing_enabled ? '' : apCapShort(d.research_cap ? d.research_cap.usd : d.research_cap_usd);
+  const apCapLine = (d) => !d || !S.me || !S.me.billing_enabled ? '' : apCapShort(d.research_cap ? d.research_cap.usd : d.research_cap_usd, apCapFor(d));
+  // The cap as one figure for a focus across several kinds of market (core's apCapTogether), '' otherwise.
+  const apCapFor = (d) => (d && Array.isArray(d.focus) ? apCapTogether(d.focus, apFocusText(d.focus, true)) : '');
   const apOffCost = (d, cls) => { const s = [apSessionLine(d), apCapLine(d)].filter(Boolean).join(' '); return s ? `<p class="${cls}">${s}</p>` : ''; };
   // What switching it on costs, said before the click: the agent's runs spend credits, and with
   // auto-reload on the saved card is charged when they run low. Payments off on this server: no line.

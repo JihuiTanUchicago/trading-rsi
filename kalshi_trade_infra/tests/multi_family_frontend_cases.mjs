@@ -49,13 +49,26 @@ export function multiFamilyCases({name, frontend, dashboard, apStatus}) {
   test(`${name}: the credits line says the research cap per 24 hours and today's spend in dollars, and when the cap stops new research`, async () => {
     let f = await apPage({...apStatus, focus: FOCUS, week, research_cap: {usd: 240, spent_24h: 217, reached: false}});
     let line = f.root.querySelector('#dash-ap .ap-week-left').innerHTML;
-    assert.match(line, /Its research is capped at \$240\.00 per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>\$217\.00<\/b>\. At the cap it starts no new research until enough of them are over 24 hours old; research you start yourself isn’t limited\. Within the cap, each time your balance falls to \$5\.00, auto-reload charges your card and research carries on\./);
+    assert.match(line, /Its research is capped at \$240\.00 per 24 hours, one cap for crypto, daily high temperatures and sports together: research sessions started in the last 24 hours, your own included, have cost <b>\$217\.00<\/b>\. At the cap it starts no new research until enough of them are over 24 hours old; research you start yourself isn’t limited\. Within the cap, each time your balance falls to \$5\.00, auto-reload charges your card and research carries on\./);
     assert.doesNotMatch(line, /no daily spending cap|P&amp;L|paper|spent in the last 24 hours/);
     f.clearTimers();
     f = await apPage({...apStatus, focus: FOCUS, week, research_cap: {usd: 240, spent_24h: 249.55, reached: true}}, {auto_reload: null});
     line = f.root.querySelector('#dash-ap .ap-week-left').innerHTML;
-    assert.match(line, /Its research reached its cap of \$240\.00 per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>\$249\.55<\/b>, so it starts no new research until enough of them are over 24 hours old; research you start yourself isn’t limited\. Within the cap, it uses credits until your balance is under \$1\.00, then pauses\./);
+    assert.match(line, /Its research reached its cap of \$240\.00 per 24 hours, one cap for crypto, daily high temperatures and sports together: research sessions started in the last 24 hours, your own included, have cost <b>\$249\.55<\/b>, so it starts no new research until enough of them are over 24 hours old; research you start yourself isn’t limited\. Within the cap, it uses credits until your balance is under \$1\.00, then pauses\./);
     assert.doesNotMatch(line, /no daily spending cap/);
+    f.clearTimers();
+    // One cap for the whole focus: with three kinds of market "$240.00 per 24 hours" could read as $240 for each, three
+    // times the money (walk 2026-11-01). A focus of one kind, or none, reads as before; the focus itself is never changed.
+    f = await apPage({...apStatus, focus: ['weather-high'], week, research_cap: {usd: 240, spent_24h: 217, reached: false}});
+    line = f.root.querySelector('#dash-ap .ap-week-left').innerHTML;
+    assert.match(line, /Its research is capped at \$240\.00 per 24 hours: research sessions started/);
+    assert.doesNotMatch(line, /one cap for/);
+    f.clearTimers();
+    f = await apPage({...apStatus, focus: [], week, research_cap: {usd: 240, spent_24h: 217, reached: false}});
+    assert.doesNotMatch(f.root.querySelector('#dash-ap .ap-week-left').innerHTML, /one cap for/);
+    f.clearTimers();
+    f = await apPage({...apStatus, focus: ['btc', 'eth'], week, research_cap: {usd: 240, spent_24h: 3, reached: false}});
+    assert.match(f.root.querySelector('#dash-ap .ap-week-left').innerHTML, /per 24 hours, one cap for Bitcoin and Ethereum together: research/);
     f.clearTimers();
     // No cap from the server (none set, or an older server): the line as before.
     f = await apPage({...apStatus, focus: FOCUS, week, research_cap: null});
