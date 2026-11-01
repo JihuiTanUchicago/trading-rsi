@@ -1064,6 +1064,25 @@ def test_share_strategy_copies_and_notifies(monkeypatch):
     assert calls["notif"] == (2, "share", "/strategies/99")
 
 
+def test_share_notice_names_the_sender_as_the_copy_does(monkeypatch):
+    """The receiver's bell names the sender as the copy's page does (_shared_from): the name, or the @handle when the
+    name is an email address or unset, never the address and never a bare "A friend" beside "Shared by @alice"; an
+    empty title reads "Untitled strategy", never “”."""
+    notes = []
+    monkeypatch.setattr(server.repo, "user_by_email", lambda cur, e: {"id": 2, "name": "Bob", "email": e})
+    monkeypatch.setattr(server.repo, "share_strategy", lambda *a: 99)
+    monkeypatch.setattr(server.repo, "add_notification", lambda cur, uid, kind, body, link: notes.append(body))
+    for name, handle, title, want in (("alice.private@example.com", "alice", "Tail fade", "@alice shared the strategy “Tail fade” with you."),
+                                      (None, "alice", "  ", "@alice shared the strategy “Untitled strategy” with you."),
+                                      ("Alice Archer", "alice", "Tail fade", "Alice Archer shared the strategy “Tail fade” with you."),
+                                      (None, None, "Tail fade", "A friend shared the strategy “Tail fade” with you.")):
+        monkeypatch.setattr(strategy_routes, "_owned_strategy", lambda c, t=title: {"id": 5, "title": t})
+        monkeypatch.setattr(server.repo, "get_user", lambda cur, uid, n=name, h=handle: {"name": n, "username": h, "email": "alice.private@example.com"})
+        server.share_strategy(ctx({"email": "bob@x.com"}))
+        assert notes[-1] == want
+        assert "example.com" not in notes[-1]
+
+
 def test_share_strategy_rejects_unknown_self_and_bad_email(monkeypatch):
     monkeypatch.setattr(strategy_routes, "_owned_strategy", lambda c: {"id": 5, "title": "X"})
     with pytest.raises(server.ApiError, match="email your friend"):

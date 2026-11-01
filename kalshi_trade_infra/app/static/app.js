@@ -1960,7 +1960,7 @@
       ? `<td class="pickcol" data-lab="Deploy"><input type="checkbox" class="pick" data-id="${s.id}" aria-label="Select ${esc(title)}${filed ? `, ${esc(filed.toLowerCase())},` : ''} for deployment"></td>`
       : '<td class="pickcol" data-lab=""></td>') : '';
     return `<tr class="${opts.land ? 'washed' : ''}">${pickCell}
-      <td class="name" data-lab="">${name}${s.shared_from ? ` <span class="shared-flag">${ICON.share}${esc(s.shared_from)}</span>` : ''}${s.example ? ' ' + EXAMPLE_TAG : s.by_autopilot ? ' ' + AP_STRAT_TAG : ''}${filed ? `<div class="sub-fig filed-day">${esc(filed)}</div>` : ''}<div class="sub-fig cellwrap">${mdInline(esc(s.thesis))}</div></td>
+      <td class="name" data-lab="">${name}${s.shared_from ? ` <span class="shared-flag" title="Shared by ${esc(s.shared_from)}">${ICON.share}<span class="vh">Shared by </span>${esc(s.shared_from)}</span>` : ''}${s.example ? ' ' + EXAMPLE_TAG : s.by_autopilot ? ' ' + AP_STRAT_TAG : ''}${filed ? `<div class="sub-fig filed-day">${esc(filed)}</div>` : ''}<div class="sub-fig cellwrap">${mdInline(esc(s.thesis))}</div></td>
       <td data-lab="Market"><span class="tick">${esc(marketShort(s.market))}\u00a0· ${esc(dirLabel(s.direction))}</span></td>
       <td class="num" data-lab="Backtest P&amp;L">${m.pnl == null ? '\u2014' : noPass ? `<span class="pnl-nopass">${usd(m.pnl, true)}</span>` : money(m.pnl)}${pnlSub}</td>
       <td class="num" data-lab="Trades">${m.trades == null ? '\u2014' : num(m.trades)}</td>

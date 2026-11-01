@@ -721,7 +721,9 @@ window.TauPage('strategy', (T) => {
         // exists — so this was NOT validated, whatever the status says. Never claim it "cleared
         // the gatekeeper" (that would be a lie); flag the missing record honestly. A correctly
         // validated 'passed' always has an experiment and takes the rich path above, not this one.
-        passed: ['sig', 'armed', 'Not validated', 'It’s marked Passed, but there’s no record of its held-out tests (a test on data it hadn’t seen and the one-time final test), so nothing on this page is held-out evidence: ' + (oos ? 'its figures come from the history it searched and from the data after the split date, which picked it.' : 'its only figures are from the history it searched.') + ' Treat it as unvalidated.'],
+        // A copy someone shared (shared_from) never carries the original's held-out record: it said "there's no record of
+        // its held-out tests" of a copy whose original had them, as if the sharer's pass were never tested (walked 2026-11-01).
+        passed: ['sig', 'armed', 'Not validated', (s.shared_from ? `This is a copy ${s.shared_from} shared. A copy doesn’t bring the original’s held-out tests (a test on data it hadn’t seen and the one-time final test) with it, so nothing on this page is held-out evidence: ` : 'It’s marked Passed, but there’s no record of its held-out tests (a test on data it hadn’t seen and the one-time final test), so nothing on this page is held-out evidence: ') + (oos ? 'its figures come from the history it searched and from the data after the split date, which picked it.' : 'its only figures are from the history it searched.') + ' Treat it as unvalidated.'],
         'backtest-only': btOnly,
         // A void one with no gatekeeper record (splitOnly) never reached a held-out gate: it failed the old backtest's checks.
         failed: ['sig', 'armed', 'Void', splitOnly ? 'It failed its backtest checks on the data after the split date. There’s no record of its held-out tests, so nothing on this page is held-out evidence, and it was not validated.' : 'It reached the unseen-data gate and failed it, so it was not validated.'],
@@ -856,9 +858,9 @@ window.TauPage('strategy', (T) => {
             </div><div id="delflash"></div>
           </section>
           <section class="panel"><h3>Share</h3>
-            <p class="hint" style="margin-bottom:8px">${restricted ? 'Share a research-only copy using their Tau sign-in email. It keeps the same simulation limits and cannot be deployed.' : 'Use their Tau sign-in email. They keep a permanent copy.'}</p>
+            <p class="hint" style="margin-bottom:8px" id="share-what">${restricted ? 'Share a research-only copy using their Tau sign-in email. It keeps the same simulation limits and cannot be deployed.' : 'Use their Tau sign-in email. They keep a permanent copy.'} It carries its rules, thesis and backtest, marked as shared by you; never your deployments, trades, balances or keys, nor its held-out test record.</p>
             <form id="share-form" style="display:grid;gap:8px">
-              <input class="input" id="share-email" type="email" autocomplete="off" placeholder="friend@email.com" aria-label="Friend’s email">
+              <input class="input" id="share-email" type="email" autocomplete="off" placeholder="friend@email.com" aria-label="Friend’s email" aria-describedby="share-what">
               <button class="btn sm" type="submit">Share strategy</button>
             </form><div id="shareflash"></div>
           </section>
