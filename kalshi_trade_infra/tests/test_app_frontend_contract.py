@@ -994,6 +994,16 @@ def test_engine_line_counts_what_the_header_counts():
     assert server._idle_reason(_idle_d(live_running=1), [], [], None, []) is None
 
 
+def test_engine_line_counts_strategies_not_their_deployments():
+    """Audit 2026-11-01: one strategy on paper with a demo copy is two running deployments. The line read "your 5
+    strategies can't buy or sell" beside Home's "4 strategies running": it names the strategies the status counted."""
+    run = [_paper(), _paper()]
+    idle = server._idle_reason(_idle_d(paper_running=2, demo_running=1), run, [], 1500, [], trading_strategies=2)
+    assert idle['code'] == 'engine' and 'so your 2 strategies can’t buy or sell' in idle['line']
+    idle = server._idle_reason(_idle_d(paper_running=1, demo_running=1), [_paper()], [], 1500, [], trading_strategies=1)
+    assert 'so your strategy can’t buy or sell' in idle['line'] and 'it carries on' in idle['line']
+
+
 def test_idle_reason_skips_the_engine_when_its_beat_cannot_be_read():
     d = _idle_d(paper_running=1)
     assert server._idle_reason(d, [_paper()], [], server._UNKNOWN, [])['code'] == 'starting'

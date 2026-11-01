@@ -642,4 +642,33 @@ export function explorePageCases({name, frontend}) {
     assert.equal(await chance('0.98', '0.99'), '≈\u00a099%');
     assert.equal(await chance('0.55', '0.57'), '≈\u00a056%');
   });
+
+  // Audit 2026-11-01: a market page reads once and said "as of 09:11"; left open, nothing said the prices were old. Past
+  // the feed's refresh a quiet line under the figures says how old they are, on the close clock's tick (no timer of
+  // its own). A Kalshi read counts from when the page read it; the Explore snapshot from its own time.
+  test(`${name}: a market page left open says its prices are old once they pass the feed's refresh`, async () => {
+    const f = await open(page({ticker: 'KXFEDDECISION-26DEC-H0', series: 'KXFEDDECISION', title: 'Fed decision in Dec 2026?', sub: 'Hike 0bps',
+      as_of: '2026-10-26T11:00:00Z', close_time: new Date(Date.now() + 30 * 86400e3).toISOString()}));
+    const line = () => f.root.querySelector('#mk-price-stale');
+    const timers = f.intervals.size;
+    const tick = async () => { for (const run of [...f.intervals.values()]) await run(); await settle(); };
+    assert.equal(line().textContent, '', 'fresh from Kalshi: nothing to say, though the server’s as_of reads days old to this clock');
+    f.shiftClock(50000); await tick();
+    assert.equal(line().textContent, '', 'inside the feed’s minute');
+    f.shiftClock(240000); await tick();
+    assert.equal(line().textContent, 'These prices are from 4 minutes ago and don’t refresh on this page. Reload it for the latest.');
+    assert.equal(line().getAttribute('aria-live'), 'off', 'a quiet line: nothing failed');
+    f.shiftClock(3 * 3600e3); await tick();
+    assert.match(line().textContent, /^These prices are from 3 hours ago/);
+    assert.equal(f.intervals.size, timers, 'no timer of its own');
+    f.clearTimers && f.clearTimers();
+    // The Explore snapshot (Kalshi unreachable) is old from the start, by its own time.
+    const g = await open(page({snapshot: true, as_of: new Date(Date.now() - 7 * 60e3 - 5e3).toISOString()}));
+    assert.match(g.root.querySelector('#mk-price-stale').textContent, /^These prices are from 7 minutes ago/);
+    g.clearTimers && g.clearTimers();
+    // A settled market shows its result, not a price: no line.
+    const h = await open(page({status: 'settled', result: 'yes'}));
+    assert.equal(h.root.querySelector('#mk-price-stale'), null);
+    h.clearTimers && h.clearTimers();
+  });
 }

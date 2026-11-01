@@ -803,20 +803,27 @@ def _idle(code: str, line: str, action: Optional[Dict] = None) -> Dict:
     return {"code": code, "line": line, "action": action}
 
 
-def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age, passed: List[Dict]) -> Optional[Dict]:
+def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age, passed: List[Dict],
+                 trading_strategies: Optional[int] = None) -> Optional[Dict]:
     """Why the autopilot places no paper trades right now, as one plain line plus the action to take
     (if there is one): {"code", "line", "action": {"label", "href"} or {"label", "do"} or None}. None
     when it's off or something is trading (an open position, or a contract that cleared every entry
     check). Built from the status payload `d` and the reads passed in, so it can't disagree with them.
     `paused` is every paused paper deployment, newest first; `passed` the passed strategies with no
-    deployment; `engine_age` the engine's last beat (None = never, _UNKNOWN = couldn't read)."""
+    deployment; `engine_age` the engine's last beat (None = never, _UNKNOWN = couldn't read).
+    `trading_strategies`: how many strategies those running deployments are (one on paper with a demo copy
+    is one), for the line that names them; None counts the deployments, as before."""
     if not d.get("autopilot"):
         return None
     running = sum(int(d.get(k) or 0) for k in ("paper_running", "demo_running", "live_running"))
     # The strategies a stalled engine stops: a live one while live trading is closed places no orders anyway,
     # and the dashboard's header counts it apart ("3 running · 1 placing no orders"). Counted in, the line
-    # read "your 4 strategies can't buy or sell" beside that header (walk 2026-10-31).
+    # read "your 4 strategies can't buy or sell" beside that header (walk 2026-10-31). And it counts strategies,
+    # as the header does: "your 5 strategies" sat beside "4 strategies running" for a strategy with a demo copy
+    # (audit 2026-11-01). Display only.
     trading = running - (0 if d.get("live_enabled") else int(d.get("live_running") or 0))
+    if trading and trading_strategies is not None:
+        trading = trading_strategies
     if trading and engine_age is not _UNKNOWN and (engine_age is None or engine_age > ENGINE_STALE_SECONDS):
         when = ("isn’t running" if engine_age is None
                 else "last checked the markets %s ago" % _span(max(1, int(engine_age) // 60)))
@@ -1075,7 +1082,9 @@ def autopilot_status(ctx: Ctx):
                         key=lambda d: d.get("updated_at") or datetime.min, reverse=True)
         out["idle"] = _idle_reason(out, paper_run, paused, pulse["engine_age"] if running else _UNKNOWN,
                                    _passed_undeployed(cur, ctx.uid, out["focus"], pulse["dep_strategies"]) if not running and not paused
-                                   and not billing_blocked else [])
+                                   and not billing_blocked else [],
+                                   trading_strategies=len({x["strategy_id"] for x in paper_run + demo_run
+                                                           + (live_run if out["live_enabled"] else [])}))
         # A demo copy whose every order Kalshi refuses is what isn't trading when paper is fine, and
         # the truer line when nothing is on paper (only the engine or billing outrank it there).
         idle = out["idle"]

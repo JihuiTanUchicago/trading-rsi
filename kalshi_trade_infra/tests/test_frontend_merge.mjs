@@ -2288,8 +2288,17 @@ test('a strategy that does not exist links to the list instead of offering Try a
   const f = frontend({fetchImpl: path => (path.startsWith('/api/strategies/42') ? response({error: 'No such strategy.'}, 404) : response({}))});
   await f.render(); await flush();
   const html = f.root.innerHTML;
-  assert.match(html, /No such strategy\./); assert.match(html, /href="\/strategies">All strategies</);
-  assert.doesNotMatch(html, /data-retry/);
+  assert.match(html, /Tau can’t find this strategy\. It may have been deleted\./); assert.match(html, /href="\/strategies">All strategies</);
+  assert.doesNotMatch(html, /data-retry|No such strategy/);
+});
+
+test('a deleted research session says it may have been deleted, with the way back to Research', async () => {
+  // Audit 2026-11-01: "Not found" over "No such research session." read as a broken link.
+  const f = frontend({fetchImpl: path => (path.startsWith('/api/runs/9') ? response({error: 'No such research session.'}, 404) : response({}))});
+  f.location.pathname = '/research/9';
+  await f.render(); await flush();
+  assert.match(f.root.innerHTML, /Tau can’t find this research session\. It may have been deleted\.[\s\S]*href="\/research">All research sessions</);
+  assert.doesNotMatch(f.root.innerHTML, /No such research session|data-retry/);
 });
 
 test('a shared demo deployment says demo, not paper', () => {
