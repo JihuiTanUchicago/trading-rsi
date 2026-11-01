@@ -531,8 +531,12 @@
   // Every market has one long name and one short name, and every page says it by one of the two, from here:
   //   long  (mktLong): the server's customer_label (app/trading/markets.py), sent as the catalog's `label` (me.markets)
   //         or, for a market the catalog leaves out (the perpetual while perps are closed), me.market_names. For a
-  //         sentence, a row's or a page's own market, a position. The server's feed, chat, bell and email lines say it too.
-  //   short (mktShort): MKT_SHORT above, for chips, filters and meta lines joined by " · ".
+  //         sentence, a heading or a page's deck, a meta line, a button, a position or contract (contractWords), and the
+  //         Market line. The server's feed, chat, bell, email and CSV lines say it too.
+  //   short (mktShort): MKT_SHORT above, only where a row has no room: chips, the market filter and the research
+  //         picker's rows, and the Market column of the Strategies list and of Meridian's Research table.
+  // The research_done notice said "Bitcoin above a set price at 5pm ET" over a session page headed "Session · BTC above
+  // set price at 5pm ET" (bell walk 2026-11-01): a heading and a deck say the long name, as the bell does.
   // Each falls back to the other, and a key neither knows reads UNLISTED_MARKET, never the raw key; no market at all
   // is NO_MARKET. Walked 2026-10-31: one market read "BTC 15-min up/down", "Bitcoin 15-minute" and "Bitcoin up or
   // down in 15 minutes", and a perpetual strategy's page "BTC perpetual, no expiry" over a Market line "Unlisted market".
@@ -578,8 +582,11 @@
     if (/^KXBTCD-/.test(String(ticker)) && k[2] === '.99' && LADDER_WORDS.test(label)) return label.replace(LADDER_WORDS, `$${num(+k[1] + 1)} or above`);
     return label.replace(LADDER_WORDS, 'above $' + num(k[1]) + (k[2] || ''));
   };
-  // A weather or game contract in words, from its ticker, after its market's short name (`short`): a day's high or low
-  // says its city, the day and the degrees it pays on, and a game its teams, its day and the outcome it pays on.
+  // A weather or game contract in words, from its ticker, after its market's long name (`name`, mktLong): a day's high or
+  // low says its city, the day and the degrees it pays on, and a game its league (the name less "game winner"), its
+  // teams, its day and the outcome it pays on. It began with the short name ("NYC high temp on Nov 1, 58° to 59°F")
+  // under a strategy page naming the market "NYC daily high temperature", while a Bitcoin contract began with its long
+  // name ("Bitcoin $113,000 or above at 5pm ET"): one market, two names on one page (names walk 2026-11-01).
   // Positions on two NYC highs both read "NYC daily high temperature", and a game's "NFL game winner (moneyline)" said
   // neither team nor which one the trade was on (walk 2026-11-01). Kalshi's ticker carries the city's local day
   // (KXHIGHNY-26NOV01) and the game's date (KXNFLGAME-26NOV01KCBUF-KC); its teams are Kalshi's codes, named by TEAM_NAMES. A -B bucket
@@ -599,16 +606,17 @@
     KXEPLGAME: TEAMS('ARS:Arsenal,AVL:Aston Villa,BOU:Bournemouth,BRE:Brentford,BHA:Brighton,BUR:Burnley,CHE:Chelsea,CRY:Crystal Palace,EVE:Everton,FUL:Fulham,IPS:Ipswich,LEE:Leeds,LEI:Leicester,LIV:Liverpool,MCI:Man City,MUN:Man United,NEW:Newcastle,NFO:Nottingham Forest,SOU:Southampton,SUN:Sunderland,TOT:Tottenham,WHU:West Ham,WOL:Wolves'),
   };
   const teamName = (ticker, code) => ((TEAM_NAMES[String(ticker || '').split('-')[0]] || {})[code]) || code;
-  const contractWords = (ticker, short) => {
+  const LEAGUE_OF = / (?:game )?(?:winner|result)(?: \(moneyline\))?$/;
+  const contractWords = (ticker, name) => {
     const t = String(ticker || ''), w = WX_CONTRACT.exec(t), g = !w && GAME_CONTRACT.exec(t), mon = TICKER_MON[(w || g || [])[1]];
-    if (!short || !mon) return '';
+    if (!name || !mon) return '';
     if (w) {
       const day = `${mon} ${+w[2]}`, x = +w[4];
-      if (w[3] === 'T') return `${short} on ${day}, ${num(x)}°F threshold`;
+      if (w[3] === 'T') return `${name} on ${day}, ${num(x)}°F threshold`;
       const lo = Math.floor(x - 0.5 + 1e-9);
-      return `${short} on ${day}, ${lo}° to ${lo + 1}°F`;
+      return `${name} on ${day}, ${lo}° to ${lo + 1}°F`;
     }
-    const day = `${mon} ${+g[2]}`, teams = g[3], out = g[4], lead = short.replace(/ (?:winner|result)$/, '');
+    const day = `${mon} ${+g[2]}`, teams = g[3], out = g[4], lead = name.replace(LEAGUE_OF, '');
     const pair = out === 'TIE' ? (teams.length === 6 ? [teams.slice(0, 3), teams.slice(3)] : null)
       : teams.length > out.length && teams.startsWith(out) ? [out, teams.slice(out.length)]
       : teams.length > out.length && teams.endsWith(out) ? [teams.slice(0, -out.length), out] : null;

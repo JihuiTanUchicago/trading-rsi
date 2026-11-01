@@ -8,7 +8,7 @@ window.TauPage('strategy', (T) => {
     actionLink, announce, api, ApiError, closeClock, liveClose, apWhenSpan, armed, BEHIND, boardTitle, bookName, btCheckLine, busy,
     apartWords, cents, chartScale, chartWidth, CODE_RESEARCH_ONLY, contractLink, contractName, dateFmt, DEMO_BOOK, demoCashRead, demoHealthLine, DEP_DONE, depIdle,
     depActed, depSaid, depWrite, dirLabel, equityChart, esc, EXAMPLE_NOTE, EXAMPLE_TAG, exitWord, FEES_NET, fig, flash, fmt0, fold, fundsLinked,
-    gl, glo, gloSep, go, ICON, isPerpetual, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
+    gl, glo, gloSep, go, ICON, isPerpetual, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
     tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt, neverCleared
@@ -691,7 +691,7 @@ window.TauPage('strategy', (T) => {
     // A strategy from the seeded example session says so here too, as the lists and its run page do.
     // Its title is the heading: a customer never sees its internal id (the zero-padded "No. 00002" it led with).
     root.querySelector('.board-title').outerHTML = boardTitle(s.title,
-      `${s.example ? EXAMPLE_TAG + ' ' : ''}${esc(marketShort(s.market))}${SEP}${esc(dirLabel(s.direction))}${s.example ? SEP + EXAMPLE_NOTE : ''}`);
+      `${s.example ? EXAMPLE_TAG + ' ' : ''}${esc(marketFull(s.market))}${SEP}${esc(dirLabel(s.direction))}${s.example ? SEP + EXAMPLE_NOTE : ''}`);
     root.querySelector('#figs').innerHTML = figsFor(s);
     paintKeep(root.querySelector('#paper-top'), paperTop(s));  // kept as drawn, for the poll's compare
     const canDeploy = !restricted && ['passed', 'failed', 'rejected'].includes(s.status);

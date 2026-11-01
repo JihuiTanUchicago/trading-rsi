@@ -34,7 +34,9 @@ export function explorePageCases({name, frontend}) {
     // Walked 2026-10-30: the button read "Research BTC above $X at 5pm ET", the family label's placeholder. On one
     // contract's page it names that contract's strike as the line under the heading does; "Your … strategies" are the
     // market's, so they keep the family's words. Neither ever says "$X".
-    assert.deepEqual(links.map((a) => a.textContent), ['Research BTC $113,500 or above at 5pm ET', 'Your BTC above set price at 5pm ET strategies'],
+    // Both say the market's long name, as the line under the heading and the bell do: "Research BTC $113,500 or above at
+    // 5pm ET" sat under "Bitcoin $113,500 or above at 5pm ET" (names walk 2026-11-01).
+    assert.deepEqual(links.map((a) => a.textContent), ['Research Bitcoin $113,500 or above at 5pm ET', 'Your Bitcoin above a set price at 5pm ET strategies'],
       'the research button names this contract\u2019s strike, never the placeholder');
     assert.doesNotMatch(next.textContent, /\$[A-Z]\b/, 'no strike placeholder on the market page');
     // What Research leads to, under the buttons (walk 2026-11-01): a newcomer had no way to tell how a market becomes

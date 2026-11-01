@@ -8,7 +8,7 @@ window.TauPage('strategies', (T) => {
   'use strict';
   const {
     announce, api, apNudge, boardTitle, bulkDeployable, busy, catOrder, mktCat, depSaid, depWrite, errText, esc, fig, flash, gl, go, ICON, keepFocus, loadFail,
-    loading, marketShort, num, pageLede, paintKeep, paperShown, pct, poll, recoverFails, registry, retried, root, S, SEP, shell, smooth, strategySlip,
+    loading, marketFull, marketShort, num, pageLede, paintKeep, paperShown, pct, poll, recoverFails, registry, retried, root, S, SEP, shell, smooth, strategySlip,
     strategyTable, theme
   } = T;
   // Each theme heads the list its own way and says an empty list in its own words; the filters, figures, rows and
@@ -170,7 +170,7 @@ window.TauPage('strategies', (T) => {
         // A miss says what the list is filtered to and clears it in one press: "Try another filter." alone sat under
         // chips, a market select and a search box scrolled out of sight on a phone, with nothing saying which of them
         // emptied the list or how to undo it (walked 2026-10-31). Clear filters keeps the sort, which narrows nothing.
-        const on = [f.status ? CLABEL[f.status] : '', f.deployed ? 'Deployed' : '', f.market ? esc(marketShort(f.market)) : '', f.q ? `“${esc(f.q)}”` : ''].filter(Boolean);
+        const on = [f.status ? CLABEL[f.status] : '', f.deployed ? 'Deployed' : '', f.market ? esc(marketFull(f.market)) : '', f.q ? `“${esc(f.q)}”` : ''].filter(Boolean);
         const missText = `${on.length ? `Nothing matches ${on.join(SEP)}. ` : ''}Try another filter${on.length ? ', or clear them' : ''}.`;
         const clearBtn = on.length ? '<button class="btn" type="button" data-clear-filters>Clear filters</button>' : '';
         // Each theme's own words: Tau's "Nothing here yet" over what to do next, Meridian's heading that says which

@@ -11,7 +11,7 @@ window.TauPage('explore', (T) => {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
     exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiUrl, keepFocus, keepZone,
-    liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel, pricesOld,
+    liveClose, loading, markedAt, marketFull, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel, pricesOld,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
     settleAt, dayAt, shell, sinceMin, smooth, ageAt, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
   } = T;
@@ -106,15 +106,15 @@ window.TauPage('explore', (T) => {
     // Another hour of a ladder Tau researches at one close (an hourly Bitcoin contract): point at that close.
     const sib = !m && ((S.me && S.me.markets) || []).find((x) => x.series && x.close_hour_et != null && String(ticker || '').startsWith(x.series + '-'));
     const h = sib && sib.close_hour_et;
-    if (sib) return `<p class="hint mk-next">Tau researches only the ${hourET(h)} ET close of this ladder, so your strategies don’t trade this contract. <a href="/research?new=1&amp;market=${encodeURIComponent(sib.key)}">Research ${esc(marketShort(sib.key))}</a></p>`;
+    if (sib) return `<p class="hint mk-next">Tau researches only the ${hourET(h)} ET close of this ladder, so your strategies don’t trade this contract. <a href="/research?new=1&amp;market=${encodeURIComponent(sib.key)}">Research ${esc(marketFull(sib.key))}</a></p>`;
     if (!m) return '<p class="hint mk-next">Tau doesn’t research this market, so your strategies can’t trade it. <a href="/research?new=1">See the markets it researches</a></p>';
     const k = encodeURIComponent(m.key);
-    const own = (mine || []).includes(m.key) ? `<a class="btn sm" href="/strategies?market=${k}">Your ${esc(marketShort(m.key))} strategies</a>` : '';
+    const own = (mine || []).includes(m.key) ? `<a class="btn sm" href="/strategies?market=${k}">Your ${esc(marketFull(m.key))} strategies</a>` : '';
     // The button is on one contract's page, so it names that contract's strike as the line under the heading does
     // ("Research BTC $113,000 or above at 5pm ET"), not the family's words; the session it starts researches the market.
     // What the button leads to, so a newcomer doesn't guess how a market becomes something running: nothing can be
     // deployed on a market until a session's strategy passes, and that one goes on paper from its own page (walk 2026-11-01).
-    return `<p class="mk-next"><a class="btn sm primary" href="/research?new=1&amp;market=${k}">Research ${esc(strikeIn(marketShort(m.key), ticker))}</a>${own}</p><p class="hint mk-next-hint">A session writes strategies for this market and tests each on data it never saw. You can put one that passes on paper from its page.</p>`;
+    return `<p class="mk-next"><a class="btn sm primary" href="/research?new=1&amp;market=${k}">Research ${esc(strikeIn(marketFull(m.key), ticker))}</a>${own}</p><p class="hint mk-next-hint">A session writes strategies for this market and tests each on data it never saw. You can put one that passes on paper from its page.</p>`;
   }
   function mountSpot(ticker, first, d) {
     const path = '/api/explore/spot?ticker=' + encodeURIComponent(ticker);

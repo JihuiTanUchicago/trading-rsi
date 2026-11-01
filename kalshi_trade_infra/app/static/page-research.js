@@ -140,16 +140,16 @@ window.TauPage('research', (T) => {
       const text = (c && c.text) || (a && a.text) || '';
       return `<li><span class="loop-k">${esc(loopFamily(f))}</span><span class="loop-v">${act}${cand}${text ? `<details class="loop-pb"><summary>Read the playbook</summary><pre>${esc(text)}</pre></details>` : ''}</span></li>`;
     }).join('');
-    const scout = (b.scout || []).slice(0, 5).map((s) => `<li><span class="loop-k">${esc(marketShort(s.market))}</span><span class="loop-v">${esc(s.best_what || '')}${SEP}${s.best_net_c != null ? (s.best_net_c > 0 ? '+' : '') + s.best_net_c.toFixed(1) + '¢' : ''} net per contract${SEP}${s.best_z != null ? s.best_z.toFixed(1) : '—'} SE</span></li>`).join('');
-    const fixes = (b.fix_list || []).slice(0, 5).map((x) => `<li><span class="loop-k">${esc(marketShort(x.market))}</span><span class="loop-v"><b>${esc(LOOP_TAG[x.tag] || LOOP_TAG.other)}</b> × ${num(x.count)}${x.example ? `<span class="loop-why">${esc(String(x.example).slice(0, 180))}</span>` : ''}</span></li>`).join('');
+    const scout = (b.scout || []).slice(0, 5).map((s) => `<li><span class="loop-k">${esc(marketFull(s.market))}</span><span class="loop-v">${esc(s.best_what || '')}${SEP}${s.best_net_c != null ? (s.best_net_c > 0 ? '+' : '') + s.best_net_c.toFixed(1) + '¢' : ''} net per contract${SEP}${s.best_z != null ? s.best_z.toFixed(1) : '—'} SE</span></li>`).join('');
+    const fixes = (b.fix_list || []).slice(0, 5).map((x) => `<li><span class="loop-k">${esc(marketFull(x.market))}</span><span class="loop-v"><b>${esc(LOOP_TAG[x.tag] || LOOP_TAG.other)}</b> × ${num(x.count)}${x.example ? `<span class="loop-why">${esc(String(x.example).slice(0, 180))}</span>` : ''}</span></li>`).join('');
     const REQ_KIND = { history: 'more settled history', micro: 'order-book feature', ticks: 'per-second data' };
     const REQ_STATE = { open: 'collecting', ready: 'data arrived', requeued: 'idea re-tested', expired: 'gave up' };
-    const reqs = (b.data_requests || []).slice(0, 6).map((r) => `<li><span class="loop-k">${esc(marketShort(r.market))}</span><span class="loop-v"><b>${esc(REQ_KIND[r.kind] || 'more data')}${r.need ? SEP + esc(r.need) : ''}</b>${SEP}${esc(REQ_STATE[r.status] || 'requested')}${r.requeued_run_id ? `${SEP}<a href="/research/${r.requeued_run_id}">session</a>` : ''}${r.idea_title ? `<span class="loop-why">For: ${esc(r.idea_title)}</span>` : ''}${r.status !== 'requeued' && r.note ? `<span class="loop-why">${esc(r.note)}</span>` : ''}</span></li>`).join('');
+    const reqs = (b.data_requests || []).slice(0, 6).map((r) => `<li><span class="loop-k">${esc(marketFull(r.market))}</span><span class="loop-v"><b>${esc(REQ_KIND[r.kind] || 'more data')}${r.need ? SEP + esc(r.need) : ''}</b>${SEP}${esc(REQ_STATE[r.status] || 'requested')}${r.requeued_run_id ? `${SEP}<a href="/research/${r.requeued_run_id}">session</a>` : ''}${r.idea_title ? `<span class="loop-why">For: ${esc(r.idea_title)}</span>` : ''}${r.status !== 'requeued' && r.note ? `<span class="loop-why">${esc(r.note)}</span>` : ''}</span></li>`).join('');
     // h3 under the page's h2 (the card follows "New research session" or the session at work): an h4 skipped a level.
     const sect = (h, sub, items) => items ? `<div class="loop-sect"><h3>${h}</h3><p class="loop-sub">${sub}</p><ul class="loop-list">${items}</ul></div>` : '';
     const tn = b.tournament, tnEnt = tn ? (tn.entrants || []).filter((r) => r.strategy_id).sort((x, y) => y.weight - x.weight) : [];
     const tnCash = tn ? (tn.entrants || []).find((r) => !r.strategy_id) : null;
-    const tnRows = tnEnt.slice(0, 8).map((r) => `<li><span class="loop-k">${esc(marketShort(r.market))}</span><span class="loop-v"><b>${Math.round(r.weight * 100)}% of the book</b>${SEP}${esc(r.title || '')}${SEP}${num(r.trips)} bet${r.trips === 1 ? '' : 's'}, ${usd(r.net_pnl, true)}${SEP}${Math.round((r.p_positive || 0) * 100)}% likely to make money${r.verdict ? `<span class="loop-why">Falling short: ${esc(r.verdict)}</span>` : ''}</span></li>`).join('')
+    const tnRows = tnEnt.slice(0, 8).map((r) => `<li><span class="loop-k">${esc(marketFull(r.market))}</span><span class="loop-v"><b>${Math.round(r.weight * 100)}% of the book</b>${SEP}${esc(r.title || '')}${SEP}${num(r.trips)} bet${r.trips === 1 ? '' : 's'}, ${usd(r.net_pnl, true)}${SEP}${Math.round((r.p_positive || 0) * 100)}% likely to make money${r.verdict ? `<span class="loop-why">Falling short: ${esc(r.verdict)}</span>` : ''}</span></li>`).join('')
       + (tnEnt.length && tnCash ? `<li><span class="loop-k">Cash</span><span class="loop-v"><b>${Math.round(tnCash.weight * 100)}% of the book</b>${SEP}held back until a strategy shows it makes money</span></li>` : '');
     const tnSub = tn && tn.pooled ? `Every strategy on paper takes part at once, and a ${usd(tn.book.capital).replace(/\.00$/, '')} practice book shifts toward the ones that earn. Together they have ${num(tn.pooled.trips)} of the ${num(tn.pooled.target)} separate bets it takes to judge them${tn.pooled.days_to_target != null ? `, about ${Math.round(tn.pooled.days_to_target)} days to go at ${tn.pooled.per_day} a day` : ''}${tn.pooled.mean_return != null ? `, averaging ${pct(tn.pooled.mean_return)} of the stake a bet` : ''}. ${tn.book.trips ? `Practice book so far: ${usd(tn.book.pnl, true)} over ${num(tn.book.trips)} trade${tn.book.trips === 1 ? '' : 's'}.` : 'The practice book has no trades yet.'}` : '';
     const body = figs + trendP + days + paperP
@@ -563,7 +563,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       const active = !tau && (d.runs.find((r) => r.status === 'running' && !runLate(r)) || d.runs.find((r) => r.status === 'running') || d.runs.find((r) => r.status === 'queued') || d.runs.find((r) => r.status === 'paused'));
       if (!tau) paint(root.querySelector('#active-research'), active ? `<section class="active-research active-${esc(active.status)}">
         <div class="active-head"><h2 class="active-prompt" title="${esc(sessionTitle(active))}">${esc(sessionTitle(active))}</h2></div>
-        <div class="active-meta"><div class="active-session"><span class="active-state">${runLate(active) ? lateLabel(runLate(active)) : active.status === 'paused' ? 'Paused' : active.status === 'queued' ? 'Queued' : 'Researching'}</span>${sessionNo(active) ? `<b>${sessionNo(active)}</b>` : ''}${runTag(active)}</div><span>${esc(marketShort(active.market))}</span>${active.started_at ? `<span>Started ${createdAt(active.started_at)}</span>` : ''}</div>
+        <div class="active-meta"><div class="active-session"><span class="active-state">${runLate(active) ? lateLabel(runLate(active)) : active.status === 'paused' ? 'Paused' : active.status === 'queued' ? 'Queued' : 'Researching'}</span>${sessionNo(active) ? `<b>${sessionNo(active)}</b>` : ''}${runTag(active)}</div><span>${esc(marketFull(active.market))}</span>${active.started_at ? `<span>Started ${createdAt(active.started_at)}</span>` : ''}</div>
         <aside class="active-aside" aria-label="Session progress"><a class="active-open btn primary" href="/research/${active.id}">Open session <span aria-hidden="true">→</span></a><dl class="active-foot"><div><dt>Tested</dt><dd>${num(active.hypotheses_tried || 0)}</dd></div><div><dt>Passed</dt><dd>${num(runPassed(active).ok)}</dd></div>${runPassed(active).fell ? `<div><dt>Not cleared</dt><dd>${num(runPassed(active).fell)}</dd></div>` : ''}${active.spent_usd != null ? `<div><dt>Spent so far</dt><dd>${runPaid(active) ? `<span class="nobr">${runSpentText(active)}</span>${CRED}` : runSpentText(active)}</dd></div>` : ''}</dl></aside>
       </section>` : '');
       // Meridian lists every session but that one; Tau lists them all.
@@ -731,10 +731,10 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // (about 240px a line): the line clamp alone cut it mid-word ("when the spot pri…"). Hover shows it whole.
     const title = sessionTitle(r);
     // The line under the title names the market only when the title doesn't: a session with no idea is titled
-    // by its angle and market ("Session · BTC 15-min up/down", sessionTitle), and the line repeated the market
+    // by its angle and market ("Session · Bitcoin up or down in 15 minutes", sessionTitle), and the line repeated the market
     // under it, as the session page's line did.
     const named = r.title || (r.prompt && r.prompt.trim());
-    const meta = [named ? esc(marketShort(r.market)) : '', r.example ? EXAMPLE_NOTE : r.spent_usd != null ? runSpent(r) : '',
+    const meta = [named ? esc(marketFull(r.market)) : '', r.example ? EXAMPLE_NOTE : r.spent_usd != null ? runSpent(r) : '',
       r.error ? esc(r.error) : ''].filter(Boolean).join(SEP);
     return `<a class="run-card ${band}" href="/research/${r.id}">
       <span class="run-title"><b title="${esc(title)}">${esc(clipWords(title, RUN_TITLE_MAX))}</b>${runTag(r)}</span>
@@ -1939,7 +1939,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       // market (sessionTitle, "Session · Any market (agent’s choice)"), and the line repeated both under it; a
       // session with no angle said a bare "Session" there ("BTC 15-min up/down · Session · …").
       const named = r.title || (r.prompt && r.prompt.trim()), auto = +r.by_autopilot && !r.example;
-      const deck = [named ? esc(marketShort(r.market)) : '', named && (r.direction || auto) ? runKind(r) : !named && auto ? 'Started by autopilot' : '',
+      const deck = [named ? esc(marketFull(r.market)) : '', named && (r.direction || auto) ? runKind(r) : !named && auto ? 'Started by autopilot' : '',
         r.example ? EXAMPLE_NOTE : runSetup(r)].filter(Boolean).join(SEP);
       const held = holdLog();
       paint(root.querySelector('#runboard'), boardTitle(sessionTitle(r), deck));

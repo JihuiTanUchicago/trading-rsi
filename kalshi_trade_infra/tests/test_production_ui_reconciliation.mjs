@@ -494,7 +494,7 @@ test('market focus picker shows the saved focus, posts a change and follows stat
   assert.deepEqual([...f.S.ap.focus], ['crypto']); assert.equal(select.value, 'crypto'); assert.equal(select.disabled, false);
   f.apUpdate(f.box, status({focus: ['high_ny']}));
   const synced = f.box.querySelector('#apf-focus');
-  assert.equal(synced.value, 'high_ny'); assert.match(synced.innerHTML, /Only high ny/);  // a key the harness's catalog doesn't list; a listed one reads by its name (after "Only", no capital: walk 2026-11-01)
+  assert.equal(synced.value, 'high_ny'); assert.match(synced.innerHTML, /Only NYC high temp</); assert.doesNotMatch(synced.innerHTML, /high ny/);  // a market the harness's catalog doesn't list reads by the name the app knows it by, never its key (it read "Only high ny"); a listed one by its long name (after "Only", no capital: walk 2026-11-01)
   f.apUpdate(f.box, status({focus: []})); assert.equal(f.box.querySelector('#apf-focus').value, '');
 });
 

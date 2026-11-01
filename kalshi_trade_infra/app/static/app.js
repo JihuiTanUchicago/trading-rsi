@@ -177,8 +177,9 @@
   const CODE_RESEARCH_ONLY = 'Strategies written as code run only in the research sandbox, even after passing every check: paper, demo and live trading run rule-based strategies only. To trade this idea, ask for a rule-based version in a new research session.';
   const PERPS_SCENARIO = 'Research scenario: at most 1× capital, fixed 12 bps taker fees and 5 bps adverse slippage per fill, plus settled funding. These are uncalibrated cost assumptions; fills use the next bar’s open. No margin or liquidation model. Short losses can exceed capital.';
   // A market's two names, both from the shared core (mktShort, mktLong: core.js says which is for what). The short
-  // one for chips and meta lines joined by " · "; the long one, the server's own name for it, in a sentence or as a
-  // row's market, as Billing's lines and every position name it. The autopilot said "Researching BTC 15-min up/down"
+  // one only where a row has no room (chips, the market filter and picker, a list's Market column); the long one, the
+  // server's own name for it, everywhere else: a sentence, a heading, a deck, a row's market, as the bell, Billing's
+  // lines and every position name it. The autopilot said "Researching BTC 15-min up/down"
   // and Deploy's rows "BTC 15-min up/down" above positions in "Bitcoin up or down in 15 minutes". A key nothing
   // knows reads "Unlisted market", never the raw key.
   const marketShort = (k) => mktShort(k, S.me);
@@ -212,7 +213,7 @@
     return k[1] === 'B' ? `Bitcoin in the bucket around ${at} ${close}` : `Bitcoin range end at ${at}, ${close.replace(/^at /, '')}`;
   };
   // A weather or game contract says its city, day and degrees, or its teams, day and outcome (contractWords, core.js).
-  const keyContract = (key, ticker) => (marketKnown(key) && contractWords(ticker, marketShort(key))) || strikeIn(marketFull(key), ticker);
+  const keyContract = (key, ticker) => (marketKnown(key) && contractWords(ticker, marketFull(key))) || strikeIn(marketFull(key), ticker);
   const contractMarket = (ticker) => { const m = contractMkt(ticker); return m ? keyContract(m.key, ticker) : rangeName(ticker); };
   // A position's contract as people name it: its market's plain label with its own strike ("Bitcoin $68,500
   // or above at 5pm ET"), else the market it was traded on (`key`, its deployment's), else "Kalshi contract".
@@ -232,7 +233,7 @@
   const dirLabel = (k) => { if (!k) return 'Session'; const d = S.me && S.me.directions.find((x) => x.key === k); return d ? d.label : String(k).replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()); };
   // The server's title for a session whose prompt is an instruction to the agent (the autopilot's research
   // floor), else the idea as typed.
-  const sessionTitle = (r) => r.title ? r.title : (r.prompt && r.prompt.trim()) ? r.prompt.trim() : (dirLabel(r.direction) + SEP + marketShort(r.market));
+  const sessionTitle = (r) => r.title ? r.title : (r.prompt && r.prompt.trim()) ? r.prompt.trim() : (dirLabel(r.direction) + SEP + marketFull(r.market));
 
   // The research market picker: ONE list in the live-row style (name \u00b7 sparkline \u00b7 mid \u00b7
   // 24h volume), grouped by category, with Agent's choice leading as the default. Every row is
@@ -3561,10 +3562,11 @@
     if (!f.length) return 'any market';
     const preset = AP_FOCUS.find(([v]) => v && v === f.join(','));
     if (preset) { const w = preset[1].replace(/ only$/, ''); return inSentence && !FOCUS_WORDS[preset[0]] ? w.toLowerCase() : w; }
-    const keys = new Set(((S.me && S.me.markets) || []).map((m) => m.key));
+    // A market by its long name, one the catalog's list leaves out (the perpetual while perps are closed) too: it read
+    // "btc perp" (names walk 2026-11-01).
     // One list, as the story says it: "Crypto, daily high temperatures and sports". "Crypto, Daily high temperatures,
     // Sports" read like three stored keys (walk 2026-11-01, a focus widened from crypto to weather and sports).
-    const words = f.map((t) => FOCUS_WORDS[t] || (keys.has(t) ? marketShort(t) : t.replace(/[-_]/g, ' ')));
+    const words = f.map((t) => FOCUS_WORDS[t] || (marketKnown(t) ? marketFull(t) : t.replace(/[-_]/g, ' ')));
     const list = words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0];
     return inSentence ? list : list.charAt(0).toUpperCase() + list.slice(1);
   }
