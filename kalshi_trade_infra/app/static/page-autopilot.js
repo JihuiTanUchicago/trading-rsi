@@ -119,6 +119,10 @@ window.TauPage('autopilot', (T) => {
     [/^Kill switch:/, 'Kill switch'],
     [/^Sold an? (?:YES|NO) position of .+ automatically:/, 'Sold automatically'],
     [/^(?:Live autopilot auto-disabled|Live trading stopped):/, 'Live stopped'],
+    // A research session it started, and the research cap stopping the next one (agent.act's research lines): both
+    // read "Reviewed" under a widened focus's feed of weather and sports sessions (walk 2026-11-01).
+    [/^Started a (?:fresh|new) research session\b/, 'Started research'],
+    [/^Autopilot research has used its \$[\d,]+ for the last 24 hours\b/, 'Research cap reached'],
   ];
   // One feed entry, rendered with the SAME research-session parts (.ln timeline rail, .say card,
   // feedMd markdown, lane tint) so the autopilot reads as one family with the research log —
@@ -467,7 +471,7 @@ window.TauPage('autopilot', (T) => {
           if (S.ap) S.ap.focus = r.focus;
           if (current()) {
             apFocusOptions(sel, r.focus); apFocusPaint(box, r.focus); apLoadChat(box);
-            apFlash(box, (r.focus || []).length ? `Saved: the autopilot’s new research and strategies stay on ${apFocusText(r.focus)}.`
+            apFlash(box, (r.focus || []).length ? `Saved: the autopilot’s new research and strategies stay on ${apFocusText(r.focus, true)}.`
               : 'Saved: the autopilot may research and start strategies in any market.');
           }
           paintDashAp();
@@ -510,7 +514,7 @@ window.TauPage('autopilot', (T) => {
   }
   function apFocusOptions(sel, focus) {
     const cur = (focus || []).join(',');
-    const opts = AP_FOCUS.some(([v]) => v === cur) ? AP_FOCUS : AP_FOCUS.concat([[cur, 'Only ' + apFocusText(focus)]]);
+    const opts = AP_FOCUS.some(([v]) => v === cur) ? AP_FOCUS : AP_FOCUS.concat([[cur, 'Only ' + apFocusText(focus, true)]]);
     sel.innerHTML = opts.map(([v, label]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`).join('');
     sel.dataset.cur = cur;
   }

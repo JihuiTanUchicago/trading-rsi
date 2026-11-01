@@ -37,6 +37,11 @@ NEW_YORK = ZoneInfo("America/New_York") if ZoneInfo else None
 # Walked 2026-10-30: the market page's main button read "Research BTC above $X at 5pm ET".
 PLACEHOLDER = re.compile(r"\$[A-Z]\b")
 LADDER_WORDS = "a set price"
+# A city's daily high or low the catalog adds is titled by Kalshi ("Highest temperature in Chicago"). Customers read it
+# as the NYC high is named ("Chicago daily high temperature"): Deploy's market column listed "Highest temperature in
+# Chicago" under "NYC daily high temperature", and the autopilot's feed said "researching Highest temperature in
+# Chicago" (walk 2026-11-01). Display only: `label` (the research model's, Kalshi's title) is unchanged.
+WX_TITLE = re.compile(r"^(Highest|Lowest) temperature in (.+?)(?: today| tomorrow)?\??$", re.I)
 
 
 # Per-second research twins open once this much tick archive exists (3 days = ~288 15-min contracts).
@@ -100,7 +105,11 @@ class Market:
 
     @property
     def customer_label(self) -> str:
-        """The label as a customer reads it: a strike placeholder ("$X", or a catalog title's "$Y") in words."""
+        """The label as a customer reads it: a strike placeholder ("$X", or a catalog title's "$Y") in words, and a
+        catalog city's high or low as the NYC high says it (WX_TITLE)."""
+        wx = WX_TITLE.match(self.label.strip())
+        if wx:
+            return "%s daily %s temperature" % (wx.group(2), "high" if wx.group(1).lower() == "highest" else "low")
         return PLACEHOLDER.sub(LADDER_WORDS, self.label)
 
     def is_target_event(self, close_time: datetime) -> bool:

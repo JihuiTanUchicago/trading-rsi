@@ -52,6 +52,27 @@ def test_a_retired_label_reads_as_the_market_is_named_today():
         assert words(prose) == prose
 
 
+def test_a_city_high_named_by_kalshis_title_reads_as_it_is_named_today():
+    """Lines written before 2026-11-01 named a catalog city's high by Kalshi's title ("Started a fresh research session
+    on Highest temperature in Chicago."); they read as the market is named today (customer_label), in the feed, the
+    session log and the bell. Prose keeps its words."""
+    words = customer_text.ladder_words
+    assert words("Started a fresh research session on Highest temperature in Chicago. Anything it finds has to pass.") == (
+        "Started a fresh research session on Chicago daily high temperature. Anything it finds has to pass.")
+    assert words("Loading Highest temperature in Oklahoma City market data…") == (
+        "Loading Oklahoma City daily high temperature market data…")
+    assert words("Loaded 300 days of Highest temperature in Chicago history: 41,200 decision points.") == (
+        "Loaded 300 days of Chicago daily high temperature history: 41,200 decision points.")
+    assert words("Chose to research Lowest temperature in Denver. It has the most history.") == (
+        "Chose to research Denver daily low temperature. It has the most history.")
+    for prose in ("The highest temperature in Chicago tends to lag the forecast", "Highest temperature in Chicago spikes when"):
+        assert words(prose) == prose
+    old = "Started a fresh research session on Highest temperature in Chicago. Follow it on the Research page."
+    new = "Started a fresh research session on Chicago daily high temperature. Follow it on the Research page."
+    assert customer_text.chat_rows([{"role": "system", "content": old}])[0]["content"] == new
+    assert customer_text.event_rows([{"kind": "step", "message": old, "data": None}])[0]["message"] == new
+
+
 def test_every_feed_the_customer_reads_says_the_name_of_today():
     old = "Started a fresh research session on Bitcoin 15-minute. Follow it on the Research page."
     new = "Started a fresh research session on Bitcoin up or down in 15 minutes. Follow it on the Research page."

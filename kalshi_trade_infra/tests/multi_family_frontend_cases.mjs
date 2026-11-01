@@ -99,4 +99,16 @@ export function multiFamilyCases({name, frontend, dashboard, apStatus}) {
     assert.doesNotMatch(one.root.querySelector('#rsimo').innerHTML, /By kind of market/);
     one.clearTimers();
   });
+
+  // Walked 2026-11-01: the card's Passed figure read "6 · 5 held out", as if five were kept back, beside sessions whose
+  // passes were "held back" (not cleared). It counts the passes that then held up on the one-time final test.
+  test(`${name}: the research card says how many passes also passed the final test, never "held out"`, async () => {
+    const b = board({crypto: fam(1, 30, 1, 1, 1), 'weather-high': fam(2, 90, 6, 4, 4)});
+    b.total = {...b.total, passed: 6, holdout_passed: 5};
+    const f = await researchPage(b);
+    const card = f.root.querySelector('#rsimo').innerHTML;
+    assert.match(card, /5 also passed the final test/);
+    assert.doesNotMatch(card, /held out/);
+    f.clearTimers();
+  });
 }

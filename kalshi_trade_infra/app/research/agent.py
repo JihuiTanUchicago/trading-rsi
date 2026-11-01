@@ -4556,8 +4556,11 @@ def act(cur, user: Dict, action: Dict, autopilot: bool, dataset_fn=backtest.data
             return ("You’ve hit the daily research limit (%d) — it resets over the next 24 hours, "
                     "and I’ll resume then." % MAX_RESEARCH_PER_DAY), None
         if autopilot and autopilot_over_budget(cur, user_id):
-            return ("Autopilot research has used its $%.0f for the last 24 hours, the cap you set. I’ll start "
-                    "more as that spend rolls off." % AUTOPILOT_RESEARCH_USD_PER_DAY), None
+            # Customer words (the feed shows it as written): "the cap you set" told every other customer they had set
+            # a cap they never saw; the cap is the autopilot's own, as the panel's credits line says.
+            return ("Autopilot research has used its $%.0f for the last 24 hours, which is its research cap. I’ll start "
+                    "more as that spend rolls off; research you start yourself isn’t limited."
+                    % AUTOPILOT_RESEARCH_USD_PER_DAY), None
         if MAX_GLOBAL_ACTIVE_RESEARCH and repo.count_active_research(cur) >= MAX_GLOBAL_ACTIVE_RESEARCH:
             return ("The research queue is full right now — I’ll start this once a slot frees up.", None)
         if sid:

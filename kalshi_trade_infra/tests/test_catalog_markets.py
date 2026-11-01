@@ -37,6 +37,23 @@ def test_generates_valid_deployable_outcome_settled_market():
     assert m.label == "Highest temperature in Miami"
 
 
+def test_a_city_high_reads_as_the_nyc_high_does_for_customers():
+    """Walk 2026-11-01: Deploy's market column listed "Highest temperature in Chicago" under "NYC daily high
+    temperature", and the feed said "researching Highest temperature in Chicago". The customer name says it as the
+    NYC high's does; the label (Kalshi's title, which the research model reads) is unchanged."""
+    from app.trading.markets import MARKETS
+    m = market_from_series(_row(series_ticker="KXHIGHCHI", title="Highest temperature in Chicago"))
+    assert m.label == "Highest temperature in Chicago"
+    assert m.customer_label == "Chicago daily high temperature"
+    okc = market_from_series(_row(series_ticker="KXHIGHTOKC", title="Highest temperature in Oklahoma City"))
+    assert okc.customer_label == "Oklahoma City daily high temperature"
+    den = market_from_series(_row(series_ticker="KXLOWTDEN", title="Lowest temperature in Denver today?"))
+    assert den.customer_label == "Denver daily low temperature"
+    assert MARKETS["high_ny"].customer_label == "NYC daily high temperature"
+    # Any other catalog title keeps its words.
+    assert market_from_series(_row(series_ticker="KXRAINNYC", title="Rain in NYC")).customer_label == "Rain in NYC"
+
+
 def test_candle_cadence_tracks_frequency():
     assert market_from_series(_row(frequency="custom", series_ticker="KXUFCBOUT")).candle_minutes == 1
     assert market_from_series(_row(frequency="hourly", series_ticker="KXHIGHCHI")).candle_minutes == 1
