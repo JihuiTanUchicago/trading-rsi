@@ -987,6 +987,10 @@ def autopilot_status(ctx: Ctx):
     paper_run = [d for d in deps if d["mode"] == "paper" and d["status"] == "running"]
     demo_run = [d for d in deps if d["mode"] == "demo" and d["status"] == "running"]
     running = len(paper_run) + len(demo_run) + len(live_run)
+    # How many strategies are trading now, across the books: one on paper with a demo copy is one strategy. A live
+    # one counts only while live trading is open (closed, it places no orders). A count of strategies, not money,
+    # so no book's figures are added to another's. Read by the idle line and Home's "already running keep trading".
+    trading_strategies = _strat_count(paper_run + demo_run + (live_run if engine.LIVE_TRADING_ENABLED else []))
     since = repo.now_utc() - timedelta(days=7)
     # The small reads in one statement (repo.autopilot_pulse), the positions' version among them, so it
     # is read before any read kept against it. The engine's beat only when the idle line can use it.
@@ -1054,6 +1058,9 @@ def autopilot_status(ctx: Ctx):
         # Each book's strategies (_strat_count), never one figure for all: the card's "2 paper · 1 demo" and the story's
         # "N strategies are on paper" counted a strategy deployed twice on paper twice.
         "live_running": _strat_count(live_run), "paper_running": _strat_count(paper_run), "demo_running": _strat_count(demo_run),
+        # Beside them, the strategies across the books (one with a demo copy is one): what Home's "The N strategies
+        # already running keep trading" says. Added up, the books above counted that strategy twice.
+        "trading_strategies": trading_strategies,
         "today_live_pnl": today_live,
         # The paper book's day, so a paper-only panel shows its own money instead of a live $0.00.
         "today_paper_pnl": cents(today["paper"]),
@@ -1104,7 +1111,7 @@ def autopilot_status(ctx: Ctx):
         out["idle"] = _idle_reason(out, paper_run, paused, pulse["engine_age"] if running else _UNKNOWN,
                                    _passed_undeployed(cur, ctx.uid, out["focus"], pulse["dep_strategies"]) if not running and not paused
                                    and not billing_blocked else [],
-                                   trading_strategies=_strat_count(paper_run + demo_run + (live_run if out["live_enabled"] else [])))
+                                   trading_strategies=trading_strategies)
         # A demo copy whose every order Kalshi refuses is what isn't trading when paper is fine, and
         # the truer line when nothing is on paper (only the engine or billing outrank it there).
         idle = out["idle"]

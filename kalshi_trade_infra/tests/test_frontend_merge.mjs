@@ -676,6 +676,42 @@ test('the dashboard lists five deployments and positions, paused first, and link
   assert.equal((html.match(/class="stub"/g) || []).length, 5); assert.match(html, /See all 6 open positions on Deploy/);
 });
 
+test('Home\'s Open positions and Closed lately cards are lists, one item per position, with the link after the list', async () => {
+  // Audit 2026-11-01: as a run of divs a screen reader read every position as one long run of text.
+  const open_positions = [1, 2, 3, 4, 5, 6].map((i) => ({side: 'yes', qty: 1, entry_price: .4, title: 'Strategy ' + i, ticker: 'T-' + i, mode: 'paper', opened_at: '2026-10-25T08:00:00Z'}));
+  const recent_closed = [1, 2].map((i) => ({side: 'no', qty: 2, entry_price: .3, pnl: 0.4, title: 'Closed ' + i, ticker: 'C-' + i, mode: 'paper', closed_at: '2026-10-25T09:00:00Z'}));
+  const f = frontend({fetchImpl: path => {
+    if (path === '/api/dashboard') return response({...emptyDashboard(), open_positions, recent_closed});
+    if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+    throw new Error('Unexpected offline request: ' + path);
+  }});
+  await f.viewDashboard(); await flush();
+  const panels = f.root.querySelector('aside[aria-label="Positions"]').innerHTML;
+  const cards = panels.split('<section class="panel"').slice(1);
+  assert.equal(cards.length, 2);
+  for (const [card, n] of [[cards[0], 5], [cards[1], 2]]) {
+    assert.match(card, /<h3>(Open positions|Closed lately)<\/h3><ul class="stubs" role="list"><li class="stub">/);
+    assert.equal((card.match(/<li class="stub">/g) || []).length, n);
+    assert.equal((card.match(/<\/li>/g) || []).length, n);
+    assert.doesNotMatch(card, /<div class="stub">/);
+  }
+  assert.match(cards[0], /<\/li><\/ul><a class="stub-all" href="\/deploy">See all 6 open positions on Deploy/);
+  // None to show: the hint, not an empty list.
+  const g = frontend({fetchImpl: path => {
+    if (path === '/api/dashboard') return response(emptyDashboard());
+    if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+    throw new Error('Unexpected offline request: ' + path);
+  }});
+  await g.viewDashboard(); await flush();
+  const none = g.root.querySelector('aside[aria-label="Positions"]').innerHTML;
+  assert.doesNotMatch(none, /<ul class="stubs"/);
+  assert.match(none, /No open positions\./); assert.match(none, /No closed trades yet\./);
+  // Looks as it did: the list's own styles off, and the last row keeps its rule while a link follows the list.
+  const css = readFileSync(new URL('../app/static/app.css', import.meta.url), 'utf8');
+  assert.match(css, /\n\.stubs \{ list-style: none; margin: 0; padding: 0; \}/);
+  assert.match(css, /\n\.stubs:not\(:last-child\) > \.stub:last-child \{ border-bottom: 1px solid var\(--rule\); \}/);
+});
+
 test('the research status line links its "add an idea" ask to the form', async () => {
   for (const [autopilot, tried, ask] of [[true, 2, 'add an idea'], [false, 2, 'Seed another idea'], [false, 0, 'Describe an idea']]) {
     const f = frontend({fetchImpl: path => {
@@ -5915,6 +5951,12 @@ test('the last move says the forward test verdict and drops the live-ready marke
   assert.match(g.root.querySelector('#dash-ap').innerHTML, /and it picks up on its own\. The strategy already running keeps trading\./);
   g.S.ap = {...paused, paper_running: 2, demo_running: 1}; g.paintDashAp();
   assert.match(g.root.querySelector('#dash-ap').innerHTML, /The 3 strategies already running keep trading\./);
+  // Audit 2026-11-01: a strategy on paper with a demo copy is one strategy. The status's cross-book count is used,
+  // not the per-book counts added up.
+  g.S.ap = {...paused, paper_running: 2, demo_running: 1, trading_strategies: 2}; g.paintDashAp();
+  assert.match(g.root.querySelector('#dash-ap').innerHTML, /The 2 strategies already running keep trading\./);
+  g.S.ap = {...paused, paper_running: 1, demo_running: 1, trading_strategies: 1}; g.paintDashAp();
+  assert.match(g.root.querySelector('#dash-ap').innerHTML, /The strategy already running keeps trading\./);
   g.S.ap = {...paused, paper_running: 0}; g.paintDashAp();
   assert.doesNotMatch(g.root.querySelector('#dash-ap').innerHTML, /keeps? trading/);
   g.clearTimers();

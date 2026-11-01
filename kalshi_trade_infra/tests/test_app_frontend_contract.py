@@ -1022,6 +1022,27 @@ def test_your_n_paper_strategies_counts_strategies_not_their_deployments():
     assert chat_routes._strat_count(twice) == 2 and chat_routes._strat_count([_paper(), _paper()]) == 2
 
 
+def test_autopilot_status_counts_trading_strategies_across_books(monkeypatch):
+    """Audit 2026-11-01: Home's "The N strategies already running keep trading" added the per-book counts, so a
+    strategy on paper with a demo copy counted twice. The status sends one cross-book count of distinct strategies
+    (a count, not money); a live one counts only while live trading is open."""
+    ctx = _ap_ctx(monkeypatch, autopilot=0)
+
+    def dep(i, sid, mode, status='running'):
+        return {'id': i, 'strategy_id': sid, 'title': 'S%d' % sid, 'mode': mode, 'status': status, 'market': 'btc15m',
+                'scan': None, 'updated_at': None}
+    deps = [dep(1, 9, 'paper'), dep(2, 9, 'demo'), dep(3, 10, 'paper'), dep(4, 11, 'live'), dep(5, 12, 'paper', 'paused')]
+    monkeypatch.setattr(server.repo, 'list_deployments_brief', lambda *a, **k: deps)
+    monkeypatch.setattr(server.repo, 'paper_progress', lambda *a: {})
+    monkeypatch.setattr(server.repo, 'paper_event_counts', lambda *a: {})
+    monkeypatch.setattr(chat_routes.engine, 'LIVE_TRADING_ENABLED', False)
+    out = server.autopilot_status(ctx)
+    assert (out['paper_running'], out['demo_running'], out['live_running']) == (2, 1, 1)
+    assert out['trading_strategies'] == 2
+    monkeypatch.setattr(chat_routes.engine, 'LIVE_TRADING_ENABLED', True)
+    assert server.autopilot_status(ctx)['trading_strategies'] == 3
+
+
 def test_idle_reason_skips_the_engine_when_its_beat_cannot_be_read():
     d = _idle_d(paper_running=1)
     assert server._idle_reason(d, [_paper()], [], server._UNKNOWN, [])['code'] == 'starting'

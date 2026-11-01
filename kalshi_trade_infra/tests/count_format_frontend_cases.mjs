@@ -122,6 +122,33 @@ export function countFormatCases({name, frontend, detailStrategy, strategyFronte
     f.clearTimers();
   });
 
+  // Audit 2026-11-01: a per-day bar's hover said the server's raw "2026-10-30". It reads as the page's day lines do, and
+  // says UTC (the server groups sessions by their UTC day).
+  test(`${name}: Research's per-day bars say their day in words on hover, and that it is a UTC day`, async () => {
+    const board = {total: {runs: 3, explored: 7, gated: 2, gate_reach_rate: 0.29, passed: 1, holdout_passed: 0, cost_usd: 2,
+      pipeline_death_share: 0.2}, days: [{day: '2026-10-30', explored: 4, gated: 1}, {day: '2026-10-31', explored: 3, gated: 1}],
+      trend: null, playbooks: [], scout: [], fix_list: [], data_requests: [], paper: null};
+    const run = {id: 8, status: 'succeeded', market: 'btc15m', direction: 'momentum', example: false, prompt: 'Idea', hypotheses_tried: 4,
+      strategies_passed: 1, spent_usd: 4.2, error: null, created_at: '2026-10-30T08:00:00Z', stop_reason: 'limit'};
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/runs')) return response({runs: [run], counts: {research_running: 0, research_queued: 0, research_paused: 0},
+        policy: null, totals: {tried: 7, passed: 1}, v: 'v1'});
+      if (path.startsWith('/api/research/scoreboard')) return response(board);
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path === '/api/research/context') return response({markets: []});
+      if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+      return response({});
+    }});
+    f.S.me.user.autopilot = false;
+    f.location.pathname = '/research';
+    await f.viewResearch(); await settle();
+    const card = f.root.querySelector('#rsimo').innerHTML;
+    assert.match(card, /class="loop-day" title="(?:Fri, Oct 30|Oct 30, 2026) \(UTC\): 4 ideas, 1 reached the gate"/);
+    assert.match(card, /class="loop-day" title="(?:Sat, Oct 31|Oct 31, 2026) \(UTC\): 3 ideas, 1 reached the gate"/);
+    assert.doesNotMatch(card, /title="2026-10-3/);
+    f.clearTimers();
+  });
+
   // A position holds 1,201 contracts as readily as a deployment closes 1,201 trades.
   const pos = {id: 5, deployment_id: 9, strategy_id: 42, title: 'Drift', ticker: 'KXBTC15M-26OCT181230-T1', side: 'yes', qty: 1201,
     entry_price: .38, entry_fee: .04, at_cost: 456.38, cost: 456.42, unrealized: null, mark: null, value: null, mode: 'paper',

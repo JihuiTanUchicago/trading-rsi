@@ -837,6 +837,38 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     f.clearTimers();
   });
 
+  // Audit 2026-11-01: the amounts editor stayed open on Escape, focus still in it. Escape closes it and focus goes back to
+  // the button that opened it. Nothing is saved by it (keyboard and display only).
+  test(`${name}: Escape closes Billing's auto-reload amounts and puts focus back on the button that opened them`, async () => {
+    const posts = [], f = billingPage(cardedBilling(), posts);
+    await f.viewBilling(); await flush();
+    const edit = f.root.querySelector('#autorel-edit'), cfg = f.root.querySelector('#autorel-config'), amt = f.root.querySelector('#reload-amt');
+    const key = (el, k) => {
+      const e = {type: 'keydown', key: k, prevented: false, stopped: false};
+      e.preventDefault = () => { e.prevented = true; }; e.stopPropagation = () => { e.stopped = true; };
+      el.dispatchEvent(e); return e;
+    };
+    // Closed, Escape is left alone (the page's other Escape handlers still get it).
+    const idle = key(edit, 'Escape');
+    assert.equal(idle.prevented, false); assert.equal(idle.stopped, false); assert.equal(cfg.hidden, true);
+    edit.onclick();
+    assert.equal(cfg.hidden, false); assert.equal(edit.getAttribute('aria-expanded'), 'true');
+    // From an amount box inside it (the key reaches the editor), another key does nothing.
+    amt.focus(); f.document.activeElement = amt;
+    assert.equal(key(cfg, 'Enter').prevented, false); assert.equal(cfg.hidden, false);
+    const e = key(cfg, 'Escape');
+    assert.equal(cfg.hidden, true); assert.equal(edit.getAttribute('aria-expanded'), 'false');
+    assert.ok(focusedOn(f, edit), 'focus is back on "Reload $25 at $8"');
+    assert.equal(e.prevented, true); assert.equal(e.stopped, true);
+    // From the button itself while open.
+    edit.onclick(); assert.equal(cfg.hidden, false);
+    key(edit, 'Escape');
+    assert.equal(cfg.hidden, true); assert.equal(edit.getAttribute('aria-expanded'), 'false');
+    await flush();
+    assert.deepEqual(posts, [], 'closing it saves nothing');
+    f.clearTimers();
+  });
+
   test(`${name}: the autopilot panel's story is written only when its words change, not on every status read`, async () => {
     const store = new Map([['tau_ap_open', '1']]);
     const f = frontend({storage: storageFor(store), fetchImpl: (path) => {

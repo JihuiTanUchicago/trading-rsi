@@ -2638,10 +2638,12 @@
       const posTag = (r) => { if (r.status !== 'open') return ''; const w = posDep(r, twinned); return w.removed ? ` (${POS_REMOVED})` : w.apart ? ` (${esc(w.apart)})` : ''; };
       // and the removed one's says why it is still here, as Deploy's does (posRemovedWhy).
       const posLeft = (r) => (r.status === 'open' ? posRemovedWhy(r, posDep(r, twinned)) : '');
+      // A list, each position an item: as a run of divs a screen reader read every position as one long run of text, with
+      // no count and no step from one to the next (audit 2026-11-01). Looks the same (.stubs resets the list's own styles).
       const stubs = (rows, closed) => rows.length
-        ? rows.map((r) => `<div class="stub"><b>${esc(r.side.toUpperCase())} ${esc(r.qty)} × ${cents(+r.entry_price)}</b>
+        ? `<ul class="stubs" role="list">${rows.map((r) => `<li class="stub"><b>${esc(r.side.toUpperCase())} ${esc(r.qty)} × ${cents(+r.entry_price)}</b>
             <span>${closed ? money(+r.pnl) : (r.unrealized != null ? markFig(r.mark_ts, r.value != null ? `worth ${usd(r.value)} (${money(r.unrealized)})` : money(r.unrealized)) : openCost({ open_cost: r.cost, open_at_cost: r.at_cost != null ? r.at_cost : r.qty * r.entry_price }))}</span>
-            <small>${esc(r.title)}${posTag(r)}\u00a0· <span class="pos-name">${contractLink(r.ticker, depMarket(r))}</span>${closed ? '' : `\u00a0· ${liveClose(r.market_close_time, 'settles')}`}\u00a0· ${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'DEMO' : 'PAPER'}\u00a0· ${ageAt(closed ? r.closed_at : r.opened_at)}${!closed && r.unrealized != null && r.mark_ts ? `\u00a0· ${markedAt(r.mark_ts, 'worth as of')}` : ''}</small>${r.why ? `<small class="stub-why">${sepLine(r.why)}</small>` : posLeft(r) ? `<small class="stub-why pos-dep-why">${posLeft(r)}</small>` : ''}</div>`).join('')
+            <small>${esc(r.title)}${posTag(r)}\u00a0· <span class="pos-name">${contractLink(r.ticker, depMarket(r))}</span>${closed ? '' : `\u00a0· ${liveClose(r.market_close_time, 'settles')}`}\u00a0· ${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'DEMO' : 'PAPER'}\u00a0· ${ageAt(closed ? r.closed_at : r.opened_at)}${!closed && r.unrealized != null && r.mark_ts ? `\u00a0· ${markedAt(r.mark_ts, 'worth as of')}` : ''}</small>${r.why ? `<small class="stub-why">${sepLine(r.why)}</small>` : posLeft(r) ? `<small class="stub-why pos-dep-why">${posLeft(r)}</small>` : ''}</li>`).join('')}</ul>`
         : `<p class="hint">${closed ? 'No closed trades yet.' : 'No open positions.'}</p>`;
       const main = `<div class="dash-wrap"><div class="dash">
           <div>
@@ -3595,8 +3597,11 @@
   const apFloorText = () => (S.me && S.me.min_run_balance != null ? `starting research needs ${usd(S.me.min_run_balance)} in credits.` : 'it’s out of credits.');
   // A billing pause stops the autopilot's research and check-ins; the engine keeps trading what is
   // already deployed (credits never gate a trade). "Paused" alone read as if every strategy had stopped.
+  // It counts strategies, from the status's cross-book trading_strategies: the per-book counts added up counted a
+  // strategy on paper with a demo copy twice (audit 2026-11-01). A status without it falls back to that sum.
   const apStillTrading = (d) => {
-    const n = (liveOpen() ? +d.live_running || 0 : 0) + (+d.demo_running || 0) + (+d.paper_running || 0);  // live places no orders while closed
+    const n = d.trading_strategies != null ? +d.trading_strategies || 0
+      : (liveOpen() ? +d.live_running || 0 : 0) + (+d.demo_running || 0) + (+d.paper_running || 0);  // live places no orders while closed
     return n ? ` ${n === 1 ? 'The strategy already running keeps' : `The ${num(n)} strategies already running keep`} trading.` : '';
   };
   // Off, the card said only what turning it on does, while what it had put on paper went on trading (walk 2026-10-31:

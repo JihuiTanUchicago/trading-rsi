@@ -165,6 +165,16 @@ window.TauPage('billing', (T) => {
       const arBox = root.querySelector('#autoreload'), arAmt = root.querySelector('#reload-amt'), arThr = root.querySelector('#reload-thr');
       const arEdit = root.querySelector('#autorel-edit'), arCfg = root.querySelector('#autorel-config'), arSum = root.querySelector('#autorel-sum');
       arEdit.onclick = () => { const open = arCfg.hidden; arCfg.hidden = !open; arEdit.setAttribute('aria-expanded', String(open)); };
+      // Escape closes the amounts and puts focus back on the button that opened them, as the site's menus do; it stayed open
+      // and kept focus (audit 2026-11-01). Focus moves first, so it never falls to the page. Display and keyboard only: what
+      // the amounts save, and when (an amount changed saves as focus leaves it, as before), is unchanged.
+      const arClose = (e) => {
+        if (e.key !== 'Escape' || arCfg.hidden) return;
+        arEdit.focus();
+        arCfg.hidden = true; arEdit.setAttribute('aria-expanded', 'false');
+        e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
+      };
+      arCfg.addEventListener('keydown', arClose); arEdit.addEventListener('keydown', arClose);
       // "Update card" on a failed auto-reload: the card form above, the same save-card flow; saving
       // a card clears the failure on the server.
       let cardPe = null;
