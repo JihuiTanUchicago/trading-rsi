@@ -146,17 +146,21 @@ def comment_notice(to_email: str, author_name: Optional[str], commenter: str,
 
 
 def community_post_notice(to_email: str, name: Optional[str], author: str,
-                          preview: str, unsub_url: str, link: Optional[str] = None) -> bool:
+                          preview: str, unsub_url: str, link: Optional[str] = None, shared: Optional[str] = None) -> bool:
     """Tell a user a new post landed in the community, with a link to it. Best-effort; respects the
-    per-recipient cooldown and opt-out enforced by the caller."""
+    per-recipient cooldown and opt-out enforced by the caller. `shared` is the line naming what a share post
+    carries, as its card heads it (community.share_line: "Strategy: Late-day fade · Bitcoin above a set price at
+    5pm ET"): a share with no words of its own read only “Sharing a strategy.”, and nothing said which."""
     body = (
         "%s\n\n"
         "%s just posted in the Tau community:\n\n"
         "  “%s”\n\n"
+        "%s"
         "Read it and join in: %s\n\n"
         "— Tau\n\n"
         "%s"
-    ) % (_hi(name), author, _plain(preview, 280), link or page_url("/community"), _optional_footer(unsub_url))
+    ) % (_hi(name), author, _plain(preview, 280), ("  %s\n\n" % shared) if shared else "",
+         link or page_url("/community"), _optional_footer(unsub_url))
     return _send(to_email, "New in the Tau community", body)
 
 
@@ -200,6 +204,13 @@ def live_ready_notice(to_email: str, name: Optional[str], title: str, evidence: 
     return _send(to_email, subject, body)
 
 
+# Where the failed auto-reload email opens: Billing at its "Auto-reload failed" notice, as the bell opens the same
+# notice (app/services/bell.shown_link: /billing#autorel-fail). It linked Billing's top, a screen above the notice on a
+# phone. The bell's link also names its notice (?notice=<id>); the email is sent just after that notice is written, so
+# the notice Billing shows unnamed, the newest, is this one.
+RELOAD_FAILED_PATH = "/billing#autorel-fail"
+
+
 def reload_failed_email(to_email: str, name: Optional[str], amount, reason: str) -> bool:
     """Tell a user an auto-reload of their credits failed (app/adapters/stripe/billing.py sends it once
     per bell notice, so it keeps that notice's throttle). An account email: it is sent whatever the
@@ -209,12 +220,17 @@ def reload_failed_email(to_email: str, name: Optional[str], amount, reason: str)
         "%s\n\n"
         "Auto-reload couldn't add $%s in credits. %s\n\n"
         "Research pauses when your credits run out. To keep it going, update your card on Billing:\n\n"
-        "  %s/billing\n\n"
+        "  %s%s\n\n"
         "— Tau\n\n"
         "(An account email about your credits, so Tau sends it even with updates and community email "
         "off in Settings.)"
-    ) % (_hi(name), amount, (reason or "").strip(), PUBLIC_URL)
+    ) % (_hi(name), amount, (reason or "").strip(), PUBLIC_URL, RELOAD_FAILED_PATH)
     return _send(to_email, "Tau auto-reload couldn't add credits", body)
+
+
+# A perps alert's subject names what is wrong as Settings' "Always sent" line does ("a position that doesn't match
+# Tau's orders, a position near liquidation, or heavy margin use"). The watch's kind ("mismatch") read bare.
+PERPS_ALERT_WORDS = {"mismatch": "position mismatch", "liquidation": "liquidation", "margin": "margin"}
 
 
 def perps_alert(to_email: str, kind: str, detail: str) -> bool:
@@ -229,4 +245,4 @@ def perps_alert(to_email: str, kind: str, detail: str) -> bool:
         "— Tau\n\n"
         "(A safety alert about real money, so Tau sends it even with updates and community email off in Settings.)"
     ) % (detail.rstrip("."), PUBLIC_URL)
-    return _send(to_email, "Tau: Bitcoin perps %s alert" % kind, body)
+    return _send(to_email, "Tau: Bitcoin perps %s alert" % PERPS_ALERT_WORDS.get(kind, "safety"), body)

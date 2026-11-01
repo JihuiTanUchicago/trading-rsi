@@ -111,7 +111,10 @@ def test_a_declined_auto_reload_rings_the_bell_with_the_reason_and_still_raises_
     assert text.startswith("Hi Ada,\n\nAuto-reload couldn't add $25.00 in credits. Your card was declined for "
                            "insufficient funds. Try another card.\n\nResearch pauses when your credits run out.")
     from app.adapters.ses import notify
-    assert "  %s/billing\n" % notify.PUBLIC_URL in text
+    from app.services import bell
+    # Billing at its notice of the failure, as the bell opens it (bell.shown_link), not Billing's top.
+    assert "  %s/billing#autorel-fail\n" % notify.PUBLIC_URL in text
+    assert "  %s%s\n" % (notify.PUBLIC_URL, bell.shown_link("reload_failed", "/billing")) in text
     for internal in ("req_abc123", "pm_fixture", "cus_fixture", "pi_", "reload-7", "list price", "margin", "user_id"):
         assert internal not in text.lower()
 
