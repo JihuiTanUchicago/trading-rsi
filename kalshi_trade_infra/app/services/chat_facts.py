@@ -20,7 +20,7 @@ from typing import Callable, Dict, Iterable, List, Optional
 
 from app import repository as repo
 from app.services import trade_why
-from trading_core.domain.credits import credit_exact, credit_split, credit_usd
+from trading_core.domain.credits import credit_exact, credit_split, credit_usd, research_week_usd
 from trading_core.domain.money import cents, exact
 
 BOOKS = ("paper", "demo", "live")
@@ -95,10 +95,12 @@ def credits_lines(cur, uid: int, cap_usd: float = 0.0, cap_spent: Optional[float
            "P&L: never add them to, or take them from, any book's P&L): last 24 hours %s; last 7 days %s, of which "
            "your research sessions (the user's own) %s, autopilot research %s, autopilot check-ins %s, chat %s, other agent "
            "calls %s (Billing's split). "
-           "What the autopilot cost is its research plus its check-ins. Billing shows how long the credits left last "
-           "at this pace; don't work that out yourself."
+           "Research in all over the last 7 days, your sessions and the autopilot's together, %s (the autopilot card's "
+           "Research figure). What the autopilot cost is its research plus its check-ins. Billing shows how long the "
+           "credits left last at this pace; don't work that out yourself."
            % (_credits(spent_24h), _credits(credit_usd(spent_7d)), part("research"), part("autopilot_research"),
-              part("autopilot_review"), part("chat"), part("other"))]
+              part("autopilot_review"), part("chat"), part("other"),
+              _credits(research_week_usd(by, (by.get("research") or 0.0) + (by.get("autopilot_research") or 0.0))))]
     if cap_usd > 0 and cap_spent is not None:
         reached = cap_spent >= cap_usd
         out.append("Autopilot research cap (the autopilot card's): $%.2f per 24 hours. Research sessions started in the "
@@ -204,3 +206,50 @@ def paper_stage_line(stage: str, min_sample: Optional[int], trades: int, events:
         return ("stage: it can never be cleared to trade: %s. Its paper record doesn’t lead to live, whatever the counts "
                 "above say." % _STAGE_NEVER[stage])
     return ""
+
+
+def live_cash_line(connected: bool, memo: Optional[tuple] = None) -> str:
+    """The live book's cash at Kalshi as Home and Funds show it (funds.kalshi_cash): the key's balance memo when it is
+    kept (`memo`: (cash, read at) or None), never a read of Kalshi. Without a figure it says where the user sees it, so
+    "what's my balance?" on a live account isn't answered with the paper and demo books alone, or a guess. Real money
+    Kalshi holds, never added to paper or demo."""
+    if not connected:
+        return ("Live (real money): no Kalshi key connected, so there is no live cash to show; the user connects one "
+                "on Funds.")
+    if memo is not None and memo[0] is not None:
+        return ("Live (real money) cash at Kalshi: %s, as Funds and Home show it (read from Kalshi at %s). Kalshi holds "
+                "it, not Tau; never add it to paper or demo." % (usd(memo[0]), _when(memo[1])))
+    return ("Live (real money) cash at Kalshi: not in this context. Funds and Home read it from Kalshi itself; say "
+            "where to see it, and never state or estimate a figure. Kalshi holds it, not Tau; never add it to paper or "
+            "demo.")
+
+
+def deploy_book_lines(deps: List[Dict], realized: Dict[str, tuple], demo_all, demo_shown) -> List[str]:
+    """What Deploy's board says a book has realized, where that isn't the dashboard's figure the context gives: the
+    board sums the deployments it lists and says the removed ones' part apart (views._realized_by_book), and its demo
+    figure counts every closed demo trade where Home's counts from the last reload (`demo_shown`). `deps` are the
+    listed deployments (repo.list_deployments: Deploy's rows and totals), `realized` closed_book_totals' {book: (all
+    time, today)}, `demo_all` every closed demo trade's P&L. Each sum exact, rounded once; nothing is added across
+    books. The context said "paper $7.85" beside Deploy's headline "$5.42", with nothing to say the rest was a removed
+    strategy's (audit 2026-11-01)."""
+    out = []
+    for mode in BOOKS:
+        listed = sum((exact(d.get("realized_pnl") or 0) for d in deps if d.get("mode") == mode), Decimal(0))
+        gone = (exact(demo_all) if mode == "demo" else exact(realized.get(mode, (0, 0))[0])) - listed
+        if cents(gone):
+            out.append("%s %s from the deployments it lists plus %s from removed ones" % (mode, usd(listed), usd(gone)))
+        elif mode == "demo" and cents(listed) != cents(demo_shown):
+            out.append("demo %s, every closed demo trade since the book began (Home's counts from the last reload)"
+                       % usd(listed))
+    if not out:
+        return []
+    return ["Deploy's board says these books' realized P&L this way (each book apart): %s." % "; ".join(out)]
+
+
+def autopilot_week_line(week: Dict) -> str:
+    """The autopilot card's paper week (repo.autopilot_paper_week over the last 7 days): the strategies the autopilot
+    itself first put on paper since, and the closed paper trades of its strategies, with their P&L as the card rounds
+    it. Strategies the user deployed count on Deploy, not here. Practice money, never added to another book."""
+    return ("The autopilot's own paper strategies, last 7 days (the autopilot card's figures; strategies the user "
+            "deployed aren't in them): %d put on paper, %s realized over %d closed paper trades." % (
+                int(week.get("started") or 0), usd(week.get("pnl") or 0), int(week.get("trades") or 0)))

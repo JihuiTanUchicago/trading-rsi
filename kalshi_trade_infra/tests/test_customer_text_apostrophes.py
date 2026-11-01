@@ -37,7 +37,7 @@ ROW_LINES = ("_demo_copy_pause", "_status_why")
 
 
 def test_deploy_row_lines_write_no_straight_apostrophe():
-    found = _functions(APP / "web" / "views.py", ROW_LINES)
+    found = _functions(APP / "services" / "deploy_rows.py", ROW_LINES)  # moved from views, which re-imports them
     assert set(found) == set(ROW_LINES), "a row-line function was renamed"
     bad = [(name, s) for name, strings in found.items() for s in strings if STRAIGHT.search(s)]
     assert not bad, bad

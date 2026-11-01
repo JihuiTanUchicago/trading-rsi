@@ -25,7 +25,9 @@ STRAIGHT = re.compile(r"[A-Za-z]'[A-Za-z]")
 SUMMARY = {
     APP / "web" / "routes" / "chat.py": ("_research_activity", "_autopilot_story", "_autopilot_now", "_tournament_line",
                                          "_paused_lines", "_waiting_lines", "_stop_line", "_idle_reason", "_money"),
-    APP / "web" / "views.py": ("_health_from", "_plain_pause_reason", "_pause_clause"),
+    APP / "web" / "views.py": ("_health_from",),
+    # Moved from views (which re-imports them) so the chat's context says a row's why as Deploy does.
+    APP / "services" / "deploy_rows.py": ("_plain_pause_reason", "_pause_clause"),
 }
 
 

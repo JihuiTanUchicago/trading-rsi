@@ -58,6 +58,7 @@ from app.services import gate_explain
 from app.services import customer_text
 from app.services import research_notice
 from app.services import chat_facts
+from app.services import deploy_rows
 from app.research.agent_market_data import AgentMarketData, DataScope
 from app.research.agent_knowledge import AgentKnowledge
 from app.research.agent_news import AgentNews
@@ -1026,7 +1027,11 @@ def autopilot_scorecard(board: Dict, focus: List[str]) -> Dict:
 def autopilot_scorecard_lines(card: Dict, days: int = SCORECARD_DAYS) -> List[str]:
     if not card.get("runs"):
         return []
-    out = ["YOUR OWN SCORECARD as the manager (last %d days). Use it to do this job better than last time:" % days,
+    # Its dollars are rsi's prices of each run's tokens, which need not be what Billing debited: beside Billing's week
+    # in the same context, "$60.97 over 3 days" read as what research cost the user (audit 2026-11-01).
+    out = ["YOUR OWN SCORECARD as the manager (last %d days; its dollars are estimates priced from each run's AI usage, "
+           "for your steering only: never quote them to the user as a cost, which is the credits figures Billing shows, "
+           "given in this context). Use it to do this job better than last time:" % days,
            "- research: %d runs, $%.2f, %d reached the gate, %d passed." % (
                card["runs"], card["cost_usd"], card["gated"], card["passed"])]
     if card.get("adherence") is not None:
@@ -3837,7 +3842,7 @@ def early_exits_line(exits: Dict[str, Dict]) -> str:
 def paper_evidence_line(ev: Dict) -> str:
     """One-line summary of `paper_evidence` for the autopilot's review context."""
     parts = ["%d/%d realistic paper trades" % (ev["trades"], ev["trades_needed"]),
-             "$%.2f %s" % (ev["net_pnl"], customer_text.PAPER_NET_SHORT), "%.0fh of record" % ev["span_hours"]]
+             "%s %s" % (_usd(ev["net_pnl"]), customer_text.PAPER_NET_SHORT), "%.0fh of record" % ev["span_hours"]]
     if ev.get("p_value") is not None:
         parts.append("edge p=%.2f" % ev["p_value"])
     if ev.get("realization") is not None:
@@ -4826,19 +4831,38 @@ _USER_PAUSES = {"By you": "the user paused it", "Kill switch": "the user pressed
                 "Approved agent proposal": "the user approved a proposal to pause it"}
 
 
-def _deployment_state(d: Dict) -> str:
+def _deployment_state(d: Dict, row_why: Optional[str] = None) -> str:
     """A deployment's status for the context, with what Deploy says beside it: a running live one while live
     trading is closed places no orders (the dashboard counts it as placing none, not running), and a paused or
-    stopped one says why (its stored reason, so a reply asked "why did it pause?" has the answer even once the
-    pause's chat line is older than the transcript)."""
+    stopped one says why (so a reply asked "why did it pause?" has the answer even once the pause's chat line is
+    older than the transcript). `row_why` is Deploy's own line for the row (deploy_rows.row_status_why): the context
+    said the engine's "force-closed: position down 36.7% >= stop 30.0%" beside Deploy's "Its safety stop sold a
+    position that had lost 37% of its cost", a paused demo copy "stopped too" beside "Waiting on its paper
+    deployment", and left out that Resume would pause a loss-guarded one again (audit 2026-11-01). A pause the
+    user made is said in the third person (Deploy's "You paused it" read to the model as its own doing)."""
     status = d.get("status") or ""
     if d.get("mode") == "live" and status == "running" and not _live_switch_open():
         return status + " (waiting: live trading isn’t open yet, so it places no orders)"
     raw = (d.get("status_reason") or "").strip()
     if status == "running" or not raw:
         return status
-    why = _USER_PAUSES.get(raw) or customer_text.clean(customer_text.tournament_status(raw), "") or ""
-    return "%s (why: %s)" % (status, why[:200].rstrip(".")) if why else status
+    why = (_USER_PAUSES.get(raw) or (row_why or "").strip()
+           or customer_text.clean(customer_text.tournament_status(raw), "") or "")
+    return "%s (why: %s)" % (status, why[:240].rstrip(".")) if why else status
+
+
+def _row_whys(cur, user_id: int, deps: List[Dict]) -> Dict[int, str]:
+    """{deployment id: Deploy's why for its row} (services.deploy_rows.row_status_why, with the reads Deploy makes
+    for it: whether the demo key is saved, only when a row was paused for it, and the paper book each demo copy waits
+    on). Empty when nothing is paused or a read fails: each row then says its stored reason in plain words, as before."""
+    if not any(d.get("status") != "running" and d.get("status_reason") for d in deps):
+        return {}
+    try:
+        books = deploy_rows._paper_books(deps)
+        back = deploy_rows._demo_key_back(cur, user_id, deps)
+        return {d["id"]: why for d in deps for why in [deploy_rows.row_status_why(d, back, books)] if why}
+    except Exception:  # noqa: BLE001 - best-effort, like every block of the context
+        return {}
 
 
 _REPLY_STRATEGY_ID = re.compile(r"\bstrateg(?:y|ies)(?:[_ ]?id)?\s*(?:=|:|#)\s*#?(\d+)", re.I)
@@ -4960,14 +4984,17 @@ def _copilot_context(cur, user: Dict) -> str:
         tally = repo.scan_tally(cur, [d["id"] for d in deps])
     except Exception:
         tally = {}
+    whys = _row_whys(cur, user["id"], deps)
     for d in deps:
         oos = ((d.get("result") or {}).get("out_of_sample") or {})
         lines.append(
             # "<mode> record:", not "live:": reviews read the old wording and called paper legs Live.
             # Its realized figure is Deploy's (money.cents) and its status says what Deploy's row says beside it.
-            "- deployment_id=%s \"%s\" market=%s mode=%s status=%s %s record: %s closed trades, %s wins, realized %s, %s open; "
+            # The market by its key (what an action takes) and by the name every page gives it (customer_label).
+            "- deployment_id=%s \"%s\" market=%s (%s) mode=%s status=%s %s record: %s closed trades, %s wins, realized %s, %s open; "
             "backtest unseen-data: pnl %s over %s trades, max drawdown %s; %sspec=%s"
-            % (d["id"], d["title"], d["market"], d["mode"], _deployment_state(d), d["mode"], d["closed_trades"], d["wins"],
+            % (d["id"], d["title"], d["market"], _market_words(d["market"]), d["mode"], _deployment_state(d, whys.get(d["id"])),
+               d["mode"], d["closed_trades"], d["wins"],
                _usd(d["realized_pnl"]), d["open_positions"], _usd(oos.get("pnl")), oos.get("trades"), _usd(oos.get("max_drawdown")),
                _deployment_age_text(d), json.dumps(d["spec"], separators=(",", ":")))
         )
@@ -5044,8 +5071,8 @@ def _copilot_context(cur, user: Dict) -> str:
         except Exception:
             cand = False
         any_candidate = any_candidate or cand
-        lines.append("- strategy_id=%s \"%s\" market=%s unseen-data pnl %s over %s trades — %s"
-                     % (s["id"], s["title"], s["market"], _usd(oos.get("pnl")), oos.get("trades"),
+        lines.append("- strategy_id=%s \"%s\" market=%s (%s) unseen-data pnl %s over %s trades — %s"
+                     % (s["id"], s["title"], s["market"], _market_words(s["market"]), _usd(oos.get("pnl")), oos.get("trades"),
                         "DEPLOYMENT-CANDIDATE: ready to promote to PAPER now" if cand else
                         "not yet a deployment candidate (dig deeper before it can deploy)"))
     if not spare:
@@ -5059,7 +5086,9 @@ def _copilot_context(cur, user: Dict) -> str:
     # or spend blind to its budget. Each block is best-effort: a context-read hiccup must never fail
     # the whole review. ponytail: in tests `cur` is a stub, so these simply omit — no prompt churn.
     try:
-        runs = repo.list_runs(cur, user["id"], limit=6)
+        # The example session every account starts with isn't the user's research (the Research page marks it and
+        # its headline leaves it out): listed here, a new account's "what have I researched?" read one session of theirs.
+        runs = [r for r in repo.list_runs(cur, user["id"], limit=6) if r.get("direction") != repo.DEMO_DIRECTION]
     except Exception:
         runs = []
     if runs:
@@ -5113,13 +5142,30 @@ def _copilot_context(cur, user: Dict) -> str:
                   % (_usd(paper), demo, _credits_usd(credits))]
     except Exception:
         pass
-    # What Billing and the autopilot card say the AI's work cost (credits, never P&L), and the research cap: the context
-    # had only the balance left, so "how much did autopilot cost me?" was answered from the 3-day token scorecard.
+    # The live book's cash as Funds and Home show it (from the key's memo, never a Kalshi read): "what's my balance?"
+    # on a live account had the paper and demo books alone to answer from.
     try:
-        lines += chat_facts.credits_lines(cur, user["id"], AUTOPILOT_RESEARCH_USD_PER_DAY,
-                                          research_spend(cur, user["id"]) if AUTOPILOT_RESEARCH_USD_PER_DAY > 0 else None)
+        from app.adapters.kalshi import kalshi_account
+        live_key = repo.has_kalshi_key(cur, user["id"])
+        lines.append(chat_facts.live_cash_line(live_key, kalshi_account.balance_memo(user["id"])
+                                               if live_key and kalshi_account.balance_kept(user["id"]) else None))
     except Exception:
         pass
+    # What Billing and the autopilot card say the AI's work cost (credits, never P&L), and the research cap: the context
+    # had only the balance left, so "how much did autopilot cost me?" was answered from the 3-day token scorecard.
+    # The cap as the card shows it: only while autopilot is on (off, it starts no research and the card has no cap).
+    try:
+        lines += chat_facts.credits_lines(cur, user["id"], AUTOPILOT_RESEARCH_USD_PER_DAY,
+                                          research_spend(cur, user["id"])
+                                          if AUTOPILOT_RESEARCH_USD_PER_DAY > 0 and user.get("autopilot") else None)
+    except Exception:
+        pass
+    # The card's paper week while autopilot is on: "what has autopilot made me this week?" had only all-time figures.
+    if user.get("autopilot"):
+        try:
+            lines.append(chat_facts.autopilot_week_line(repo.autopilot_paper_week(cur, user["id"], repo.now_utc() - timedelta(days=7))))
+        except Exception:
+            pass
     # PORTFOLIO VIEW: each book's open exposure vs the user's caps, so the review manages the whole
     # book (concentration, headroom) and not one deployment at a time. The engine applies the caps to
     # one book at a time, and live money is never added to paper or demo: the line summed all three,
@@ -5166,6 +5212,7 @@ def _copilot_context(cur, user: Dict) -> str:
                         _usd(realized["live"][0]), closed.get("live", 0), closed.get("demo", 0),
                         _usd(realized["paper"][1]), _usd(realized["demo"][1]), _usd(realized["live"][1]),
                         day24("paper"), day24("demo"), day24("live")))
+        lines += chat_facts.deploy_book_lines(deps, realized, realized["demo"][0], demo_since["realized"])
     except Exception:
         pass
     # The trades themselves, with the page's reason line, and open positions a deleted strategy left: "why did this
@@ -5189,7 +5236,7 @@ def _copilot_context(cur, user: Dict) -> str:
                    "backtest surface — research ONLY markets on this list; others have no settled contracts "
                    "and will crash). You are NOT limited to the one you've been trading: if a market has gone "
                    "quiet (no fills, no edges for days), HUNT A DIFFERENT one from this list, don't wait: "
-                   + ", ".join("%s (%s)" % (k, MARKETS[k].label[:40]) for k in deployable))]
+                   + ", ".join("%s (%s)" % (k, MARKETS[k].customer_label) for k in deployable))]
     try:
         from app import rsi_scout
         scan = rsi_scout.prompt_lines(cur, 8)

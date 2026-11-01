@@ -258,6 +258,8 @@ def test_a_paused_deployment_says_why_so_a_reply_can_answer_why_it_paused(monkey
             "record:") in ctx
     assert "mode=live status=paused (why: the user pressed Kill) live record:" in ctx
     assert "status=paused (why: Autopilot daily loss limit hit) paper record:" in ctx
-    assert 'deployment_id=7 "t" market=btc15m mode=paper status=paused paper record:' in ctx  # a raw error: no why
+    # A raw error says what Deploy's row says for it (services.deploy_rows.row_status_why), never the error itself.
+    assert ('deployment_id=7 "t" market=btc15m (Bitcoin up or down in 15 minutes) mode=paper status=paused '
+            '(why: Paused automatically) paper record:') in ctx
     assert "Traceback" not in ctx
     assert "status=stopped (why: The paper tournament removed it: no trade in 9 days, as its entry rule" in ctx
