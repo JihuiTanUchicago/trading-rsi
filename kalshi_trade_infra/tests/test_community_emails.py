@@ -144,3 +144,14 @@ def test_the_bell_says_a_reply_is_a_reply_and_where_a_mention_is(monkeypatch):
     monkeypatch.setattr(community.repo, "users_by_usernames", lambda cur, hs: [{"id": 3, "email": None}])
     community.create_comment(_ctx(body={"body": "nice @cat"}, params=("5",)))
     assert bells == [(3, "mention", "Bob mentioned you in a reply."), (2, "comment", "Bob replied to your post.")]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_the_new_post_email_returns_its_db_connection_whether_or_not_it_fails(monkeypatch, digest, fails):
+    """Load pass 2026-11-01: the dispatch thread opened a connection and never closed it, on success or on error."""
+    closed = []
+    monkeypatch.setattr(community, "get_db_conn", lambda: SimpleNamespace(cursor=lambda: None, close=lambda: closed.append(1)))
+    if fails:
+        monkeypatch.setattr(community.repo, "community_email_recipients", lambda c, uid: (_ for _ in ()).throw(RuntimeError("db down")))
+    community._email_community_post_async(1, "Bob", "Sharing a strategy.", 5)
+    assert closed == [1]
