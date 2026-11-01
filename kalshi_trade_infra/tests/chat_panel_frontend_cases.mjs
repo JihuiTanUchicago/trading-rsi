@@ -286,6 +286,41 @@ export function chatPanelCases({name, frontend, storageFor}) {
     assert.deepEqual(kinds, ['Started research', 'Started research', 'Started research', 'Research cap reached', 'Reviewed']);
   });
 
+  // Walked 2026-11-01, back after 3 days: the paper forward gate's pass and fail, and a demo copy starting, all sat under
+  // "Reviewed" (the server now says them in plain words: customer_text.forward_line, demo_unmarked).
+  test(`${name}: a paper forward test verdict and a demo copy are headed as what they are, not "Reviewed"`, async () => {
+    const lines = [
+      'NFL home favourites late passed its paper forward test: 20 paper trades, averaging +6.1% of the stake per trade after fees. It is now a candidate for live; going live still takes your live switch.',
+      'NBA road dogs did not pass its paper forward test: 20 paper trades, averaging −1.2% of the stake per trade after fees. That test is judged once, so it won’t be cleared to trade; Deploy is where to stop its paper run.',
+      'Lake breeze cap passed its paper forward test (20 paper trades, averaging +2.0% of the stake per trade after fees) but isn’t cleared to trade: too close to one you run.',
+      '“Chicago forecast gap” now also trades on the demo exchange (play money), testing the real order path alongside its paper record.',
+      'Paused the demo copy of “Chicago forecast gap”: its paper strategy stopped.',
+      'Resumed the demo copy of “Chicago forecast gap” with its paper strategy.',
+    ];
+    const p = await panel({autopilot: true, chat: () => lines.map((content, i) => ({id: i + 1, role: 'system', content, created_at: AT}))});
+    const kinds = p.box.querySelector('#apf-messages').querySelectorAll('.say-kind').map((el) => el.textContent);
+    assert.deepEqual(kinds, ['Paper forward test', 'Paper forward test', 'Paper forward test', 'Demo copy', 'Demo copy', 'Demo copy']);
+  });
+
+  // Walked 2026-11-01, the day the clocks went back: every day line said "times in CST", the days before it too, whose
+  // times were CDT (the bell beside it said "Oct 30, 23:25 CDT"). Each day names the zone in force on it.
+  test(`${name}: each feed day names the zone in force that day, across a clock change`, async () => {
+    const was = process.env.TZ;
+    process.env.TZ = 'America/Chicago';
+    try {
+      const p = await panel({autopilot: true, chat: () => [
+        {id: 1, role: 'system', content: 'Market focus set to Bitcoin.', created_at: '2026-10-20T15:00:00Z'},
+        {id: 2, role: 'system', content: 'Market focus cleared.', created_at: '2026-11-20T15:00:00Z'},
+      ]});
+      const days = p.box.querySelector('#apf-messages').querySelectorAll('.ap-day').map((el) => el.textContent);
+      assert.equal(days.length, 2, days.join(' | '));
+      assert.match(days[0], /times in CDT$/);
+      assert.match(days[1], /times in CST$/);
+    } finally {
+      if (was === undefined) delete process.env.TZ; else process.env.TZ = was;
+    }
+  });
+
   // Walked 2026-10-27: changing the market focus, deploying from the Deploy page, the kill switch, the engine's
   // stop-loss sale and its daily loss stops each landed in the feed under "Reviewed", seconds after a click
   // when no review had run.

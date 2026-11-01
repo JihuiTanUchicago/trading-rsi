@@ -1091,10 +1091,17 @@
     // line's words. Only the words change: the position, its book and its figures are the server's. A row with no
     // close time (NaN) keeps its "—". `pos` is the market page's Status cell, `settles` the strategy page's holding
     // (capped) and the dashboard's position line, `settleTime` Deploy's Settles column.
-    pos: (iso, s) => (s > 0 || Number.isNaN(s) ? `Open, settles ${settleAt(iso)}` : MKT_STATUS.closed),
-    settles: (iso, s) => (s > 0 || Number.isNaN(s) ? `settles ${settleAt(iso)}` : 'closed, result pending'),
-    settleTime: (iso, s) => (s > 0 || Number.isNaN(s) ? settleAt(iso) : MKT_STATUS.closed),
+    // A contract settling today says so: Deploy's Settles column read "Nov 3, 09:00 CST" over a bare "15:25 CST", and the
+    // dashboard's line "settles 15:25 CST", to a reader back after days away (walk 2026-11-01). The words turn with the
+    // day as the rest of a close's do (dayTimes).
+    pos: (iso, s) => (s > 0 || Number.isNaN(s) ? `Open, settles ${settleDay(iso)}` : MKT_STATUS.closed),
+    settles: (iso, s) => (s > 0 || Number.isNaN(s) ? `settles ${settleDay(iso)}` : 'closed, result pending'),
+    settleTime: (iso, s) => (s > 0 || Number.isNaN(s) ? settleDay(iso, true) : MKT_STATUS.closed),
   };
+  function settleDay(iso, cap) {
+    const d = new Date(iso || NaN), t = settleAt(iso);
+    return Number.isFinite(d.getTime()) && d.toDateString() === new Date(Date.now()).toDateString() ? `${cap ? 'Today' : 'today'}, ${t}` : t;
+  }
   const closeWords = (iso, form, skew, cap) => { const t = CLOSE_FORM[form](iso, closeLeft(iso, skew)); return cap ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
   // The clock's attributes on an element of the caller's own (Deploy's Settles cell is the cell itself).
   const closeData = (iso, form, skew = 0, cap = false) => ` data-close="${esc(iso || '')}" data-form="${form}"${skew ? ` data-skew="${Math.round(skew)}"` : ''}${cap ? ' data-cap="1"' : ''}`;

@@ -503,7 +503,8 @@ export function explorePageCases({name, frontend}) {
     // A cell's own text, or its clock span's (the harness rewrites only the span the clock writes to).
     const status = () => f.root.querySelectorAll('td').filter((td) => td.getAttribute('data-lab') === 'Status').map((td) => (td.querySelector('[data-close]') || td).textContent);
     const [openWas, doneWas] = status();
-    assert.match(openWas, /^Open, settles (?:[A-Z][a-z]{2} \d{1,2}, )?\d\d:\d\d \S+$/, 'before the close: as before');
+    assert.match(openWas, /^Open, settles (?:[A-Z][a-z]{2} \d{1,2}, |today, )?\d\d:\d\d \S+$/, 'before the close: as before');
+    if (new Date(soon).toDateString() === new Date(Date.now()).toDateString()) assert.match(openWas, /^Open, settles today, /, 'later today: says today');
     assert.match(doneWas, /^Closed \(settled\) @ /);
     const sums = f.root.querySelector('.mk-book .hint').textContent;
     assert.match(sums, /^1 open at cost \+ fees \$0\.68/);

@@ -527,6 +527,15 @@ window.TauPage('strategy', (T) => {
   // evidence, or the check it missed. The full evidence stays in Verdict, which on a phone is many
   // screens down; a Void strategy's page read "returned $3.10 on unseen data" up top and said why it
   // failed only there.
+  // A Void strategy on paper probation that then missed its one paper judgment (the forward gate's verdict, `paper`):
+  // its glance spoke of the validation miss alone, beside "Paper since deploying: +$8.63", and the reader couldn't tell
+  // whether paper could still clear it (walk 2026-11-01). It can't: the judgment is made once.
+  const paperMissed = (s, p) => {
+    if (s.status !== 'failed' || !p || p.n_trades == null || ['forward_validated', 'deployment_candidate'].includes(p.classification)) return '';
+    const at = p.verdict_at ? `, judged ${dateFmt(new Date(p.verdict_at), LOG_STAMP)}` : '';
+    const running = (s.deployments || []).some((d) => d.mode === 'paper' && d.status !== 'stopped');
+    return ` Its one judgment on its own paper trades (${num(p.n_trades)}${at}) didn’t pass either, so it won’t be cleared to trade${running ? '; Deploy is where to stop its paper run' : ''}.`;
+  };
   function verdictGlance(s, missed) {
     const exp = s.experiment, h = exp && exp.holdout, v = exp && exp.validation, p = exp && exp.paper;
     const lc = (t) => String(t).charAt(0).toLowerCase() + String(t).slice(1);
@@ -536,7 +545,7 @@ window.TauPage('strategy', (T) => {
       words = `It fell short on its first test on unseen data, so it went on paper on probation, and passed its one judgment there${p && p.n_trades != null ? ` (${num(p.n_trades)} paper trades)` : ''}, but it is ${lc(missed[0].label)}, so the gatekeeper didn’t clear it to trade. Verdict, below, has what was measured.`;
     } else if (missed && ['failed', 'rejected'].includes(s.status)) {
       lead = s.status === 'failed' ? 'Void.' : 'Rejected.';
-      words = `It missed ${missed.length === 1 ? 'a check' : missed.length + ' checks'}: ${lc(missed[0].label)}${missed.length > 1 ? `, and ${missed.length - 1} more` : ''}. Verdict, below, has what was measured and what to try next.`;
+      words = `It missed ${missed.length === 1 ? 'a check' : missed.length + ' checks'}: ${lc(missed[0].label)}${missed.length > 1 ? `, and ${missed.length - 1} more` : ''}. Verdict, below, has what was measured and what to try next.${paperMissed(s, p)}`;
     } else if (missed && s.status === 'passed' && heldBack(s)) {
       lead = 'Held back.';
       words = `It held up on data it had never seen, the one-time locked holdout included, but it is ${lc(missed[0].label)}, so the gatekeeper didn’t clear it to trade. Verdict, below, has what was measured.`;

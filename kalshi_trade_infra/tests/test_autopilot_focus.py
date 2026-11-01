@@ -292,3 +292,63 @@ def test_the_bell_says_a_paper_forward_pass_in_the_dashboards_words():
     assert got == "“NFL home favourites late” passed its paper forward test: a candidate for live."
     other = "Autopilot put “NFL home favourites late” on paper: it passed every research gate."
     assert customer_text.notification_rows([{"kind": "deployed", "body": other}])[0]["body"] == other
+
+
+def _forward_lines(title="NBA road dogs"):
+    """The three chat lines services.forward_gate.run writes, built with its own format strings."""
+    import inspect
+    from app.services import forward_gate
+    src = inspect.getsource(forward_gate.run)
+    assert "did not pass its one paper judgment (%s, %s)." in src and "but stays off the candidate list: %s." in src
+    assert "PASSED (%s) and is now a deployment candidate. Live still " in src and "needs your live switch." in src
+    stats = lambda n, p, r: "%d paper trades, p=%.3f, %s per trade" % (n, p, "%+.1f%%" % (100 * r))  # noqa: E731
+    return {
+        "pass": "Paper forward gate: %s PASSED (%s) and is now a deployment candidate. Live still needs your live switch."
+                % (title, stats(20, 0.018, 0.061)),
+        "fail": "Paper forward gate: %s did not pass its one paper judgment (%s, %s)." % (title, "inconclusive", stats(20, 0.412, -0.012)),
+        "held": "Paper forward gate: %s passed on paper (%s) but stays off the candidate list: %s." % (
+            title, stats(1, 0.01, 0.02), "its daily returns track “NYC edge” (correlation 0.81)"),
+    }
+
+
+def test_the_feed_says_a_paper_forward_verdict_in_plain_words_and_keeps_the_record():
+    """Walk 2026-11-01, back after 3 days: the feed showed the forward gate's own line under "Reviewed" ("PASSED (20
+    paper trades, p=0.018, ...) and is now a deployment candidate", "did not pass its one paper judgment (inconclusive,
+    ...)"): a pass read like a fail and neither said what came next. The feed says each in plain words; the stored line,
+    which forward_gate.held_reason reads back, and the Last move path (app.js says the verdict there) are unchanged."""
+    from app.services import customer_text, forward_gate
+    lines = _forward_lines()
+    said = {k: customer_text.chat_rows([{"role": "system", "content": v}])[0]["content"] for k, v in lines.items()}
+    assert said["pass"] == ("NBA road dogs passed its paper forward test: 20 paper trades, averaging +6.1% of the stake per "
+                            "trade after fees. It is now a candidate for live; going live still takes your live switch.")
+    assert said["fail"] == ("NBA road dogs did not pass its paper forward test: 20 paper trades, averaging −1.2% of the stake "
+                            "per trade after fees. That test is judged once, so it won’t be cleared to trade; Deploy is "
+                            "where to stop its paper run.")
+    assert said["held"] == ("NBA road dogs passed its paper forward test (1 paper trade, averaging +2.0% of the stake per trade "
+                            "after fees) but isn’t cleared to trade: its daily returns track “NYC edge” (correlation 0.81).")
+    for s in said.values():
+        assert "p=" not in s and "deployment candidate" not in s and "judgment (" not in s and "Paper forward gate" not in s
+    assert forward_gate.held_reason(lines["held"], "NBA road dogs") == "its daily returns track “NYC edge” (correlation 0.81)"
+    for v in lines.values():
+        assert customer_text.unmarked(v) == v
+    # A line it doesn't know (a future wording) is shown as written; the agent's own reply is never rewritten.
+    odd = "Paper forward gate: NBA road dogs was judged."
+    assert customer_text.chat_rows([{"role": "system", "content": odd}])[0]["content"] == odd
+    assert customer_text.chat_rows([{"role": "agent", "content": lines["pass"]}])[0]["content"] == lines["pass"]
+
+
+def test_the_feed_drops_a_demo_copys_tag():
+    """demo_twins.sync leads its lines with "[demo]", which the feed showed as written under "Reviewed"; the panel heads
+    them "Demo copy" now. The stored line keeps its tag."""
+    import inspect
+    from app.services import customer_text
+    from app.trading import demo_twins
+    src = inspect.getsource(demo_twins.sync)
+    for line, said_as in (("[demo] Paused the demo copy of “Rain”: its paper strategy stopped.", "[demo] Paused the demo copy of “%s”"),
+                          ("[demo] Resumed the demo copy of “Rain” with its paper strategy.", "[demo] Resumed the demo copy of “%s”"),
+                          ("[demo] “Rain” now also trades on the demo exchange (play money), testing the real order path "
+                           "alongside its paper record.", "[demo] “%s” now also trades on the demo exchange")):
+        assert said_as in src
+        got = customer_text.chat_rows([{"role": "system", "content": line}])[0]["content"]
+        assert got == line[len("[demo] "):]
+    assert customer_text.demo_unmarked("A [demo] note.") == "A [demo] note."

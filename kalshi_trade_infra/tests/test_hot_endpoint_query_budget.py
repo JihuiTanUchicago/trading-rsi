@@ -1185,7 +1185,13 @@ def _poll(name, kw, rows, version):
 
 
 @pytest.mark.parametrize("name,kw,rows", KEPT_PAGES)
-def test_a_polled_page_keeps_its_position_sums_until_the_positions_change(production, name, kw, rows):
+def test_a_polled_page_keeps_its_position_sums_until_the_positions_change(production, name, kw, rows, monkeypatch):
+    # The track record says when it was worked out (generated_at, to the second): two polls on either side of a second
+    # differed by that alone. Both are worked out as of one instant, so the comparison is of what was kept.
+    from datetime import datetime, timezone
+    from app.trading import track_record as record
+    finish, at = record.finish, datetime.now(timezone.utc)
+    monkeypatch.setattr(record, "finish", lambda prepared, now=None: finish(prepared, now or at))
     book = {"n": 40, "closed": 38, "top": 900}
     cold, heavy, out = _poll(name, kw, rows, book)
     assert heavy and sum(VERSION in s for s in cold) == 1  # the version is read once per request

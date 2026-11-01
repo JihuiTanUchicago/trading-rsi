@@ -345,8 +345,56 @@ def chat_rows(messages: List[Dict], paused: Optional[Dict[int, Dict]] = None,
             dep = stop_sold_id(text)
             if dep is not None:
                 text = stop_sold_line(text, (paused or {}).get(dep))
+            text = demo_unmarked(forward_line(text))
             m["content"] = ladder_words(plain_controls(clean(unknown_action_line(focus_set_line(unmarked(text), focus_words)), CHAT_FALLBACK)))
     return messages
+
+
+# The paper forward gate's chat lines (services.forward_gate.run) carry its own terms: "PASSED", "a deployment
+# candidate", "its one paper judgment (inconclusive, ...)" and a p-value, under the feed's "Reviewed" (walk
+# 2026-11-01, a reader back after 3 days could not tell a pass from a fail, or what came next). The stored line keeps
+# them (forward_gate.held_reason reads it back); the feed says the verdict, the paper record and what happens next.
+_FWD_STATS = r"(\d+) paper trades?, p=[\d.]+, ([+-]\d+(?:\.\d+)?)% per trade"
+_FWD_PASS = re.compile(r"^Paper forward gate: (.+?) PASSED \(" + _FWD_STATS + r"\) and is now a deployment candidate\. "
+                       r"Live still needs your live switch\.$")
+_FWD_FAIL = re.compile(r"^Paper forward gate: (.+?) did not pass its one paper judgment \([A-Za-z_]+, " + _FWD_STATS + r"\)\.$")
+_FWD_HELD = re.compile(r"^Paper forward gate: (.+?) passed on paper \(" + _FWD_STATS + r"\) but stays off the candidate list: "
+                       r"(.+?)\.?$", re.S)
+
+
+def _fwd_record(n: str, ret: str) -> str:
+    """"20 paper trades, averaging +6.1% of the stake per trade after fees" (the strategy page's words)."""
+    return "%s paper trade%s, averaging %s%% of the stake per trade after fees" % (n, "" if n == "1" else "s", ret.replace("-", "−", 1))
+
+
+def forward_line(text: Optional[str]) -> Optional[str]:
+    """A paper forward gate chat line in plain words (_FWD_*); any other text as given."""
+    s = str(text or "")
+    if not s.startswith("Paper forward gate: "):
+        return text
+    m = _FWD_PASS.match(s)
+    if m:
+        return ("%s passed its paper forward test: %s. It is now a candidate for live; going live still takes your "
+                "live switch." % (m.group(1), _fwd_record(m.group(2), m.group(3))))
+    m = _FWD_FAIL.match(s)
+    if m:
+        return ("%s did not pass its paper forward test: %s. That test is judged once, so it won’t be cleared "
+                "to trade; Deploy is where to stop its paper run." % (m.group(1), _fwd_record(m.group(2), m.group(3))))
+    m = _FWD_HELD.match(s)
+    if m:
+        return "%s passed its paper forward test (%s) but isn’t cleared to trade: %s." % (
+            m.group(1), _fwd_record(m.group(2), m.group(3)), m.group(4))
+    return text
+
+
+# A demo copy's chat lines (demo_twins.sync) lead with "[demo]", a tag the feed showed as written. The stored line
+# keeps it; the feed heads the line "Demo copy" instead (page-autopilot.js).
+_DEMO_TAG = re.compile(r"^\[demo\]\s*")
+
+
+def demo_unmarked(text: Optional[str]) -> Optional[str]:
+    """``text`` without a leading "[demo] " tag, else as given."""
+    return _DEMO_TAG.sub("", str(text), count=1) if text and str(text).startswith("[demo]") else text
 
 
 # "Market focus set to btc." (the focus route) and "Market focus set to btc, eth. Autopilot will research, ..."
