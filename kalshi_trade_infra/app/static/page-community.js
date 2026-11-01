@@ -5,7 +5,7 @@
 window.TauPage('community', (T) => {
   'use strict';
   const {
-    alert0, api, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, busy, deploymentMode, esc, FEES_NET, flash, halfUp, ICON, keepZone,
+    alert0, api, armed, attachMention, authorLine, BEHIND, bellTime, dayAt, boardTitle, busy, deploymentMode, esc, FEES_NET, flash, halfUp, ICON, keepZone,
     liveWaitMark, loading, marketShort, mdLite, notice, num, overDays, pageLede, PAPER_NET, pct, poll, realTrades, refreshed, researchBadge, root, S, SEP,
     settleAt, shell, statusMark, theme, tone, trDay, usd
   } = T;
@@ -145,7 +145,7 @@ window.TauPage('community', (T) => {
   // with the full stamp on hover. It said a bare "Oct 28" in no zone and had no stamp at all (walked 2026-10-31).
   function postCard(p, grouped) {
     const replies = p.comments || 0;
-    const gutter = grouped ? `<time class="gutter-time" datetime="${esc(p.created_at)}">${tau ? settleAt(p.created_at) : keepZone(settleAt(p.created_at))}</time>` : avatar(p.picture, p.author);
+    const gutter = grouped ? dayAt(p.created_at, tau ? 'at' : 'kz', { cls: 'gutter-time' }) : avatar(p.picture, p.author);
     const head = grouped ? '' : `<div class="post-head"><b>${authorLine(p.author, p.username)}</b><span class="when">${bellTime(p.created_at)}${p.edited ? `${SEP}edited` : ''}</span></div>`;
     const main = `<div class="post-main"><div class="post-body">${mdLite(p.body)}</div>
         ${p.image ? `<a class="post-img" href="${esc(p.image)}" target="_blank" rel="noopener"><img src="${esc(p.image)}" alt="" loading="lazy"></a>` : ''}

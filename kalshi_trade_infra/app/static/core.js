@@ -151,14 +151,13 @@
   };
   // A bell item's time: relative within the day, then the day and clock ("Oct 24, 14:05"), not a bare
   // date; the full stamp with its zone rides on hover.
+  // Past a day it names its zone ("Oct 27, 22:26 EDT"), as the trade list's clock does: the bare clock didn't say whose.
+  // It says its words again when the reader's day turns (data-day, dayTimes), as a page's other times do.
+  const bellShown = (iso) => (Date.now() - new Date(iso || NaN).getTime() < 86400000 ? when(iso) : stampAt(iso));
   const bellTime = (iso) => {
     const d = new Date(iso || NaN);
     if (!Number.isFinite(d.getTime())) return '';
-    // Past a day it names its zone ("Oct 27, 22:26 EDT"), as the trade list's clock does: the bare clock didn't say whose.
-    // One from another year names it ("Sep 26, 2025, 09:34 EDT"): a year-old notice read as this September's.
-    const stamp = dateFmt(d, d.getFullYear() === new Date().getFullYear() ? LOG_STAMP : LOG_STAMP_YEAR);
-    const shown = Date.now() - d.getTime() < 86400000 ? when(iso) : stamp;
-    return `<time datetime="${esc(iso)}" title="${esc(stamp)}">${esc(shown)}</time>`;
+    return `<time datetime="${esc(iso)}" title="${esc(stampAt(iso))}" data-day="bell">${esc(bellShown(iso))}</time>`;
   };
   // What a grouped bell line stands for past its own words, from the server's `more`, `alike`, `from` and
   // `from_more` (app/services/bell.py), as text (the caller escapes it: the names are people's own). "and 3 more
@@ -211,9 +210,36 @@
   const settleAt = (iso) => {
     const d = new Date(iso || NaN);
     if (!Number.isFinite(d.getTime())) return '—';
-    const today = d.toDateString() === new Date().toDateString();
+    const today = d.toDateString() === new Date(Date.now()).toDateString();
     return dateFmt(d, today ? CLOCK_ZONE : LOG_STAMP);
   };  // fits the 40px log rail; '10:31 AM' wrapped to 'AM'
+  // A time on hover (a title): always its date and zone, the year too when it isn't this year's. A title said
+  // settleAt's bare "21:17 CDT" for a time from today, and went on saying it after midnight (walk 2026-11-01).
+  // One from another year names it ("Sep 26, 2025, 09:34 EDT"): a year-old notice read as this September's.
+  const stampAt = (iso) => {
+    const d = new Date(iso || NaN);
+    if (!Number.isFinite(d.getTime())) return '';
+    return dateFmt(d, d.getFullYear() === new Date(Date.now()).getFullYear() ? LOG_STAMP : LOG_STAMP_YEAR);
+  };
+  // A time that leaves its date off because it is today (settleAt) does so only while it is: a page left open past the
+  // reader's midnight kept "23:50 CDT" on Funds' cash moves, a grouped community post, a run's "ended" and a market's
+  // "as of", each reading as today's (walk 2026-11-01). dayAt marks one (data-day names its words), and dayTimes, when
+  // the day turns (each bundle's dayWatch), says each again from its own datetime, with no read. A close's words
+  // (closeData) go with them: "closes Nov 2, 00:30 CDT" says "closes 00:30 CDT" once that is today.
+  const DAY_FORM = { at: (iso) => settleAt(iso), kz: (iso) => keepZone(settleAt(iso)), bell: (iso) => bellShown(iso),
+    // Admin's activity feed: the clock for a line from today, else how long ago (when).
+    log: (iso) => (new Date(iso || NaN).toDateString() === new Date(Date.now()).toDateString() ? clock(iso) : when(iso)) };
+  // `cls`: its class; `hover`: it carries its full stamp on hover (stampAt).
+  const dayAt = (iso, dayForm = 'at', { cls = '', hover = false } = {}) => `<time${cls ? ` class="${cls}"` : ''} datetime="${esc(iso || '')}"${hover ? ` title="${esc(stampAt(iso))}"` : ''} data-day="${dayForm}">${esc(DAY_FORM[dayForm](iso))}</time>`;
+  const dayTimes = (box) => {
+    if (!box || !box.querySelectorAll) return;
+    box.querySelectorAll('[data-day], [data-close]').forEach((el) => {
+      const dayKind = el.getAttribute('data-day');
+      const t = dayKind ? (DAY_FORM[dayKind] ? DAY_FORM[dayKind](el.getAttribute('datetime')) : null)
+        : closeWords(el.getAttribute('data-close'), el.getAttribute('data-form'), el.getAttribute('data-skew'), el.getAttribute('data-cap'));
+      if (t != null && el.textContent !== t) el.textContent = t;
+    });
+  };
   // An open position's mark (the last price the engine read for it) is old past MARK_OLD_S. The engine stamps every
   // open position's mark on each pass over the markets, and each pass ends with a 15s sleep (TICK_SECONDS), so a mark
   // is normally under 20s old; one slow Kalshi read (20s timeout, 429 backoff) can stretch a pass toward a minute.
@@ -415,9 +441,10 @@
   // 14 min ago", short enough for a phone's stacked card), and its time and what an old mark means ride in a title
   // and in text a screen reader reads. "as of 05:31 UTC, 3h ago" beside an undimmed figure still read as current.
   const markedAt = (iso, lead = 'as of') => {
-    if (!markOld(iso)) return `${lead} ${esc(settleAt(iso))}`;
-    const why = `Last marked ${settleAt(iso)}. No newer price has come in, so this figure may be out of date.`;
-    return `<span class="mark-age" title="${esc(why)}">${lead} ${apAgo(iso)}<span class="vh"> (${esc(why)})</span></span>`;
+    if (!markOld(iso)) return `${lead} ${dayAt(iso)}`;
+    // Its hover names the day too (stampAt); the words a screen reader reads keep settleAt's.
+    const why = (at) => `Last marked ${at}. No newer price has come in, so this figure may be out of date.`;
+    return `<span class="mark-age" title="${esc(why(stampAt(iso)))}">${lead} ${apAgo(iso)}<span class="vh"> (${esc(why(settleAt(iso)))})</span></span>`;
   };
   // Short, consistent chip labels for every market; unknown keys fall back to the
   // server's full label, never the raw key (keeps the market chips uniform).
@@ -1415,7 +1442,7 @@
   window.TauCore = Object.freeze({
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
-    logTime, settleAt, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
+    logTime, settleAt, stampAt, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,

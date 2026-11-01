@@ -8,12 +8,12 @@
 window.TauPage('explore', (T) => {
   'use strict';
   const {
-    announce, api, boardTitle, BTC_CONTRACT, cents, clock, closeClock, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
+    announce, api, boardTitle, BTC_CONTRACT, cents, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
     exploreNoBtc, exploreNoFeed, exploreShowChips, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
-    settleAt, shell, sinceMin, smooth, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
+    settleAt, dayAt, shell, sinceMin, smooth, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
   } = T;
   // Each theme heads the list, sets out its figures, its rows and its sort its own way (Meridian's rows carry its
   // Context column and the Yes bid and ask), and says a market page short of history in its own words; the reads,
@@ -51,7 +51,10 @@ window.TauPage('explore', (T) => {
     // market page does. The zone is the one in force at each end: across the November clock change the last
     // time read "06:00 EDT", an hour that was EST, so the left end names its own zone when the two differ.
     const md = (t) => { const d = new Date(t * 1000); return `${d.getMonth() + 1}/${d.getDate()}`; };
-    const fmt = new Date(t0 * 1000).toDateString() === new Date(t1 * 1000).toDateString() ? (t) => clock(t * 1000)
+    // Clock times alone only for a chart within today: a closed 15-minute window from last night read "23:40 … 23:55 CDT"
+    // the next morning, as if from tonight (walk 2026-11-01). One within another day says its date as one over days does.
+    const oneDay = new Date(t1 * 1000).toDateString();
+    const fmt = new Date(t0 * 1000).toDateString() === oneDay && oneDay === new Date(Date.now()).toDateString() ? (t) => clock(t * 1000)
       : tr < 3 * 86400 ? (t) => `${md(t)} ${clock(t * 1000)}` : md;
     const z0 = tzName(t0 * 1000), z1 = tzName(t1 * 1000);
     const left = `${fmt(t0)}${z0 && z0 !== z1 ? ' ' + z0 : ''}`, right = `${fmt(t1)}${z1 ? ' ' + z1 : ''}`;
@@ -161,7 +164,7 @@ window.TauPage('explore', (T) => {
     // A price under half a cent read "≈ 0% chance of Yes" and one over 99.5¢ "≈ 100%", odds Kalshi's book doesn't give.
     const chance = (p) => { const n = Math.round(p * 100); return n < 1 ? 'under\u00a01%' : n > 99 ? 'over\u00a099%' : `≈\u00a0${n}%`; };
     const priceSub = [mid == null ? 'No trades yet' : `${chance(mid)} chance of Yes${bid > 0 && ask > 0 ? '' : ', from the last trade'}`, quote,
-      d.as_of ? (d.snapshot ? `Explore snapshot, ${sinceMin(d.as_of)}` : `as\u00a0of\u00a0${keepZone(settleAt(d.as_of))}`) : ''].filter(Boolean).join(SEP);
+      d.as_of ? (d.snapshot ? `Explore snapshot, ${sinceMin(d.as_of)}` : `as\u00a0of\u00a0${dayAt(d.as_of, 'kz')}`) : ''].filter(Boolean).join(SEP);
     const settled = d.result === 'yes' || d.result === 'no';
     // Settled with no Yes or No (Kalshi voided it, or its record says settled and sends no result): the page read
     // "Settled" over a live-looking "≈ 41% chance of Yes" and "Result expected" a day gone, and never said there was no
@@ -176,9 +179,9 @@ window.TauPage('explore', (T) => {
     // A market Kalshi closed before its scheduled time (a game that ended early) read "Closed 17:00 EDT" at 15:00, a close
     // still to come: it says it closed early and when it was due.
     const closedEarly = closedNow && d.close_time && closeLeft(d.close_time, closeSkew) > 0;
-    const closesFig = !d.close_time ? fig('Closes', '—') : closedEarly ? fig('Closed', 'Early', { small: `was due ${keepZone(settleAt(d.close_time))}` })
-      : closedNow ? fig('Closed', keepZone(settleAt(d.close_time)))
-      : fig(liveClose(d.close_time, 'lab', { skew: closeSkew }), keepZone(settleAt(d.close_time)), { small: liveClose(d.close_time, 'in', { skew: closeSkew }) });
+    const closesFig = !d.close_time ? fig('Closes', '—') : closedEarly ? fig('Closed', 'Early', { small: `was due ${dayAt(d.close_time, 'kz')}` })
+      : closedNow ? fig('Closed', dayAt(d.close_time, 'kz'))
+      : fig(liveClose(d.close_time, 'lab', { skew: closeSkew }), dayAt(d.close_time, 'kz'), { small: liveClose(d.close_time, 'in', { skew: closeSkew }) });
     const kalshiLink = `https://kalshi.com/markets/${encodeURIComponent((d.series || '').toLowerCase())}`;
     // The line under the name says what the code is, as a position does (kalshiRef): "Kalshi contract KX…", not a bare ticker.
     // An open market's status follows the same clock as its Closes figure (closeClock), flipping to "Closed, result
@@ -202,7 +205,7 @@ window.TauPage('explore', (T) => {
           : fig('Yes price', mid == null ? '—' : cents(mid), { small: priceSub })) + count('24h volume', d.volume_24h, 'contracts traded') +
         count('Open interest', d.open_interest, 'contracts held') + closesFig + '</dl>' + marketNext(d.ticker, d.my_markets), `${spotReq && !over ? spotSect(d.ticker || ticker) : ''}
       <section class="sect"><div class="sect-head"><h2>Your positions here</h2><p>Each money book on its own</p></div>${marketMine(d)}</section>
-      <section class="sect"><div class="sect-head"><h2>How it settles</h2><p>${settled ? `Settled${SEP}${d.result === 'yes' ? 'Yes' : 'No'}` : voided ? 'Voided, no result' : noResult ? 'Settled, no result sent' : d.settles_at ? `Result expected ${settleAt(d.settles_at)}` : 'Kalshi’s rules'}</p></div>
+      <section class="sect"><div class="sect-head"><h2>How it settles</h2><p>${settled ? `Settled${SEP}${d.result === 'yes' ? 'Yes' : 'No'}` : voided ? 'Voided, no result' : noResult ? 'Settled, no result sent' : d.settles_at ? `Result expected ${dayAt(d.settles_at)}` : 'Kalshi’s rules'}</p></div>
         ${d.rules ? `<p class="mk-rules">${esc(rulesText(d.rules))}</p>${d.rules_more ? `<p class="hint mk-rules">${esc(rulesText(d.rules_more))}</p>` : ''}`
           : `<p class="hint mk-rules">Kalshi’s settlement rules didn’t come with this snapshot. <a href="${kalshiLink}" target="_blank" rel="noopener">Read them on Kalshi ↗</a></p>`}</section>
       <section class="sect"><div class="sect-head"><h2>Price history</h2><p>Yes price${d.history_unavailable ? '' : `${SEP}${GRAN_EACH[gran]}, from Kalshi`}</p></div>
@@ -218,6 +221,10 @@ window.TauPage('explore', (T) => {
     if (retry) retry.onclick = again;
     closeClock();
     if (spotReq && !over) mountSpot(ticker, spotReq, d);
+    // Past the reader's midnight the price history's clock times take their date (priceChart), drawn again from the
+    // points the page holds, with no read.
+    const gen = S.gen;
+    if (!d.history_unavailable) dayWatch.add(() => { if (gen !== S.gen) return false; const w = root.querySelector('.pchart-wrap'); if (w) w.innerHTML = priceChart(d.points); });
     const pts = d.points.slice().reverse();  // newest first
     const PER = 25; let pg = 0;
     const rawEl = root.querySelector('#rawsect');

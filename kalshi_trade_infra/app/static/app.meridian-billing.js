@@ -7,7 +7,7 @@ window.TauPage('billing', (T) => {
     alert0, api, apCostWatch, apSessionLine, armed, BEHIND, boardTitle, busy, cardFormFail, CLOCK, CLOCK_ZONE, dateFmt, esc, fig, flash,
     halfUp, holdFocus, ICON, KIND_LABEL, loadFail, loading, loadStripe, num, paceDay, paceTooSoon, paceWords, paint, poll, refreshed,
     retried, root, runwayLabel, S, SEP, sessionTitle, settleAt, shell, stripeFail, syncMeBilling, topupCharge, usd, waitNote, WJ,
-    localDay, WEEKDAY_DAY, dayWatch
+    localDay, WEEKDAY_DAY, dayWatch, dayAt
   } = T;
   const CARDS_UNREAD_BUY = 'Your saved cards didn\u2019t load, so buying credits waits until they do.';
 
@@ -348,7 +348,7 @@ window.TauPage('billing', (T) => {
   function reloadFailNote(d) {
     const f = d && d.reload_failed;
     if (!f || !f.text) return '';
-    return `<div class="notice bad autorel-fail" id="autorel-fail" role="status"${d.auto_reload ? '' : ' hidden'}>${ICON.warn}<span><b>Auto-reload failed</b> <time datetime="${esc(f.at)}">${settleAt(f.at)}</time>. ${esc(f.text)}<button type="button" class="btn sm" id="autorel-fix">Update card</button></span></div>`;
+    return `<div class="notice bad autorel-fail" id="autorel-fail" role="status"${d.auto_reload ? '' : ' hidden'}>${ICON.warn}<span><b>Auto-reload failed</b> ${dayAt(f.at)}. ${esc(f.text)}<button type="button" class="btn sm" id="autorel-fix">Update card</button></span></div>`;
   }
   // The week's usage by what spent it (/api/billing spent_7d_by), biggest first; '' when nothing did. The server
   // sends the parts in cents that add up to "Spent, last 7 days" (rounded each on its own they read $38.85 +

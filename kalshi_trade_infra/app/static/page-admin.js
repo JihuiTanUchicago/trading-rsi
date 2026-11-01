@@ -5,8 +5,8 @@
 window.TauPage('admin', (T) => {
   'use strict';
   const {
-    adminViewOn, alert0, api, armed, boardTitle, busy, compact, esc, flash, go, loadFail, loading, logTime, num, phone, poll,
-    retried, root, S, SEP, settleAt, shell, theme, usd, when
+    adminViewOn, alert0, api, armed, boardTitle, busy, compact, esc, flash, go, loadFail, loading, num, phone, poll,
+    retried, root, S, SEP, settleAt, dayAt, shell, theme, usd, when
   } = T;
   // Tau's pages have a line under each title, and its System map lists the database's largest tables; Meridian's
   // Admin has the waitlist.
@@ -396,10 +396,10 @@ window.TauPage('admin', (T) => {
       if (id === 'live_engine') return `${num(L.live)} live${SEP}${num(L.demo)} demo${SEP}${a}`;
       return a;
     }
-    // A line's time: the clock for today's (its date and zone on hover, logTime), else the day or how long ago (when).
-    // Every line read as a bare clock, so a quiet feed's newest line, days old, read as today's.
-    const feedTime = (iso) => (new Date(iso).toDateString() === new Date().toDateString() ? logTime(iso)
-      : `<time datetime="${esc(iso || '')}" title="${esc(settleAt(iso))}">${esc(when(iso))}</time>`);
+    // A line's time: the clock for today's, else the day or how long ago (when), its date and zone on hover.
+    // Every line read as a bare clock, so a quiet feed's newest line, days old, read as today's. Past midnight, while
+    // the reads fail, the day before's clocks turn to how long ago (dayAt's "log" words, dayTimes).
+    const feedTime = (iso) => dayAt(iso, 'log', { hover: true });
     // A verdict reads as the run page's plain note (server gate_explain.event_note) when it has one,
     // after the idea's title; else its own message, minus the status word the row doesn't need.
     const sysVerdict = (e) => {
@@ -455,7 +455,7 @@ window.TauPage('admin', (T) => {
       sysAt = Date.now(); sysRead = d.nodes; readNow = Date.parse(d.now);
       paint(d.nodes, readNow);
       // The time of the read in the reader's zone: a bare "updated 12:11" named no zone.
-      root.querySelector('#sys-stamp').textContent = 'updated ' + settleAt(d.now);
+      root.querySelector('#sys-stamp').innerHTML = 'updated ' + dayAt(d.now);
       const feed = root.querySelector('#sys-feed');
       feed.innerHTML = d.events.length ? d.events.map((e) => `<li class="${e.kind === 'error' ? 'error' : ''}">${feedTime(e.created_at)}<span>${e.kind === 'verdict' ? esc(sysVerdict(e)) : esc(e.message)}</span></li>`).join('') : '<li><span class="hint">Quiet right now.</span></li>';
     };

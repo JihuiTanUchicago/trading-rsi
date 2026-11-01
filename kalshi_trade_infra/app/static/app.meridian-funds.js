@@ -5,7 +5,7 @@ window.TauPage('funds', (T) => {
   'use strict';
   const {
     announce, api, armed, BEHIND, boardTitle, busy, cashFig, cashNow, cashRead, contractName, DEMO_BOOK, DEMO_WHAT, demoCapital, demoKeyless, demoNoClose, demoSpan, errText, esc, fig, flash, holdFocus, ICON, inBalance, kalshiRef, liveOpen, loading, num, olderRows, openCost, pageAssets, PAPER_NET,
-    paint, painted, poll, refreshed, root, S, SEP, settleAt, shell, slipEst, tone, usd, when
+    paint, painted, poll, refreshed, root, S, SEP, settleAt, dayAt, shell, slipEst, tone, usd, when
   } = T;
 
   // ---------- funds ----------
@@ -143,7 +143,8 @@ window.TauPage('funds', (T) => {
   // A Kalshi contract ticker in a memo: its series, then the event's date (KXBTCD-26OCT2617-T114999.99).
   const LEDGER_TICKER = /\b[A-Z][A-Z0-9]*-\d{2}[A-Z]{3}\d{2}(?:[A-Z0-9.-]*[A-Z0-9])?/g;
   // When cash moved: the clock and its zone, with the date on any day but today (settleAt), never a bare "Oct 24".
-  const ledgerAt = (iso) => `<time datetime="${esc(iso || '')}">${esc(settleAt(iso))}</time>`;
+  // Said again past the reader's midnight (dayAt): a move at 23:50 read "23:50 CDT", as today's, the next day.
+  const ledgerAt = (iso) => dayAt(iso);
   // Fees and settlement, once, in plain words, where the cash moves.
   const LEDGER_HOW = 'Cash in and out of your paper account, newest first. A buy takes the contracts\u2019 price plus Kalshi\u2019s fee, as a real order would. When a market settles, each winning contract pays $1 and each losing one pays $0; a sale before then pays the price it sold at, less the fee. A trade\u2019s P&amp;L is what it brought back less everything it cost, fees included.';
   // One paper history row, the newest page's and every older page's alike, each cell labelled for a phone (data-lab).

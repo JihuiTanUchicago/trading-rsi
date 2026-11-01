@@ -9,7 +9,7 @@ window.TauPage('autopilot', (T) => {
     apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, apMarketNames, apQueued, apReloadFailed, apShowFocus,
     apEvery, apOffCost, apStale, apStillTrading, apStory, apSwitchOn, apWeek, busy, clock, esc, failText, feedMd, gl, go, ICON, mdLite, num,
     liveIdleCount, liveIdleShort, liveOpen, paced, paintDashAp, paperCount, PAPER_COUNT_WHY, PAPER_NET, pausesIn, pnlWin, refreshAutopilot, repaintKeep, S, SEP, settleAt, sinceMin, slipEstGl, theme, usd, waitNote, waitSpan,
-    wakers, dayWatch, dayRoll, utcDayWord
+    wakers, dayWatch, dayRoll, utcDayWord, stampAt
   } = T;
   // Tau's panel has a dot by its title and by the idle pulse, a line under the feed's title, and says when it's idle that reviews run on a schedule.
   const tau = theme === 'tau';
@@ -130,7 +130,7 @@ window.TauPage('autopilot', (T) => {
     .map((part, i) => (i % 2 ? part : part.replace(/([A-Za-z])'(?=[A-Za-z])/g, '$1\u2019'))).join('');
   function apFeedLi(m) {
     const li = document.createElement('li');
-    const t = `<time datetime="${esc(m.created_at)}" title="${esc(settleAt(m.created_at))}">${clock(m.created_at)}</time><span class="node" aria-hidden="true"></span>`;
+    const t = `<time datetime="${esc(m.created_at)}" title="${esc(stampAt(m.created_at))}">${clock(m.created_at)}</time><span class="node" aria-hidden="true"></span>`;
     if (m.role === 'user') {
       li.className = 'ln lane-state apf-you';
       li.innerHTML = `${t}<div class="say"><span class="say-kind">You</span>${mdLite(m.content)}</div>`;

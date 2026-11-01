@@ -52,6 +52,7 @@ import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
+import {dayClockCases} from './day_clock_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
 import {badConnectionCases} from './bad_connection_frontend_cases.mjs';
@@ -6073,11 +6074,11 @@ test('a market page says what its price is, how it settles and when, and the rea
   assert.match(html, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/); assert.doesNotMatch(html, /· active ·/);
   // The price: a chance, the book it comes from, and when it was read.
   // Each piece holds together ("bid 58¢" ended a 390px line and "/ ask 61¢" began the next), breaking only at "·".
-  assert.match(html, new RegExp('≈\u00a056% chance of Yes\u00a0· bid\u00a055¢\u00a0/ ask\u00a057¢\u00a0· as\u00a0of\u00a0[^<]*\u00a0' + readerZone));
+  assert.match(html, new RegExp('≈\u00a056% chance of Yes\u00a0· bid\u00a055¢\u00a0/ ask\u00a057¢\u00a0· as\u00a0of\u00a0<time datetime="[^"]+" data-day="kz">[^<]*\u00a0' + readerZone + '</time>'));
   // Every clock names its zone: Closes, the expected result, the raw table, the chart's axis.
   // The zone stays on the time's line ("Closes Oct 28, 02:45" left "UTC" alone on the next at 390px).
-  assert.match(html, new RegExp('Closes(?:</span>)?</dt><dd><span class="fig ">[^<]*\u00a0' + readerZone + '<'));
-  assert.match(html, new RegExp('Result expected [^<]*' + readerZone)); assert.match(f.root.querySelector('#rawsect').innerHTML, new RegExp('Time \\(' + readerZone + '\\)'));
+  assert.match(html, new RegExp('Closes(?:</span>)?</dt><dd><span class="fig "><time datetime="[^"]+" data-day="kz">[^<]*\u00a0' + readerZone + '</time><'));
+  assert.match(html, new RegExp('Result expected <time datetime="[^"]+" data-day="at">[^<]*' + readerZone)); assert.match(f.root.querySelector('#rawsect').innerHTML, new RegExp('Time \\(' + readerZone + '\\)'));
   assert.match(html, new RegExp('class="pc-xlab" text-anchor="end">[^<]*' + readerZone));
   assert.match(html, /If the BRTI average before 5\u00a0PM\u00a0EDT is above 113499\.99/);
   // Live and paper each get their own block and totals; nothing adds them together.
@@ -6905,6 +6906,7 @@ a11yCases({name: 'Meridian', frontend, storageFor: m => m, billingPage, cardedBi
 creditsCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, apStatus});
 timeTruthCases({name: 'Meridian', billingPage, cardedBilling});
 midnightCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, storageFor: m => m});
+dayClockCases({name: 'Meridian', frontend, fundsData: funds, storageFor: m => m});
 writeWaitCases({name: 'Meridian', frontend, billingPage, cardedBilling, postRequests, storageFor: m => m});
 declinedCardCases({name: 'Meridian', frontend, dashboard: dashboardData});
 flakyNetworkCases({name: 'Meridian', frontend});

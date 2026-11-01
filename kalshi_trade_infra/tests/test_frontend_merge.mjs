@@ -51,6 +51,7 @@ import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
+import {dayClockCases} from './day_clock_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
 import {badConnectionCases} from './bad_connection_frontend_cases.mjs';
@@ -2108,11 +2109,11 @@ test('a market page says what its price is, how it settles and when, and the rea
   assert.match(html, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/); assert.doesNotMatch(html, /· active ·/);
   // The price: a chance, the book it comes from, and when it was read.
   // Each piece holds together ("bid 58¢" ended a 390px line and "/ ask 61¢" began the next), breaking only at "·".
-  assert.match(html, new RegExp('≈\u00a056% chance of Yes\u00a0· bid\u00a055¢\u00a0/ ask\u00a057¢\u00a0· as\u00a0of\u00a0[^<]*\u00a0' + readerZone));
+  assert.match(html, new RegExp('≈\u00a056% chance of Yes\u00a0· bid\u00a055¢\u00a0/ ask\u00a057¢\u00a0· as\u00a0of\u00a0<time datetime="[^"]+" data-day="kz">[^<]*\u00a0' + readerZone + '</time>'));
   // Every clock names its zone: Closes, the expected result, the raw table, the chart's axis.
   // The zone stays on the time's line ("Closes Oct 28, 02:45" left "UTC" alone on the next at 390px).
-  assert.match(html, new RegExp('Closes(?:</span>)?</dt><dd><span class="fig ">[^<]*\u00a0' + readerZone + '<'));
-  assert.match(html, new RegExp('Result expected [^<]*' + readerZone)); assert.match(f.root.querySelector('#rawsect').innerHTML, new RegExp('Time \\(' + readerZone + '\\)'));
+  assert.match(html, new RegExp('Closes(?:</span>)?</dt><dd><span class="fig "><time datetime="[^"]+" data-day="kz">[^<]*\u00a0' + readerZone + '</time><'));
+  assert.match(html, new RegExp('Result expected <time datetime="[^"]+" data-day="at">[^<]*' + readerZone)); assert.match(f.root.querySelector('#rawsect').innerHTML, new RegExp('Time \\(' + readerZone + '\\)'));
   assert.match(html, new RegExp('class="pc-xlab" text-anchor="end">[^<]*' + readerZone));
   // Kalshi's words as written, with "5 PM EDT" kept on one line.
   assert.match(html, /If the BRTI average before 5 PM EDT is above 113499\.99/);
@@ -4117,7 +4118,7 @@ test('a failed auto-reload says why by the auto-reload switch, with Update card 
   const note = f.root.querySelector('#autorel-fail');
   assert.ok(note, 'the banner is on the page');
   assert.ok(f.root.querySelector('section.panel #autorel-fail'), 'it sits in the payment-method panel, by the switch');
-  assert.match(note.innerHTML, /<b>Auto-reload failed<\/b> <time datetime="2026-10-26T13:05:00Z">/);
+  assert.match(note.innerHTML, /<b>Auto-reload failed<\/b> <time datetime="2026-10-26T13:05:00Z" data-day="at">/);
   assert.match(note.innerHTML, /It couldn&#39;t add \$25\.00 in credits\. Your card was declined for &lt;insufficient&gt; funds\./);
   assert.equal('hidden' in note.attributes, false);
   const fix = f.root.querySelector('#autorel-fix');
@@ -6399,6 +6400,7 @@ a11yCases({name: 'Tau', frontend, storageFor: m => ({getItem: k => m.get(k) ?? n
 creditsCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, apStatus: apOn});
 timeTruthCases({name: 'Tau', billingPage, cardedBilling});
 midnightCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
+dayClockCases({name: 'Tau', frontend, fundsData: funds, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 writeWaitCases({name: 'Tau', frontend, billingPage, cardedBilling, postRequests, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 declinedCardCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 flakyNetworkCases({name: 'Tau', frontend});

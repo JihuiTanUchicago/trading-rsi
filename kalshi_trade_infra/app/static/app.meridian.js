@@ -9,7 +9,7 @@
   const {
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
-    logTime, settleAt, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
+    logTime, settleAt, stampAt, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
@@ -601,6 +601,8 @@
     if (b) renderAutopilot(b, S.ap);
     paintDashAp();
   });
+  // Every time on the page that leaves its date off because it is today (dayAt) or says a close (closeData), said again.
+  dayWatch.add(() => dayTimes(document.body));
   // The phone says it has no network (a tunnel, a lift): a line above the page says so at once. A page
   // only said so a poll or two later ("Last updated 30s ago, retrying"), or as "Something went wrong"
   // on the next tap. It goes by itself once the network is back.
@@ -3458,7 +3460,7 @@
     const text = apMoveText(la);
     if (!text || !la.at) return '';
     // A move cut at 90 characters ends on its ellipsis, without a period after it ("on quiet days….", walk 2026-10-31).
-    return `<p class="ap-last">Last move <time datetime="${esc(la.at)}" title="${esc(settleAt(la.at))}">${sinceMin(la.at)}</time>: ${esc(text)}${text.endsWith('\u2026') ? '' : '.'}</p>`;
+    return `<p class="ap-last">Last move <time datetime="${esc(la.at)}" title="${esc(stampAt(la.at))}">${sinceMin(la.at)}</time>: ${esc(text)}${text.endsWith('\u2026') ? '' : '.'}</p>`;
   }
   function apMarketName(n) {
     const s = String(n || '');
@@ -4134,7 +4136,7 @@
     paced, paceDay, paceTooSoon, paceWords, pageAssets, paint, paintDashAp, painted, paintKeep, paintRows, paperAgain, PAPER_NET, NOT_MARKED, markedOf, paperCount, paperShown, paperSince, realWords, demoWords, slipEst, slipEstGl, slipTip, PAPER_COUNT_WHY, PNL_WINDOW, pnlWin, repaintKeep, retried,
     pausesIn, pct, PERPS_SCENARIO, phone, poll, realTrades, refreshAutopilot, recoverFails, refreshed, registry, render,
     researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind, runTag, runWaitLine, runwayLabel, S, sessionEstimate,
-    sessionNo, sessionTitle, settleAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark, strategySlip, strategyTable,
+    sessionNo, sessionTitle, settleAt, stampAt, dayAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark, strategySlip, strategyTable,
     stripeFail, syncMeBilling, theme: 'meridian', tone, topupCharge, tradePrice, trDay, tzName, usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord,
     localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker
   }, { get: (all, k) => { if (!(k in all)) throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); return all[k]; } }));
