@@ -1828,7 +1828,8 @@ test('Overview rowgroups remove repeated catalog labels without merging nonadjac
   const catalog = Object.freeze([Object.freeze({key: 'btc15m', series: 'BTC', label: 'Bitcoin'}),
     Object.freeze({key: 'rain', series: 'RAIN', label: 'Rainfall'})]);
   const before = JSON.stringify({rows, catalog});
-  const f = frontend({fetchImpl: () => response(dashboardData({open_positions: rows}))});
+  // Deployment 11 is listed, as a deployment is while not removed (a position of one not listed says it was removed).
+  const f = frontend({fetchImpl: () => response(dashboardData({open_positions: rows, deployments: [{...dashboardDeployment('paper'), id: 11}]}))});
   f.S.me.markets = catalog; await f.viewDashboard();
   const table = f.root.querySelector('.t-positions'), bodies = table.querySelectorAll('tbody');
   assert.deepEqual(bodies.map(body => body.querySelector('.position-family-name')?.textContent || ''), ['Bitcoin', 'Rainfall', 'Bitcoin', '']);

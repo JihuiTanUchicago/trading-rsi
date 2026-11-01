@@ -68,7 +68,10 @@ export function fundsWalkCases({name, frontend, fundsData}) {
       qty: 5, entry_price: .44, entry_fee: .09, cost: 2.29, unrealized: null, mode, opened_at: '2026-10-27T16:50:00Z',
       market_close_time: '2030-01-15T17:30:00Z', status: 'open'});
     const f = frontend({fetchImpl: (path) => path.startsWith('/api/deployments')
-      ? response({deployments: [], open_positions: [pos(1, 'paper'), pos(2, 'demo'), pos(3, 'live')]}) : response({})});
+      // Each position's deployment is listed, as the server's are while not removed (one not listed says it was removed).
+      ? response({deployments: [[1, 'paper'], [2, 'demo'], [3, 'live']].map(([id, mode]) => ({id, strategy_id: id, title: 'Dep ' + id, market: 'btc15m',
+        mode, status: 'running', realized_pnl: 0, closed_trades: 0, open_positions: 1, unrealized_pnl: null, created_at: '2026-10-24T08:00:00Z', curve: [],
+        stake: 5, max_positions: 1, backtest: {out_of_sample: null}})), open_positions: [pos(1, 'paper'), pos(2, 'demo'), pos(3, 'live')]}) : response({})});
     f.S.me.markets = MARKETS;
     f.location.pathname = '/deploy';
     await f.viewDeploy(); await settle();

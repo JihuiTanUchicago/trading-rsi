@@ -1076,6 +1076,63 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     f.clearTimers();
   });
 
+  // Walk 2026-11-01, an account with 40 deployments: one strategy ran on paper at $5 twice (one deployed a minute before
+  // midnight UTC), at $10 and at $25. Their Pause and Remove all read "Pause Late fade, paper book"; Meridian's rows and
+  // cards kept the day each was deployed in a closed Details, so the two $5 rows read alike; the open positions said
+  // "Late fade" for each; and a removed deployment's open position read like a running one's.
+  const yr = new Date().getFullYear();
+  const twin = (id, o = {}) => ({id, strategy_id: 7, title: 'Late fade', market: 'btc15m', mode: 'paper', status: 'running', realized_pnl: 1,
+    unrealized_pnl: null, closed_trades: 1, open_positions: 0, created_at: `${yr}-10-12T12:00:00Z`, backtest: null, curve: [], stake: 5,
+    max_positions: 8, ...o});
+  const twins = () => [twin(1), twin(2, {created_at: `${yr}-10-31T12:00:00Z`}), twin(3, {strategy_id: 8, stake: 25, status: 'paused',
+    status_reason: 'By you', created_at: `${yr}-10-27T12:00:00Z`}), twin(4, {mode: 'demo'}), twin(5, {strategy_id: 9, title: 'Other'}),
+  twin(6, {strategy_id: 10, title: 'Same day', created_at: `${yr}-10-20T10:00:00Z`}), twin(7, {strategy_id: 10, title: 'Same day', created_at: `${yr}-10-20T13:00:00Z`})];
+  const pos = (id, dep, title = 'Late fade') => ({id, deployment_id: dep, title, mode: 'paper', ticker: 'KXBTC15M-26NOV010330-00', side: 'yes',
+    qty: 2, entry_price: 0.5, entry_fee: 0.02, cost: 1.02, status: 'open', market_close_time: `${yr}-11-01T03:30:00Z`, opened_at: `${yr}-11-01T03:00:00Z`});
+  test(`${name}: same-strategy deployments' actions say their stake and day; a lone one keeps its name`, async () => {
+    const f = frontend({fetchImpl: (path) => (path === '/api/deployments' ? response({deployments: twins(), open_positions: []}) : response({}))});
+    f.location.pathname = '/deploy';
+    await f.render(); await settle();
+    const deps = f.root.querySelector('#deps');
+    const said = (act, id) => deps.querySelector(`[data-dep="${id}"][data-act="${act}"]`).textContent.replace(/\s+/g, ' ').trim();
+    assert.equal(said('pause', 1), 'Pause Late fade, paper book, $5 a trade, deployed Oct 12');
+    assert.equal(said('stop', 2), 'Remove Late fade, paper book, $5 a trade, deployed Oct 31');
+    assert.equal(said('resume', 3), 'Resume Late fade, paper book, $25 a trade, deployed Oct 27');
+    assert.equal(said('pause', 4), 'Pause Late fade, demo book');  // the only one on demo
+    assert.equal(said('pause', 5), 'Pause Other, paper book');
+    // Two at one stake deployed the same day: the time tells them apart.
+    assert.match(said('pause', 6), /^Pause Same day, paper book, \$5 a trade, deployed Oct 20, \d\d:\d\d /);
+    assert.notEqual(said('pause', 6), said('pause', 7));
+    // Meridian's row says the day beside its stake (Tau's Since column says it already); a lone row doesn't.
+    if (name === 'Meridian') {
+      const row = (id) => deps.querySelector(`[data-dep="${id}"]`).closest('tr').querySelector('.dep-meta > .sub-fig').textContent;
+      assert.match(row(2), /\$5 \/ trade\u00a0· Max 8 open\u00a0· Deployed Oct 31/);
+      assert.doesNotMatch(row(5), /Deployed/);
+    }
+    f.clearTimers();
+  });
+
+  test(`${name}: an open position says which twin deployment holds it, and one of a removed deployment says so`, async () => {
+    const f = frontend({fetchImpl: (path) => (path === '/api/deployments'
+      ? response({deployments: twins(), open_positions: [pos(11, 2), pos(12, 99, 'Old breakout'), pos(13, 5, 'Other')]}) : response({}))});
+    f.location.pathname = '/deploy';
+    await f.render(); await settle();
+    const cells = f.root.querySelectorAll('#openpos td[data-lab="Strategy"]').map((td) => td.textContent.replace(/\s+/g, ' ').trim());
+    assert.match(cells[0], name === 'Meridian' ? /^Late fade Paper\s*\$5 \/ trade · Deployed Oct 31$/ : /^Late fade Paper\s*\$5 a trade, deployed Oct 31$/);
+    assert.match(cells[1], /^Old breakout Paper\s*Removed deployment$/);
+    assert.match(cells[2], /^Other Paper$/);
+    f.clearTimers();
+    // The dashboard's open positions say the same.
+    const d = frontend({fetchImpl: (path) => (path.startsWith('/api/dashboard')
+      ? response({...dashboard(), deployments: twins(), open_positions: [pos(11, 2), pos(12, 99, 'Old breakout')]}) : response({}))});
+    await d.viewDashboard(); await settle();
+    const shown = d.root.querySelector('#main').textContent.replace(/\s+/g, ' ');
+    assert.match(shown, name === 'Meridian' ? /Late fade \(\$5 \/ trade · Deployed Oct 31\)/ : /Late fade \(\$5 a trade, deployed Oct 31\)/);
+    assert.match(shown, /Old breakout \(removed deployment\)/);
+    if (name === 'Meridian') assert.match(shown, /\$5 \/ trade · Deployed Oct 12/);  // its card, beside its stake
+    d.clearTimers();
+  });
+
   // Keyboard and screen-reader walk of the main flows, 2026-10-31 (ARIA snapshots, both themes, 390px and 1366px): each day
   // of Billing's statement was one row read "Fri, Oct 30$0.92 used" (the date's 30 run into the figure) and "Wed, Oct
   // 21+$5.00 credits". The date and its sum are apart to a screen reader too, by a comma only it hears.

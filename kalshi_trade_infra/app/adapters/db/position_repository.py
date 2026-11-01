@@ -63,17 +63,22 @@ def market_has_open_positions(cur, market: str) -> bool:
 # leaves positions open. Those positions are still money in the book (paper cash paid for them), so
 # the dashboard's open positions and equity, the Deploy board and the paper reset guard keep them,
 # with no title, as the track record and the trades CSV do.
+# Every open row is read: the open book's count, cost and paper equity (dashboard, Funds), the Deploy board's open
+# positions and its rows' unrealized are summed from these rows. A LIMIT of 100 cut a book holding more (40
+# deployments, a few open each) and every one of those figures with it, with nothing saying so (walk 2026-11-01).
+# The open rows are few by construction (each deployment's max_positions, the exposure caps), read via idx_pos_user.
 _USER_POSITIONS = """SELECT p.*, s.title FROM app_positions p
            JOIN app_deployments d ON d.id=p.deployment_id LEFT JOIN app_strategies s ON s.id=d.strategy_id
-           WHERE p.user_id=%s AND p.status=%s ORDER BY p.id DESC LIMIT %s"""
+           WHERE p.user_id=%s AND p.status=%s ORDER BY p.id DESC"""
 
 
 def user_positions(cur, user_id: int, status: str = "open", limit: int = 100) -> List[Dict]:
-    """A user's positions with their strategy titles. Open ones come newest-opened first, a deleted
-    strategy's included (title None); closed ones come most recently settled first (see _newest_closed)."""
+    """A user's positions with their strategy titles. Open ones come newest-opened first, every one of them
+    (`limit` is for closed ones), a deleted strategy's included (title None); closed ones come most recently
+    settled first, the newest `limit` (see _newest_closed)."""
     if status == "closed":
         return _newest_closed(cur, user_id, limit)
-    cur.execute(_USER_POSITIONS, (user_id, status, limit))
+    cur.execute(_USER_POSITIONS, (user_id, status))
     return cur.fetchall()
 
 

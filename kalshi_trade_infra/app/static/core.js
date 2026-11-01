@@ -867,6 +867,33 @@
   };
   // Paused deployments need the user ("Resume or remove it on Deploy" sends them here), so they lead.
   const pausedFirst = (ds) => [...ds].sort((a, b) => (b.status === 'paused') - (a.status === 'paused'));
+  // Deployments that share a title and a book (one strategy at $5 and $25, or deployed twice) read alike: three
+  // "Pause Late fade, paper book" buttons to a screen reader, and on Meridian the day each was deployed sat in a
+  // closed Details (walk 2026-11-01, 40 deployments). withTwins gives each listed row that has a twin `_twinDay`,
+  // the day it was deployed in the reader's zone (the year when it isn't this one's; its time too when a twin at the
+  // same stake was deployed that day), and `_apart`, the words its action buttons add to their name (", $5 a trade,
+  // deployed Oct 31"; text, the caller escapes it). A row with no twin gets neither. Display only.
+  const depDay = (iso) => {
+    const t = new Date(iso || NaN);
+    return Number.isFinite(t.getTime()) ? dateFmt(t, t.getFullYear() === new Date(Date.now()).getFullYear() ? MON_DAY : YEAR_DAY) : '';
+  };
+  const withTwins = (ds) => (ds || []).map((d) => {
+    const twins = ds.filter((x) => x.id !== d.id && x.mode === d.mode && stratTitle(x) === stratTitle(d));
+    const day = twins.length ? depDay(d.created_at) : '';
+    if (!day) return d;
+    const twinDay = twins.some((x) => depDay(x.created_at) === day && String(x.stake) === String(d.stake)) ? stampAt(d.created_at) : day;
+    const stake = d.stake != null && Number.isFinite(+d.stake) ? `${Number.isInteger(+d.stake) ? '$' + num(+d.stake) : plain(usd(+d.stake))} a trade, ` : '';
+    return { ...d, _twinDay: twinDay, _apart: `, ${stake}deployed ${twinDay}` };
+  });
+  // An open position on a page's list of deployments (rows from withTwins): which of a strategy's twin deployments
+  // holds it (its stake and day), and whether its deployment is one the page no longer lists because it was removed
+  // (it read as a running deployment's). A deleted strategy's position says that in its own line (the server's why).
+  // `dep` is the twin deployment itself, for a theme that says its stake its own way.
+  const posDep = (p, ds) => {
+    const d = (ds || []).find((x) => +x.id === +p.deployment_id);
+    return { dep: d && d._twinDay ? d : null, apart: d && d._apart ? d._apart.slice(2) : '', removed: !d && p.deployment_id != null };
+  };
+  const POS_REMOVED = 'removed deployment';
   // One plain line on how a book is doing against its backtest, written by the server
   // (services/backtest_check.py): that book's realized per-trade P&L and win rate against the
   // backtest's, "too early to tell" under 10 trades. One book per line; books are never added up.
@@ -1511,7 +1538,7 @@
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, btCheckLine, roadDays, roadLine,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
     depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,

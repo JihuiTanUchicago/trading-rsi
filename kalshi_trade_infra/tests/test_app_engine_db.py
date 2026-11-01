@@ -739,6 +739,36 @@ def test_settled_lately_ranks_by_settle_time_and_reads_only_the_newest_index_ent
     assert [r["key"] for r in rows] == ["idx_pos_user"]
     assert "filesort" not in (rows[0]["Extra"] or "")  # read straight off the index, newest first
 
+
+def test_a_book_holding_more_than_a_hundred_open_positions_counts_every_one(conn, user):
+    """Walk 2026-11-01, 40 deployments: the open read stopped at 100 rows, so with 123 open the dashboard and
+    Deploy said "78 paper · 22 demo", and paper's open cost and equity left the rest out. Every open row is read;
+    the dashboard, Deploy and Funds count and cost the same whole book, to the cent."""
+    from decimal import Decimal
+
+    from app import repository as repo
+    from app import server
+    from trading_core.domain.money import cents, exact
+
+    cur = conn.cursor()
+    uid = user["id"]
+    deps = [_deployment(conn, user) for _ in range(4)]
+    close = (datetime.now(timezone.utc) + timedelta(hours=2)).replace(tzinfo=None)
+    for i in range(130):
+        repo.insert_position(cur, deps[i % 4]["id"], uid, "paper", "TEST-OPEN-%d" % i, "yes", 2, 0.45, 0.0347, close, "sim:o%d" % i)
+    cur.execute("SELECT COUNT(*) AS n, SUM(qty*entry_price) AS c, SUM(qty*entry_price+entry_fee) AS f FROM app_positions "
+                "WHERE user_id=%s AND status='open' AND mode='paper'", (uid,))
+    whole = cur.fetchone()
+    assert whole["n"] == 130 and len(repo.user_positions(cur, uid, "open")) == 130
+    ctx = lambda: server.Ctx(conn, dict(user, autopilot=0), (), {}, {}, None)  # noqa: E731
+    dash, board, funds = server.dashboard(ctx()), server.list_deployments(ctx()), server.funds(ctx())
+    assert len(dash["open_positions"]) == len(board["open_positions"]) == 130
+    assert dash["paper"]["open_positions"] == funds["paper"]["open_positions"] == 130
+    assert dash["paper"]["open_at_cost"] == funds["paper"]["open_at_cost"] == cents(whole["c"])
+    assert dash["paper"]["open_cost"] == cents(whole["f"])
+    assert dash["paper"]["equity"] == cents(exact(repo.paper_balance(cur, uid)) + Decimal(str(whole["c"])))
+    assert sum(d["open_positions"] for d in board["deployments"] if d["id"] in {x["id"] for x in deps}) == 130
+
 def test_the_autopilot_panels_reads_answer_as_the_position_scans_they_replace(conn, user):
     """/api/autopilot/status polls every 20s. Its deployment list leaves out the position totals
     (read for a just-paused deployment alone), and its paper readouts start from the strategies'
