@@ -228,7 +228,16 @@
   // (closeData) go with them: "closes Nov 2, 00:30 CDT" says "closes 00:30 CDT" once that is today.
   const DAY_FORM = { at: (iso) => settleAt(iso), kz: (iso) => keepZone(settleAt(iso)), bell: (iso) => bellShown(iso),
     // Admin's activity feed: the clock for a line from today, else how long ago (when).
-    log: (iso) => (new Date(iso || NaN).toDateString() === new Date(Date.now()).toDateString() ? clock(iso) : when(iso)) };
+    log: (iso) => (new Date(iso || NaN).toDateString() === new Date(Date.now()).toDateString() ? clock(iso) : when(iso)),
+    // A research log's day line, over its bare clock times: "Today", "Yesterday", else "Sat, Oct 31" (the year too when
+    // it isn't this year's), as the autopilot feed's day lines read.
+    day: (iso) => {
+      const d = new Date(iso || NaN), now = new Date(Date.now());
+      if (!Number.isFinite(d.getTime())) return '';
+      if (d.toDateString() === now.toDateString()) return 'Today';
+      if (d.toDateString() === new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString()) return 'Yesterday';
+      return dateFmt(d, d.getFullYear() === now.getFullYear() ? WEEKDAY_DAY : YEAR_DAY);
+    } };
   // `cls`: its class; `hover`: it carries its full stamp on hover (stampAt).
   const dayAt = (iso, dayForm = 'at', { cls = '', hover = false } = {}) => `<time${cls ? ` class="${cls}"` : ''} datetime="${esc(iso || '')}"${hover ? ` title="${esc(stampAt(iso))}"` : ''} data-day="${dayForm}">${esc(DAY_FORM[dayForm](iso))}</time>`;
   const dayTimes = (box) => {

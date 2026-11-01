@@ -267,8 +267,8 @@ export function runPageCases({name, frontend}) {
     assert.match(log, /Plan: try up to 6 ideas/); assert.doesNotMatch(log, /in-sample|gate the best/);
     assert.match(log, /<b>Bitcoin<\/b>/);  // a step without a note keeps its own (markdown) words
     assert.match(log, /1 of 2 ideas passed every check\./); assert.doesNotMatch(log, /passed every gate/);
-    assert.match(f.root.querySelector('#log').querySelector('[data-review]').innerHTML, /Skeptic’s review · approved<\/span>Plausible/);
-    assert.match(log, /Skeptic’s review<\/span>revised - Other: tighten it/);
+    assert.match(f.root.querySelector('#log').querySelector('[data-review]').innerHTML, /Skeptic’s review · approved<\/span> Plausible/);
+    assert.match(log, /Skeptic’s review<\/span> revised - Other: tighten it/);
     assert.doesNotMatch(log, />Challenger/);
   });
 
@@ -291,7 +291,7 @@ export function runPageCases({name, frontend}) {
       ev(3, 'verdict', 'VOID — Todd’s walk: no edge, so nothing to deploy.', {title: 'Todd’s walk', status: 'rejected'}),
     ]);
     const review = f.root.querySelector('#log').querySelector('[data-review]').innerHTML;
-    assert.match(review, /<\/span>The overshoot has a plausible mechanism<\/p>/);
+    assert.match(review, /<\/span> The overshoot has a plausible mechanism<\/p>/);
     assert.match(review, /No edge, so nothing to deploy\./);
     assert.doesNotMatch(review, />no edge|>the overshoot/);
   });

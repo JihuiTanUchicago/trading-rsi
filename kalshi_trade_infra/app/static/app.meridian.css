@@ -887,6 +887,14 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
 .log > li.log-empty { display: block; grid-column: 1 / -1; color: var(--ink-3); font-family: var(--f-nar); font-size: 12.5px; letter-spacing: .02em; padding: 16px 2px; border-bottom: 0; }
 /* A long session's earlier entries wait behind this button at the top of the log (runFeed). */
 .log > li.log-earlier { display: block; text-align: center; padding: 10px 0 12px; }
+/* The log's top control stays out of a copy of the log (select all in it): the copy is its entries and their times. */
+.log > li.log-earlier { -webkit-user-select: none; user-select: none; }
+/* A day line, at the head of each day's first row in a log that isn't all from today (runFeed's markDays). Its band
+   covers the timeline's rule, so the days read apart. */
+.log > li > .log-day { grid-column: 1 / -1; position: relative; z-index: 1; background: var(--stock-raised); padding: 0 0 6px; font-family: var(--f-nar); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.log.stream .ln .log-day time { padding: 0; font: inherit; letter-spacing: inherit; color: inherit; }
+/* The line over the log: every entry since the session started, or only the latest (paintSpan). */
+.runfeed .log-span { margin: 0; padding: 8px 0 6px; font-size: 12px; line-height: 1.4; color: var(--ink-3); border-bottom: 1px solid var(--rule); }
 .rsiobs.is-quiet .rsi-rail .is-flow { animation-play-state: paused; opacity: .5; }
 
 @media (prefers-reduced-motion: reduce) {
