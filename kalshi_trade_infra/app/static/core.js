@@ -1644,7 +1644,13 @@
   // the card and the panel told what one session costs and how many the balance covers, and nothing of how much it
   // could spend in a day (walk 2026-11-01: the cap showed only once the first session had spent something). '' with
   // no cap. Its spend against the cap is said once there is some (apCreditsLeft).
-  const apCapShort = (cap) => +cap > 0 ? `It starts no new research once research sessions started in the last 24 hours have cost ${usd(+cap)}, your own included; research you start yourself isn’t limited.` : '';
+  // `together`: apCapTogether's words, for a focus across several kinds of market.
+  const apCapShort = (cap, together = '') => +cap > 0 ? `It starts no new research once research sessions started in the last 24 hours have cost ${usd(+cap)}${together}, your own included; research you start yourself isn’t limited.` : '';
+  // The cap is one figure for the whole focus. With a focus across several kinds of market (crypto, daily high
+  // temperatures and sports), "capped at $240.00 per 24 hours" could read as $240 for each kind, three times the money
+  // (walk 2026-11-01, a focus widened from crypto to weather and sports). `words` is the focus in words (the bundle's
+  // apFocusText, mid-sentence). '' for a focus of one kind or none, whose line reads as before.
+  const apCapTogether = (focus, words) => Array.isArray(focus) && focus.length > 1 && words ? `, one cap for ${esc(words)} together` : '';
 
   // ---------- relative times that tick in place ----------
   // A relative time ("5m ago", "as of 4 min ago", "read just now") inside markup a poll compares before it redraws is a
@@ -1725,7 +1731,7 @@
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
-    exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, apCapShort,
+    exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, apCapShort, apCapTogether,
     pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
   });
 })();

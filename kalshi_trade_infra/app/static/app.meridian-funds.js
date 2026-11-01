@@ -149,8 +149,9 @@ window.TauPage('funds', (T) => {
   // When cash moved: the clock and its zone, with the date on any day but today (settleAt), never a bare "Oct 24".
   // Said again past the reader's midnight (dayAt): a move at 23:50 read "23:50 CDT", as today's, the next day.
   const ledgerAt = (iso) => dayAt(iso);
-  // Fees and settlement, once, in plain words, where the cash moves.
-  const LEDGER_HOW = 'Cash in and out of your paper account, newest first. A buy takes the contracts\u2019 price plus Kalshi\u2019s fee, as a real order would. When a market settles, each winning contract pays $1 and each losing one pays $0; a sale before then pays the price it sold at, less the fee. A trade\u2019s P&amp;L is what it brought back less everything it cost, fees included.';
+  // Fees and settlement, once, in plain words, where the cash moves. A market Kalshi cancels settles at a price it sets
+  // (often 50¢, as a postponed game's), so "$1 or $0" alone read a cancelled game's 50¢ payout as neither (walk 2026-11-01).
+  const LEDGER_HOW = 'Cash in and out of your paper account, newest first. A buy takes the contracts\u2019 price plus Kalshi\u2019s fee, as a real order would. When a market settles, each winning contract pays $1 and each losing one pays $0, and a market Kalshi cancels (a postponed game, say) pays the price Kalshi sets; a sale before then pays the price it sold at, less the fee. A trade\u2019s P&amp;L is what it brought back less everything it cost, fees included.';
   // One paper history row, the newest page's and every older page's alike, each cell labelled for a phone (data-lab).
   const ledgerRow = (r) => `<tr><td class="hint lead-cell" data-lab="When">${ledgerAt(r.created_at)}</td><td class="name" data-lab="What">${ledgerWhat(r)}</td><td class="num ${tone(+r.amount)}" data-lab="Amount">${usd(r.amount, true)}</td></tr>`;
   // The history by day, as Billing's statement reads: each of the reader's days (localDay, by that entry's own offset)

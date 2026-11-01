@@ -345,15 +345,30 @@ def _research_cap(pulse: Dict) -> Optional[Dict]:
     return {"usd": cap, "spent_24h": cents(spent), "reached": spent >= cap}
 
 
-def _research_cap_line(cap: Optional[Dict]) -> str:
+def _research_cap_line(cap: Optional[Dict], focus: Optional[List[str]] = None) -> str:
     """The story's line once the research cap stops new autopilot research, else ''."""
     if not cap or not cap.get("reached"):
         return ""
+    # The cap is one figure for the whole focus: with a focus across several kinds of market, "$240.00 per 24 hours"
+    # could read as $240 for each kind (walk 2026-11-01, crypto, daily highs and sports), as the card's line says too.
+    together = ", one cap for %s together" % _focus_list(focus) if focus and len(focus) > 1 else ""
     # It names what the cap counts: the research sessions started in the last 24 hours (agent.research_spend), not the
     # day's debits, so "$X spent in the last 24 hours" can't sit beside Billing's larger figure for the same day.
     return ("It has reached its research cap: research sessions started in the last 24 hours, your own included, have "
-            "cost ${:,.2f}, and the cap is ${:,.2f} per 24 hours, so it starts no new research until enough of them are "
-            "over 24 hours old. Research you start yourself isn’t limited.".format(float(cap["spent_24h"]), float(cap["usd"])))
+            "cost ${:,.2f}, and the cap is ${:,.2f} per 24 hours{}, so it starts no new research until enough of them are "
+            "over 24 hours old. Research you start yourself isn’t limited.".format(float(cap["spent_24h"]), float(cap["usd"]),
+                                                                                   together))
+
+
+def _crypto_scope_line(focus: Optional[List[str]]) -> str:
+    """The story's line after the focus when it holds crypto and the autopilot's own crypto research is kept to some coins
+    (agent.AUTOPILOT_CRYPTO_COINS, the owner's "Bitcoin only"), else ''. "It sticks to the focus you set: crypto, ..."
+    read as every coin while the sessions it starts on crypto are on Bitcoin alone (walk 2026-11-01). Display only: the
+    scope and the focus are the agent's, unchanged."""
+    if not focus or "crypto" not in focus or not agent.AUTOPILOT_CRYPTO_COINS:
+        return ""
+    return ("In crypto, the research it starts itself is on %s markets only; research you start yourself can be on any "
+            "coin." % _focus_list(agent.AUTOPILOT_CRYPTO_COINS))
 
 
 def _plural(n: int, one: str, many: str = "") -> str:
@@ -380,11 +395,14 @@ def _autopilot_story(d: Dict) -> List[str]:
     research = d.get("research") or {}
     idle = (d.get("idle") or {}).get("code")
     lines = [_autopilot_now(d)]
-    cap_line = _research_cap_line(d.get("research_cap"))
+    cap_line = _research_cap_line(d.get("research_cap"), d.get("focus"))
     if cap_line:
         lines.append(cap_line)
     if d.get("focus"):
         lines.append("It sticks to the focus you set: %s." % _focus_list(d["focus"]))  # "Bitcoin", never "btc"
+        scope = _crypto_scope_line(d["focus"])
+        if scope:
+            lines.append(scope)
     tested, passed = int(research.get("tested_7d") or 0), int(research.get("passed_7d") or 0)
     # passed_7d counts only passes cleared to trade; one a later check left uncleared (Missed final test,
     # Held back) is said apart, as the session rows and the Strategies list say it.
