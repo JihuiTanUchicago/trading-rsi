@@ -257,6 +257,38 @@ export function moneyPollCases({name, frontend, stripe = () => ({})}) {
     f.clearTimers();
   });
 
+  // Walk 2026-11-01, the app server stopped with Funds open: its cash (read every 30s) stood with no age for a minute and
+  // a half. The first failed read is not yet two intervals old, and the next tick sits out the back-off a hair under a
+  // minute after the last good read landed, so the line waited for the third tick. Two missed ticks mark it.
+  test(`${name}: Funds says its cash is old two ticks after its last good read, not three`, async () => {
+    let failing = false, hold = null;
+    const book = () => response({kalshi: {connected: false}, kalshi_dev: {connected: false}, demo: {capital: 1000, equity: 1000, realized: 0}, paper: {cash: 1000, equity: 1000, ledger: []}});
+    const f = frontend({fetchImpl: (path) => {
+      if (path !== '/api/funds') return response({});
+      if (failing) return response({error: 'Something went wrong on our side.'}, 500);
+      return hold ? new Promise((resolve) => { hold = () => resolve(book()); }) : book();
+    }});
+    f.location.pathname = '/funds';
+    await f.viewFunds(); await settle();
+    const poll = await pollOf(f, '/api/funds');
+    const note = () => f.root.querySelector('#funds-stale').textContent;
+    // The last good read lands a second after its tick, as a real one does.
+    hold = true;
+    f.shiftClock(30e3); const read = poll(); await settle();
+    f.shiftClock(1e3); hold(); hold = null; await read; await settle();
+    failing = true;
+    f.shiftClock(29e3); await poll(); await settle();
+    assert.equal(note(), '', 'one failed read, half a minute on: not yet old');
+    // The next tick sits out the back-off: two intervals with nothing new, so the cash says how old it is.
+    f.shiftClock(30e3); await poll(); await settle();
+    assert.equal(note(), 'Last updated 59s ago, retrying');
+    assert.match(f.root.querySelector('#ffigs').textContent, /\$1,000\.00/, 'the figures stay');
+    failing = false;
+    f.shiftClock(30e3); await poll(); await settle();
+    assert.equal(note(), '', 'the next good read clears it');
+    f.clearTimers();
+  });
+
   test(`${name}: Funds' figures follow the books while it is open, and the panels below wait while you use them`, async () => {
     const book = (cash, lines = []) => ({kalshi: {connected: false}, kalshi_dev: {connected: false}, demo: {capital: 1000, equity: 1001, realized: 1},
       paper: {cash, equity: cash, ledger: [...lines, {created_at: '2026-10-17T10:00:00Z', memo: 'Paper deposit', amount: 1000}]}});

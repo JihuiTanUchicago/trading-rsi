@@ -17,6 +17,8 @@ function loadApi(file) {
     pick(/const failText = [\s\S]*?;\n/),
     pick(/const reportBroken = [^\n]*/),
     pick(/const apiBroke = [^\n]*/),
+    pick(/const offline = [^\n]*/),  // a write pressed offline never leaves (NOT_SENT)
+    pick(/const NOT_SENT = [^\n]*/),
     pick(/async function api\(path, body, cfg\) \{[\s\S]*?\n  \}\n/),
     pick(/function accountMoved\(res, write\) \{[\s\S]*?\n  \}\n/),  // api() drops a reply read as another account
     'globalThis.api = api;',
@@ -27,7 +29,7 @@ function loadApi(file) {
   const deadlines = [];
   const signals = [];
   const ctx = {
-    window: {__tauReport: (kind, err) => reports.push([kind, err])},
+    window: {__tauReport: (kind, err) => reports.push([kind, err])}, navigator: {onLine: true},
     S: {gen: 1, me: {}}, go: () => {}, clearTimeout: () => {}, AbortController,
     // A page left open across a deploy (stale_tab_frontend_cases.mjs has those): no reply here names a newer build.
     buildMoved: () => false, newBuild: () => {}, freshBuild: () => false, wake: () => {},
@@ -74,6 +76,24 @@ for (const file of ['app.js', 'app.meridian.js']) {
     t.replies.push(new TypeError('Failed to fetch'));
     await assert.rejects(t.api('/api/settings', {a: 1}), (e) => e.status === 0);
     assert.deepEqual(t.calls, ['GET', 'POST', 'POST']);
+  });
+}
+
+// Walk 2026-11-01: Funds' Add and Start session pressed with the phone offline said Tau "didn't confirm" them and to
+// reload, which offline lost the page; nothing had left the phone. The write isn't sent and says so; reads still go out.
+for (const file of ['app.js', 'app.meridian.js']) {
+  test(file + ': a write pressed while offline is not sent and says so, not that Tau may have taken it', async () => {
+    const t = loadApi(file);
+    t.ctx.navigator.onLine = false;
+    const notSent = 'You\u2019re offline, so this wasn\u2019t sent. Try again once you\u2019re back online.';
+    await assert.rejects(t.api('/api/funds/paper', {kind: 'deposit', amount: 5}), (e) => e.status === 0 && e.message === notSent);
+    assert.deepEqual(t.calls, [], 'nothing sent');
+    t.replies.push(reply(200, {ok: 1}));
+    assert.deepEqual(await t.api('/api/dashboard'), {ok: 1}, 'a read still goes out');
+    t.ctx.navigator.onLine = true;
+    t.replies.push(reply(200, {ok: 2}));
+    assert.deepEqual(await t.api('/api/funds/paper', {kind: 'deposit', amount: 5}), {ok: 2}, 'back online, the next press is sent');
+    assert.deepEqual(t.calls, ['GET', 'POST']);
   });
 }
 
