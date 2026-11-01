@@ -40,7 +40,7 @@ export function strategyListCases({name, frontend, detailStrategy}) {
     // gatekeeper record and the later period that picked it for one without (passed with no record, backtest
     // only). "P&L on data it never saw" was untrue of the second kind, and "Best on unseen data" never said best at what.
     const html = f.root.innerHTML;
-    assert.match(html, /<option value="best" selected>Later-period P&amp;L<\/option>/);
+    assert.match(html, /<option value="best" selected>Later-period P&amp;L, highest first<\/option>/);
     assert.doesNotMatch(html, /Best on unseen data|data it never saw<\/option>/);
     const chosen = s => (s.querySelectorAll('option').find(o => 'selected' in o.attributes) || {attributes: {}}).attributes.value;
     assert.equal(chosen(sel), 'best');  // read back from the URL on a reload
@@ -384,7 +384,7 @@ export function strategyListCases({name, frontend, detailStrategy}) {
     const f = frontend({fetchImpl: () => response(listOf(2))});
     f.location.pathname = '/strategies'; f.location.search = '?status=&sort=best';
     await f.viewStrategies(); await flush();
-    assert.match(f.root.innerHTML, /<option value="best" selected>Later-period P&amp;L<\/option>/);
+    assert.match(f.root.innerHTML, /<option value="best" selected>Later-period P&amp;L, highest first<\/option>/);
     const src = bundleSource(name === 'Meridian' ? 'app.meridian.js' : 'app.js');
     // The glossary (#606) defines the sort's own term, and says the held-out slice is a later period too.
     const later = src.match(/\n {4}laterperiod: \['Later-period P&L', '([^']*)'\]/)[1];
@@ -674,5 +674,55 @@ export function strategyListCases({name, frontend, detailStrategy}) {
     assert.equal(shown('FADE'), name === 'Tau');
     assert.equal(shown(''), name === 'Tau');
     assert.equal(shown(undefined), name === 'Tau');
+  });
+
+  // Walk 2026-11-01 (one account, 80 strategies): an empty title drew an empty link (and "Select  for deployment"), and
+  // four "Late fade" rows, two on one market, read alike. The empty one reads "Untitled strategy"; a title two rows on
+  // the page share says the day each was filed, as its page's "Filed Oct 25, 2026" does; and the P&L sort says its order.
+  test(`${name}: an empty title reads "Untitled strategy", in its link and its deploy box`, () => {
+    const f = frontend({fetchImpl: () => response({})});
+    for (const title of ['', '   ', null]) {
+      const html = f.strategySlip(detailStrategy({id: 48, title, status: 'passed', verdict: null, deployed: false}), null, {pick: true});
+      assert.match(html, /<a href="\/strategies\/48">Untitled strategy<\/a>/);
+      assert.match(html, /aria-label="Select Untitled strategy for deployment"/);
+      assert.doesNotMatch(html, /<a href="\/strategies\/48"><\/a>|Select\s+for deployment/);
+    }
+    // A named one keeps its name, with no filed day unless the list asks for one.
+    const named = f.strategySlip(detailStrategy({id: 49, title: 'Late fade'}), null, {});
+    assert.match(named, /<a href="\/strategies\/49">Late fade<\/a>/);
+    assert.doesNotMatch(named, /filed-day|Filed /);
+  });
+
+  test(`${name}: rows that share a title on the page say the day each was filed; a title of its own doesn't`, async () => {
+    const strategies = [
+      detailStrategy({id: 71, title: 'Late fade', created_at: '2026-10-29T12:00:00Z', status: 'passed', verdict: null, deployed: false}),
+      detailStrategy({id: 72, title: 'late fade ', created_at: '2026-10-22T12:00:00Z', status: 'passed', verdict: null, deployed: false}),
+      detailStrategy({id: 73, title: 'Own title', created_at: '2026-10-20T12:00:00Z'}),
+      detailStrategy({id: 74, title: '', created_at: '2026-10-18T12:00:00Z'}),
+    ];
+    const f = frontend({fetchImpl: () => response({counts: {total: 4, passed: 4}, matched: 4, pages: 1, strategies})});
+    f.location.pathname = '/strategies'; f.location.search = '?status=';
+    await f.viewStrategies(); await flush(); await flush();
+    const html = f.root.querySelector('#slips').innerHTML;
+    const day = (iso) => {
+      const d = new Date(iso);
+      return 'Filed ' + new Intl.DateTimeFormat(undefined, d.getFullYear() === new Date(Date.now()).getFullYear()
+        ? {month: 'short', day: 'numeric'} : {year: 'numeric', month: 'short', day: 'numeric'}).format(d);
+    };
+    const rowOf = (id) => html.split('<tr').find((r) => r.includes(`href="/strategies/${id}"`)) || '';
+    assert.ok(rowOf(71).includes(`<div class="sub-fig filed-day">${day('2026-10-29T12:00:00Z')}</div>`), rowOf(71));
+    assert.ok(rowOf(72).includes(`<div class="sub-fig filed-day">${day('2026-10-22T12:00:00Z')}</div>`), rowOf(72));
+    assert.ok(rowOf(71).includes(`aria-label="Select Late fade, ${day('2026-10-29T12:00:00Z').toLowerCase()}, for deployment"`), rowOf(71));
+    assert.doesNotMatch(rowOf(73), /filed-day/);
+    assert.doesNotMatch(rowOf(74), /filed-day/);  // the only untitled row on the page
+    assert.match(rowOf(74), />Untitled strategy<\/a>/);
+  });
+
+  test(`${name}: the P&L sort says its order, as "Newest first" does`, async () => {
+    const f = frontend({fetchImpl: () => response(listOf(2))});
+    f.location.pathname = '/strategies'; f.location.search = '?status=';
+    await f.viewStrategies(); await flush();
+    const opts = f.root.querySelector('#strat-sort').querySelectorAll('option').map((o) => plain(o.innerHTML));
+    assert.deepEqual(opts, ['Newest first', 'Later-period P&L, highest first']);
   });
 }

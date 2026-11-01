@@ -51,7 +51,7 @@ window.TauPage('strategies', (T) => {
         <div class="chips" role="group" aria-label="Status">${[['', 'Kept'], ['passed', 'Passed'], ['not_cleared', 'Not cleared'], ['backtest-only', 'Backtest only'], ['failed', 'Void'], ['rejected', 'Rejected']].map(([v, l]) => `<button class="chip" data-f="status" data-v="${v}"${v === 'not_cleared' && f.status !== v ? ' hidden' : ''}${tau || v ? '' : ' title="Passed and backtest-only strategies"'} aria-pressed="${f.status === v}">${l}</button>`).join('')}
           <button class="chip" data-toggle="deployed" aria-pressed="${f.deployed === '1'}">Deployed</button></div>
         ${(() => { const by = {}; filterMarkets(S.me.markets, f.market).forEach((m) =>(by[m.category] || (by[m.category] = [])).push(m)); const cs = Object.keys(by).sort(catOrder); return `<label class="vh" for="strat-market">Market</label><select class="input strat-mkt" id="strat-market" aria-label="Filter by market"><option value="">All markets</option>${cs.map((c) => `<optgroup label="${esc(c)}">${by[c].map((m) => `<option value="${esc(m.key)}"${f.market === m.key ? ' selected' : ''}>${esc(marketShort(m.key))}</option>`).join('')}</optgroup>`).join('')}</select>`; })()}
-        <label class="vh" for="strat-sort">Sort</label><select class="input strat-mkt strat-sort" id="strat-sort" aria-label="Sort strategies">${[['', 'Newest first'], ['best', 'Later-period P&amp;L']].map(([v, l]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+        <label class="vh" for="strat-sort">Sort</label><select class="input strat-mkt strat-sort" id="strat-sort" aria-label="Sort strategies">${[['', 'Newest first'], ['best', 'Later-period P&amp;L, highest first']].map(([v, l]) => `<option value="${v}"${f.sort === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
         <div class="searchwrap"><input class="input" id="strat-q" type="search" placeholder="Search name or thesis…" value="${esc(f.q)}" aria-label="Search strategies"></div>
       </div>
       <div id="bulkbar" class="bulkbar" hidden></div><p class="stale-note" id="strats-stale" role="status"></p>
@@ -65,7 +65,8 @@ window.TauPage('strategies', (T) => {
     root.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { f[b.dataset.f] = b.dataset.v; applyFilters(); }; });
     const marketSel = root.querySelector('#strat-market');
     if (marketSel) marketSel.onchange = () => { f.market = marketSel.value; applyFilters(); };
-    // "Later-period P&L" (highest first: the backtest P&L after the split date, the Backtest P&L column's figure)
+    // "Later-period P&L, highest first" (the backtest P&L after the split date, the Backtest P&L column's figure; the
+    // option says its order, as "Newest first" does: a screen reader heard "Later-period P&L" and no direction)
     // orders the whole list server-side (it is paged), and rides in the URL like the filters, so a reload or a
     // shared link keeps it. Not "P&L on data it never saw": it sorts a later-period row (passed with no gatekeeper
     // record, or backtest only) by the same figure, and that slice picked it. Held-out data is after the split too.
@@ -183,8 +184,12 @@ window.TauPage('strategies', (T) => {
       const anyPassed = list.some(bulkDeployable);
       // A Paper P&L column beside the backtest's, when a row on this page has a paper book now or had one.
       const paperCol = list.some(paperShown);
+      // A title two rows on the page share (four "Late fade" rows, two on one market, an empty title or two) gets the
+      // day each was filed (opts.filed), so the rows can be told apart: they read alike (walk 2026-11-01, 80 strategies).
+      const titleKey = (s) => String(s.title || '').trim().toLowerCase(), titles = {};
+      list.forEach((s) => { titles[titleKey(s)] = (titles[titleKey(s)] || 0) + 1; });
       // Each bundle's strategyTable: Meridian's also takes whether the table is a research session's (here, never).
-      const rows = list.map((s) => strategySlip(s, reg, { pick: anyPassed, paper: paperCol, q: f.q })).join('');
+      const rows = list.map((s) => strategySlip(s, reg, { pick: anyPassed, paper: paperCol, q: f.q, filed: titles[titleKey(s)] > 1 })).join('');
       // The quiet read keeps what was picked (and Select all) on the rows still listed.
       const had = quiet ? new Set(selected()) : null, hadAll = quiet && pickAlls().some((c) => c.checked);
       // Select all sits in the table's header, which a phone's stacked rows clip to nothing: only a keyboard reached it

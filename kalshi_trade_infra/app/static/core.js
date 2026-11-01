@@ -221,6 +221,16 @@
     if (!Number.isFinite(d.getTime())) return '';
     return dateFmt(d, d.getFullYear() === new Date(Date.now()).getFullYear() ? LOG_STAMP : LOG_STAMP_YEAR);
   };
+  // A strategy's name on a list row: one saved with an empty title reads "Untitled strategy", as the server names it on
+  // Deploy and the dashboard (UNTITLED_STRATEGY). The Strategies list drew it as an empty link, and its box as "Select  for
+  // deployment" (walk 2026-11-01, 80 strategies).
+  const stratTitle = (s) => (String((s && s.title) || '').trim() ? s.title : 'Untitled strategy');
+  // The day a strategy was filed, as its page's "Filed Oct 25, 2026" says (the year only when it isn't this year's): on a
+  // Strategies row whose title another row on the page shares. Four "Late fade" rows, two on one market, read alike.
+  const filedDay = (iso) => {
+    const d = new Date(iso || NaN);
+    return Number.isFinite(d.getTime()) ? 'Filed ' + dateFmt(d, d.getFullYear() === new Date(Date.now()).getFullYear() ? MON_DAY : YEAR_DAY) : '';
+  };
   // A time that leaves its date off because it is today (settleAt) does so only while it is: a page left open past the
   // reader's midnight kept "23:50 CDT" on Funds' cash moves, a grouped community post, a run's "ended" and a market's
   // "as of", each reading as today's (walk 2026-11-01). dayAt marks one (data-day names its words), and dayTimes, when
@@ -1454,7 +1464,7 @@
   window.TauCore = Object.freeze({
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
-    logTime, settleAt, stampAt, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
+    logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
