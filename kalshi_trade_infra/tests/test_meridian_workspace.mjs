@@ -36,6 +36,7 @@ import {exploreListWalkCases} from './explore_list_walk_frontend_cases.mjs';
 import {loadPollCases} from './load_poll_frontend_cases.mjs';
 import {phoneSpeedCases} from './phone_speed_frontend_cases.mjs';
 import {kalshiWaitCases} from './kalshi_wait_frontend_cases.mjs';
+import {heavyAccountCases} from './heavy_account_frontend_cases.mjs';
 import {settingsCases} from './settings_frontend_cases.mjs';
 import {firstHourCases} from './first_hour_frontend_cases.mjs';
 import {firstTenMinutesCases} from './first_ten_minutes_frontend_cases.mjs';
@@ -333,6 +334,7 @@ trackRecordTrustCases({name: 'Meridian', frontend, Element, dashboard: () => das
 researchFormCases({name: 'Meridian', frontend});
 spendTrustCases({name: 'Meridian', frontend});
 kalshiWaitCases({name: 'Meridian', frontend, detailStrategy});
+heavyAccountCases({name: 'Meridian', frontend});
 phoneSpeedCases({name: 'Meridian', frontend, source, railOpenWide: [['tau_hotrail', '1']], storageFor: m => m});
 exploreSpotListCases({name: 'Meridian', frontend, railOpenWide: [['tau_hotrail', '1']], storageFor: m => m});
 explorePollCases({name: 'Meridian', frontend, railOpenWide: [['tau_hotrail', '1']], storageFor: m => m});

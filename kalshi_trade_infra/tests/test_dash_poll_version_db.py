@@ -24,7 +24,7 @@ NOW = datetime(2026, 10, 26, 12, 0, 0)
 CLOCK = [NOW]
 LIVE_CASH, DEMO_CASH = [250.0], [100.0]
 READ_AT, KEPT = [NOW], [True]
-SAME_KEYS = {"v", "same", "marks", "unrealized", "freshness", "since_at"}
+SAME_KEYS = {"v", "same", "marks", "unrealized", "freshness", "since_at", "demo_health_pending"}
 HEAVY = ("SUM(pnl) OVER (PARTITION BY deployment_id", "LEFT JOIN (SELECT p.deployment_id", "AS paper_all",
          "GROUP BY DATE(closed_at)", "SUM(amount)")
 
@@ -178,6 +178,15 @@ def _drawn(kept, same):
         d["freshness"] = same["freshness"]
     if "since_at" in same and kept.get("since"):
         d["since"] = dict(kept["since"], at=same["since_at"])
+    # Whether the demo-funds check waits on the demo cash rides the "same" answer (it moves with no write).
+    if isinstance(kept.get("demo"), dict):
+        d["demo"] = {k: v for k, v in kept["demo"].items() if k != "health_pending"}
+        if same.get("demo_health_pending"):
+            d["demo"]["health_pending"] = True
+    if "demo_health" in kept:
+        d.pop("demo_health_pending", None)
+        if same.get("demo_health_pending"):
+            d["demo_health_pending"] = True
     return d
 
 
@@ -253,12 +262,13 @@ def test_a_polled_money_page_is_same_only_while_every_figure_it_shows_is_unchang
         ("demo capital reloaded", ("dashboard",), lambda: repo.reload_demo(cur, uid, 400.0)),
         ("Kalshi cash read", ("dashboard",), lambda: LIVE_CASH.__setitem__(0, 312.5)),
         # The poll reads the memo alone: once it runs out the cash is pending (the page asks /api/funds/cash),
-        # and the follow-up's read, even of the same figure, is a new read time. Each moves the version. The
-        # Deploy board's demo check reads the demo cash memo alone too: pending once it runs out, and not
-        # once it is read again, so both move.
-        ("Kalshi cash memo ran out", both, lambda: KEPT.__setitem__(0, False)),
-        ("Kalshi cash read again, same figure", both, lambda: (KEPT.__setitem__(0, True),
-                                                               READ_AT.__setitem__(0, NOW + timedelta(seconds=61)))),
+        # and the follow-up's read, even of the same figure, is a new read time. Each moves the dashboard's version.
+        # The Deploy board's demo check reads the demo cash memo alone too: pending once it runs out, and not once
+        # it is read again; that flag rides the "same" answer (services.page_poll), so the board, whose figures
+        # didn't move, stays "same" (it sent its whole answer twice a minute for the flag alone).
+        ("Kalshi cash memo ran out", ("dashboard",), lambda: KEPT.__setitem__(0, False)),
+        ("Kalshi cash read again, same figure", ("dashboard",), lambda: (KEPT.__setitem__(0, True),
+                                                                         READ_AT.__setitem__(0, NOW + timedelta(seconds=61)))),
         ("demo cash below a stake", both, lambda: DEMO_CASH.__setitem__(0, 1.0)),
         ("paper account reset", both, lambda: (repo.close_position(cur, opens["paper"], 0.5, 0.02, 0.3, "take_profit"),
                                                          repo.reset_paper_account(cur, uid, 1000.0))),

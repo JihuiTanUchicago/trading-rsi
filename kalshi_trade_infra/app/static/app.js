@@ -1632,6 +1632,10 @@
       deployments: (kept.deployments || []).map((x) => (x.id in unreal ? { ...x, unrealized_pnl: unreal[x.id] } : x)) };
     if (got.freshness) d.freshness = got.freshness;
     if (got.since_at !== undefined && kept.since) d.since = { ...kept.since, at: got.since_at };
+    // Whether the demo-funds check waits on the demo cash rides each "same" answer, not its version (the demo cash
+    // memo ages out each minute): the kept answer's flag is replaced by the one that came now.
+    if (kept.demo) { d.demo = { ...kept.demo }; delete d.demo.health_pending; if (got.demo_health_pending) d.demo.health_pending = true; }
+    if ('demo_health' in kept) { delete d.demo_health_pending; if (got.demo_health_pending) d.demo_health_pending = true; }
     return d;
   }
   function flash(where, msg, kind) {
@@ -1768,7 +1772,11 @@
     // tick already sits on it or so close the two would overlap.
     const zeroTick = lo < 0 && hi > 0 && LEVELS.every((v) => Math.abs(y(v) - y(0)) >= 14) ? `<text class="chart-zero" x="${L - 8}" y="${y(0) + 4}" text-anchor="end">$0</text>` : '';
     // Each date on the axis once: a curve inside one day labels it at the start only, never "Oct 30 … Oct 30".
-    const day = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    // One date format per chart, made once: toLocaleDateString with options builds a new formatter on every call, and
+    // the chart names every point's day (its readout boxes), so a phone at a quarter of desktop speed spent ~67ms of
+    // the dashboard's first draw on it (walk 2026-11-01). Same words.
+    const dayFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+    const day = (t) => dayFmt.format(new Date(t * 1000));
     // Its name: the backtest's own end, never the demo replay's (it came last in `vals`, so a strategy page with a
     // replay said the backtest "ends at" the replay's figure). With `options.words` (a strategy page, a backtest
     // re-run) it says the curve's span, start, end, low and high in words (curveWords); a curve inside two days
@@ -2443,7 +2451,7 @@
       paintDashAp();
       const dd = root.querySelector('#dash-deps');
       if (dd) bindDeploymentActions(dd, load);  // pause/resume/stop from the dashboard, same as Deploy
-      if (!filled && !got.same) fillCash(got, afterDemo);  // every fresh answer: the first, a visit's, the poll's
+      if (!filled) fillCash(got, afterDemo);  // every fresh answer: the first, a visit's, the poll's
     };
     // /api/dashboard never waits on Kalshi (the shell's read, a visit's and the 15s poll's alike): a live cash
     // the server hadn't read in the last minute comes pending, drawn as Checking\u2026 (never $0; an older figure
@@ -2452,16 +2460,17 @@
     // waited on the demo cash is read again once that cash is back (the autopilot's idle line does the same in
     // refreshAutopilot). A newer poll answer supersedes all of it.
     const fillCash = (first, afterDemo) => {
-      if (!first || first.same) return;
+      if (!first) return;
       const asks = [];
-      if (first.live && first.live.pending) {
+      if (!first.same && first.live && first.live.pending) {
         asks.push(cashRead(first.live, 'live').then((live) => {
           if (gen !== S.gen || kept !== first) return;
           // The key went in the meantime: read it all afresh. Otherwise only the cash changed.
           return (live.connected ? load(null, { ...first, live }) : load()).catch(() => {});
         }));
       }
-      if (!(first.demo && first.demo.health_pending) || afterDemo) return;
+      // A "same" answer says its demo check waits on the demo cash as demo_health_pending (services.page_poll).
+      if (!(first.same ? first.demo_health_pending : first.demo && first.demo.health_pending) || afterDemo) return;
       asks.push(demoCashRead());
       Promise.all(asks).then(() => {
         if (gen === S.gen && kept && kept.v === first.v) load(undefined, undefined, true).catch(() => {});
@@ -2594,8 +2603,9 @@
       // isn't kept comes demo_health_pending (a line from a figure read under two minutes ago stands meanwhile).
       // The page asks the demo cash (shared with the dashboard's and the autopilot's asks; on a first load, the
       // read boot.js started), then reads the board again, once.
-      if (!got.same && got.demo_health_pending && !afterDemo) {
-        demoCashRead().then(() => { if (gen === S.gen && kept === got) loadBoard(undefined, true).catch(() => {}); });
+      // A "same" answer carries the flag too (services.page_poll), so an unchanged board doesn't download itself twice.
+      if (d.demo_health_pending && !afterDemo) {
+        demoCashRead().then(() => { if (gen === S.gen && kept && kept.v === got.v) loadBoard(undefined, true).catch(() => {}); });
       }
       bindDeploymentActions(root.querySelector('#deps'), loadBoard);
       const depMarket = (p) => (d.deployments.find((x) => x.id === p.deployment_id) || {}).market;

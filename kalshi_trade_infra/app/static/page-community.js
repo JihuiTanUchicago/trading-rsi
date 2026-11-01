@@ -420,20 +420,25 @@ window.TauPage('community', (T) => {
       let d;
       try { d = await api(`/api/community/${pid}/comments`); }
       catch (err) { box.innerHTML = `<div class="cmt-err">${notice('Replies didn’t load just now.', 'bad')}<button type="button" class="btn sm" data-replies-retry>Try again</button></div>`; return; }
-      const many = d.comments.length > 6;      // search bar once a thread gets long
+      // The server sends a thread's newest replies (up to 100) and says whether older ones are left (`older`):
+      // it sent the oldest 100, so past 100 replies the newest never showed, a reply just sent among them.
+      let older = !!d.older, oldest = d.comments.length ? d.comments[0].id : 0, loaded = d.comments.slice();
+      const many = d.comments.length > 6 || older;      // search bar once a thread gets long
       const PAGE = 10;
+      const cmtHtml = (c) => `<div class="cmt">${avatar(c.picture, c.author)}<div><b>${authorLine(c.author, c.username)}</b> <span class="when">${bellTime(c.created_at)}</span><p>${mdLite(c.body)}</p></div></div>`;
       box.innerHTML = `${many ? '<div class="cmt-search"><input class="input" type="search" placeholder="Search replies…" aria-label="Search replies"><span class="cmt-count"></span></div>' : ''}
-        ${d.comments.length > PAGE ? '<button type="button" class="btn sm cmt-more"></button>' : ''}
-        <div class="cmt-list">${d.comments.map((c) => `<div class="cmt">${avatar(c.picture, c.author)}<div><b>${authorLine(c.author, c.username)}</b> <span class="when">${bellTime(c.created_at)}</span><p>${mdLite(c.body)}</p></div></div>`).join('')}</div>
+        ${d.comments.length > PAGE || older ? '<button type="button" class="btn sm cmt-more"></button>' : ''}
+        <div class="cmt-list">${d.comments.map(cmtHtml).join('')}</div>
         <form class="cmt-form"><input class="input" maxlength="1000" aria-label="Write a reply" placeholder="Write a reply…" required><button class="btn sm" type="submit">Reply</button></form><div class="form-flash"></div>`;
-      // Show the latest 10 (newest stay by the reply box); "Load earlier" reveals older in 10s.
-      // Search (when present) filters the whole loaded set. ponytail: client-side over the ≤100
-      // fetched — add a server offset if a thread ever tops that cap.
+      // Show the latest 10 (newest stay by the reply box); "Load earlier" reveals older in 10s, and once every
+      // loaded reply shows, reads the next older page from the server. Search filters the replies loaded so far,
+      // and says so while older ones are left to load.
       const cmtSearch = box.querySelector('.cmt-search input');
       const count = box.querySelector('.cmt-count');
       const moreBtn = box.querySelector('.cmt-more');
-      const items = Array.from(box.querySelectorAll('.cmt-list .cmt'));
-      let limit = PAGE;
+      const listEl = box.querySelector('.cmt-list');
+      let items = Array.from(listEl.querySelectorAll('.cmt'));
+      let limit = PAGE, failed = false;
       const applyView = () => {
         const q = cmtSearch ? cmtSearch.value.trim().toLowerCase() : '';
         let matched = 0;
@@ -442,15 +447,31 @@ window.TauPage('community', (T) => {
           el.hidden = !hit || (!q && i < items.length - limit);  // keep the newest `limit`
           if (hit) matched++;
         });
-        if (count) count.textContent = q ? `${num(matched)} of ${num(items.length)}` : '';
+        if (count) count.textContent = q ? `${num(matched)} of ${num(items.length)}${older ? ' loaded' : ''}` : '';
         if (moreBtn) {
           const rest = items.length - limit;
-          moreBtn.hidden = !!q || rest <= 0;
-          moreBtn.textContent = `Load ${Math.min(PAGE, rest)} earlier`;
+          moreBtn.hidden = !!q || (rest <= 0 && !older);
+          moreBtn.textContent = rest > 0 ? `Load ${Math.min(PAGE, rest)} earlier` : failed ? 'Earlier replies didn’t load. Try again' : 'Load earlier replies';
         }
       };
       if (cmtSearch) cmtSearch.oninput = applyView;
-      if (moreBtn) moreBtn.onclick = () => { limit += PAGE; applyView(); };
+      // One read per press, never retried on its own: a failed one says so on the button, and a press tries again.
+      let reading = false;
+      if (moreBtn) moreBtn.onclick = async () => {
+        if (items.length - limit > 0 || !older) { limit += PAGE; applyView(); return; }
+        if (reading) return;
+        reading = true;
+        let e;
+        try { e = await api(`/api/community/${pid}/comments?before=${encodeURIComponent(oldest)}`); }
+        catch (err) { failed = true; reading = false; applyView(); return; }
+        reading = false; failed = false;
+        loaded = (e.comments || []).concat(loaded);
+        listEl.innerHTML = loaded.map(cmtHtml).join('');
+        items = Array.from(listEl.querySelectorAll('.cmt'));
+        older = !!e.older && !!(e.comments || []).length;
+        if ((e.comments || []).length) oldest = e.comments[0].id;
+        limit += PAGE; applyView();
+      };
       applyView();
       attachMention(box.querySelector('.cmt-form input'));  // @-mention in replies
       box.querySelector('.cmt-form').onsubmit = async (ev) => {

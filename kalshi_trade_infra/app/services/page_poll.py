@@ -21,6 +21,11 @@ What moves without a write rides every "same" answer, fresh:
   - the start of the dashboard's "since your last visit" window (`since.at`), which is now less 24 hours
     on a first visit and never earlier than 90 days ago: what the window holds is in the version, its
     moving start is not.
+  - whether the demo-funds check waits on the demo cash (Deploy's `demo_health_pending`, the dashboard's
+    `demo.health_pending`): the demo cash memo ages out every minute (demo_twins.BALANCE_TTL), so the flag came
+    and went with no write, and each turn sent the whole answer twice (the pending one, then the one after the
+    page's demo cash read): on a heavy account 95KB on Deploy's 10s poll and 79KB on the dashboard's, twice a
+    minute (walk 2026-11-01). The check's line itself (`demo_health`) stays in the version.
 The page puts them back over its kept answer by position and deployment id (pollAnswer in both bundles);
 the kept answer with them put back is the full answer a fresh poll gets.
 """
@@ -43,12 +48,16 @@ def moving(out: Dict) -> Dict:
         got["freshness"] = out["freshness"]
     if isinstance(out.get("since"), dict) and "at" in out["since"]:
         got["since_at"] = out["since"]["at"]
+    if out.get("demo_health_pending") or (isinstance(out.get("demo"), dict) and out["demo"].get("health_pending")):
+        got["demo_health_pending"] = True
     return got
 
 
 def version(out: Dict) -> str:
     """A short hash of the answer less what `moving` carries."""
-    rest = {k: v for k, v in out.items() if k not in ("freshness", "v")}
+    rest = {k: v for k, v in out.items() if k not in ("freshness", "v", "demo_health_pending")}
+    if isinstance(rest.get("demo"), dict):
+        rest["demo"] = {k: v for k, v in rest["demo"].items() if k != "health_pending"}
     if "open_positions" in rest:
         rest["open_positions"] = [{k: v for k, v in p.items() if k not in MARK_KEYS} for p in rest["open_positions"]]
     if "deployments" in rest:

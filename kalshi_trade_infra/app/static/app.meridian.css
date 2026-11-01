@@ -2272,6 +2272,7 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
 .recent-settlements > summary { position: static; display: flex; align-items: center; flex-wrap: wrap; width: fit-content; min-height: 32px; padding: 6px 0; font-size: 13px; line-height: 20px; color: var(--ink-2); }
 .recent-settlements > summary span { margin-left: 5px; }
 .recent-settlements .sheet { margin-top: 4px; }
+.recent-settlements .closed-all { display: inline-block; padding: 8px 0 4px; font-size: 12.5px; color: var(--ink-2); }
 .dash-analysis { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr); align-items: start; grid-column: 1; grid-row: 3; gap: 24px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--rule-2); }
 .dash-analysis:not(:has(.overview-performance)) { grid-template-columns: minmax(0, 1fr); }
 .overview-performance { display: block; align-self: start; min-width: 0; padding: 0; border: 0; }
@@ -2750,6 +2751,7 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .dep-monitor .deployment-actions .btn, .dep-monitor .dep-evidence > summary, .feed-filter .chip, .explore-filters .xshow .chip, .community-compose > summary,
   .post-footer .rx, .post-footer .rx:not(.add), .post-footer .rx.add, .post-footer .thread-link, .active-open, .research-page .research-create > summary, .t-explore th button, .t-explore .xlink a,
   .strategy-summary > summary { min-height: 44px; }
+  .recent-settlements .closed-all { display: flex; align-items: center; min-height: 44px; padding: 0; }
   .t-explore .xlink a { min-width: 44px; opacity: 1; }
   /* A post's reaction (an emoji and its count) was 38px wide beside the next one (walked 2026-10-31 at 360px). */
   .post-footer .rx:not(.add) { min-width: 44px; justify-content: center; }
