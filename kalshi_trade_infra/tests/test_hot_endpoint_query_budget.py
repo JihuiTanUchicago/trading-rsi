@@ -862,6 +862,66 @@ def test_the_trades_download_stays_in_its_query_budget_and_reads_each_strategy_o
     assert len(log) == 1  # no trades, no second read
 
 
+def test_the_trades_download_words_each_close_once_and_every_line_as_its_own(production, monkeypatch):
+    """Measured 2026-11-01 on a seeded heavy account (3,331 closed paper trades), local MariaDB: ~76 -> ~55ms for
+    GET /api/trades.csv?mode=paper, byte-identical file. A close in words (_close_said) reads only the trade's close
+    reason and its entry and exit prices; the file words each such close once instead of per trade. Two trades that
+    share an exit but not an entry still read their own move."""
+    from app.web.routes import billing as billing_routes
+
+    said, real = [], billing_routes._close_said
+    monkeypatch.setattr(billing_routes, "_close_said", lambda r: said.append(r["v"] if "v" in r else r["ticker"]) or real(r))
+    trade = {"mode": "paper", "side": "yes"}
+    rows = {"AS v FROM app_positions p": [
+        dict(trade, ticker="T%d" % i, close_reason=reason, v="2026-10-25T%02d:00:00Z,2026-10-25T%02d:00:00Z,%s,%s,0.0700,0.0000,0.1000,3,%d,5"
+             % (i % 24, i % 24, entry, out, 100 + i))
+        for i, (reason, entry, out) in enumerate([("take_profit", "0.4000", "0.6000"), ("settled", "0.4000", "1.0000"),
+                                                  ("take_profit", "0.5000", "0.6000"), ("settled", "0.5000", "1.0000")] * 25)],
+        "SELECT d.id, d.strategy_id, d.status, s.title": [{"id": 5, "strategy_id": 9, "status": "running", "title": "Fade",
+                                                           "strategy_market": "btc15m", "strategy_created": None}]}
+    _, _, _, data = server.trades_csv(_ctx([], 10.0, query={"mode": "paper"}, extra=rows))
+    assert len(said) == 4  # 100 trades, four closes
+    words = [line.rsplit(",", 1)[1] for line in data.splitlines()[1:]]
+    assert len(words) == 100 and set(words) == {"Exited at 60¢: take-profit (+20¢)", "Exited at 60¢: take-profit (+10¢)",
+                                                "Held to settlement: paid $1"}
+    # Each line as it reads alone.
+    for line, r in zip(data.splitlines()[1:], reversed(rows["AS v FROM app_positions p"])):
+        v = r["v"].split(",")
+        assert line.rsplit(",", 1)[1] == real(dict(r, entry_price=v[2], exit_price=v[3]))
+
+
+# GET /api/billing/receipt: the ledger with the balance and total spent summed from it (repo.credit_history), then the
+# research sessions' numbers only when a research debit is in the file. Measured 2026-11-01 on a seeded heavy account
+# (9,043 credit rows), local MariaDB: 6 -> 3 statements a request (the session's own included), ~190 -> ~130ms,
+# byte-identical file. The user row (the session already has its email), the balance and the total spent were three
+# reads of their own, and the ledger's DATETIME and DECIMAL columns, parsed per row by pymysql, now come back as text.
+BUDGET.update({"billing_receipt": 2})
+HISTORY = "SELECT l.memo, CONCAT_WS(',', DATE_FORMAT(l.created_at"
+
+
+def test_the_receipt_reads_the_ledger_once_and_sums_its_figures_from_it(production):
+    rows = {HISTORY: [
+        {"memo": "Agent usage · us.anthropic.claude-opus-4-6-v1", "v": "2026-10-25 09:00:00,-4.666650,41,0,usage,research,"},
+        {"memo": "Auto-reload $25", "v": "2026-10-25 08:00:00,25.000000,,,autoreload,,pi_3Re,load"},
+        {"memo": None, "v": "2026-10-24 00:00:00,20.000000,,,bonus,,"}],
+        "SELECT id FROM app_agent_runs WHERE user_id=%s AND kind='research'": [{"id": 12}, {"id": 41}]}
+    log = []
+    _, _, _, data = server.billing_receipt(_ctx(log, 10.0, extra=rows))
+    assert len(log) <= BUDGET["billing_receipt"], log
+    assert not [s for s, _ in log if "FROM app_users" in s or s.startswith("SELECT COALESCE(")]  # no re-read, no own sums
+    lines = data.splitlines()
+    assert lines[1] == "Account,trader@example.invalid"
+    assert lines[3:5] == ["Current balance (USD),40.3334", "Total spent (USD),4.6667"]  # the exact sums, half up
+    assert lines[7:] == ["2026-10-25 09:00:00,Agent usage,-4.6667,Research session · Claude Opus 4.6,Session 2,,",
+                         '2026-10-25 08:00:00,Auto-reload,25.0000,Auto-reload $25,,%.2f,"pi_3Re,load"'
+                         % (server.billing.topup_charge_cents(Decimal("25")) / 100),
+                         "2026-10-24 00:00:00,Welcome credits,20.0000,,,,"]
+    # No research debit: no session numbers. An empty ledger: one read, nothing spent (never "-0.0000").
+    log = []
+    _, _, _, data = server.billing_receipt(_ctx(log, 10.0, extra={HISTORY: []}))
+    assert len(log) == 1 and data.splitlines()[3:5] == ["Current balance (USD),0.0000", "Total spent (USD),0.0000"]
+
+
 def _paper_book(k):
     """k running paper deployments (one strategy each), each 40 realistic trips in and down $2.50."""
     import json
@@ -898,16 +958,24 @@ def test_the_research_scoreboard_reads_the_same_for_two_paper_strategies_as_for_
 # The scoreboard's three reads of the paper book: the deployments (stopped ones included), every paper strategy's
 # round trips at once, and the trips' count and net per strategy (repo.paper_progress).
 SB_DEPLOYMENTS = "FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id LEFT JOIN app_positions p"
-SB_TRIPS = "SELECT d.strategy_id, p.order_ref, SUM(p.pnl) AS pnl, MIN(p.opened_at)"
+SB_TRIPS = "SELECT d.strategy_id, CONCAT_WS(',', COALESCE(SUM(p.pnl), '')"
 SB_PROGRESS = "SELECT t.strategy_id, COUNT(*) AS trips"
+
+
+def _trip_row(t):
+    """A round trip as repo.paper_round_trips_by_strategy's statement returns it: the strategy, and its sum, times and
+    ticker packed as text in `v` (_TRIP_PACKED). The trip's own fields ride along for the tests that read them."""
+    when = "%Y-%m-%d %H:%M:%S"
+    return dict(t, v="%r,%s,%s,%s" % (t["pnl"], t["opened_at"].strftime(when),
+                                      t["closed_at"].strftime(when) if t["closed_at"] else "", t["ticker"]))
 
 
 def _paper_trips(k):
     """Each of _paper_book(k)'s strategies' 40 realistic round trips, as repo.paper_round_trips_by_strategy reads
     them: down $2.50 in all, in 4-place amounts that don't add up evenly as floats."""
     t0 = datetime(2026, 10, 22)
-    return [{"strategy_id": s, "pnl": (0.1235 if i % 2 else -0.2485), "opened_at": t0 + timedelta(hours=i),
-             "closed_at": t0 + timedelta(hours=i, minutes=14), "ticker": "KXBTC15M-26OCT22%02d00-00" % (i % 24)}
+    return [_trip_row({"strategy_id": s, "pnl": (0.1235 if i % 2 else -0.2485), "opened_at": t0 + timedelta(hours=i),
+                       "closed_at": t0 + timedelta(hours=i, minutes=14), "ticker": "KXBTC15M-26OCT22%02d00-00" % (i % 24)})
             for s in range(1, k + 1) for i in range(40)]
 
 
@@ -941,7 +1009,7 @@ SCOREBOARD_KEPT_BUDGET = 10
 def _up_book(k):
     """_paper_book(k) with each strategy 40 realistic trips in and up $3.40: the paper outcomes ask whether each
     clears the live check."""
-    rows = dict(_paper_book(k), **{SB_TRIPS: [dict(t, pnl=0.085) for t in _paper_trips(k)]})
+    rows = dict(_paper_book(k), **{SB_TRIPS: [_trip_row(dict(t, pnl=0.085)) for t in _paper_trips(k)]})
     for d in rows[SB_DEPLOYMENTS]:
         d.update(realized_pnl=3.4, closed_trades=40)
     return rows
@@ -1046,8 +1114,8 @@ def test_the_first_research_scoreboard_after_the_warm_up_reads_no_gate(productio
     assert warmed["paper"]["total"]["live_ready"] == 2
     # Strategy 4 closed another trip: its record moved, so its answer is read again; the rest are kept.
     t0 = datetime(2026, 10, 24)
-    rows[SB_TRIPS] = rows[SB_TRIPS] + [{"strategy_id": 4, "pnl": 0.085, "opened_at": t0, "closed_at": t0 + timedelta(minutes=14),
-                                        "ticker": "KXBTC15M-26OCT240000-00"}]
+    rows[SB_TRIPS] = rows[SB_TRIPS] + [_trip_row({"strategy_id": 4, "pnl": 0.085, "opened_at": t0, "closed_at": t0 + timedelta(minutes=14),
+                                                  "ticker": "KXBTC15M-26OCT240000-00"})]
     server._SHARED.clear()
     asked.clear()
     moved = server.research_scoreboard(_ctx([], 10.0, query={"days": "14"}, extra=rows))
@@ -1070,7 +1138,7 @@ def test_the_paper_progress_worked_out_from_the_trips_is_the_sums_read():
 VERSION = "COALESCE(MAX(id),0) AS top FROM app_positions"  # repo.positions_version (the paper ledger has its own)
 HEAVY = ("SUM(pnl) OVER (PARTITION BY deployment_id", "LEFT JOIN (SELECT p.deployment_id", "AS paper_all",
          "GROUP BY DATE(closed_at)", "SELECT t.strategy_id, COUNT(*) AS trips", "COUNT(DISTINCT SUBSTRING(p.ticker",
-         "TIMESTAMPDIFF(SECOND, '1970-01-01', MIN(p.opened_at))", "SELECT d.strategy_id, p.order_ref, SUM(p.pnl)", "AS pnl_sq",
+         "TIMESTAMPDIFF(SECOND, '1970-01-01', MIN(p.opened_at))", "SELECT d.strategy_id, CONCAT_WS(',', COALESCE(SUM(p.pnl)", "AS pnl_sq",
          "AND mode='paper' AND order_ref LIKE %s GROUP BY deployment_id")
 STRATEGIES = "SELECT id, strategy_id FROM app_deployments WHERE user_id=%s"
 # The dashboard reads the positions' version with the paper ledger's in one statement (repo.book_versions).

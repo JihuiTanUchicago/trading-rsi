@@ -348,17 +348,17 @@ def test_the_export_reads_a_user_index(conn):
 
 
 def test_the_credits_receipt_is_formula_safe_and_keeps_its_numbers(monkeypatch):
-    monkeypatch.setattr(server.repo, "get_user", lambda cur, uid: {"email": "=cmd@example.com"})
-    monkeypatch.setattr(server.repo, "credit_balance", lambda cur, uid: 4.5)
-    monkeypatch.setattr(server.repo, "credit_spent_total", lambda cur, uid: 1.25)
     seen = []
-    monkeypatch.setattr(server.repo, "credit_rows", lambda cur, uid, limit: seen.append(limit) or [
+    # The ledger, the balance and the total spent in one read (repo.credit_history); the account is the session's user.
+    monkeypatch.setattr(server.repo, "credit_history", lambda cur, uid, limit: seen.append(limit) or {"rows": [
         {"created_at": datetime(2026, 10, 25, 9, 0), "kind": "usage", "amount_usd": -0.1234,
          "memo": '=HYPERLINK("http://x.example","Research run")'},
         {"created_at": datetime(2026, 10, 24, 9, 0), "kind": "topup", "amount_usd": 10, "memo": "@SUM(A1)"},
         {"created_at": datetime(2026, 10, 23, 9, 0), "kind": "bonus", "amount_usd": 5, "memo": None},
-    ])
-    fname, rows = _parse(server.billing_receipt(_ctx({})))
+    ], "balance": 4.5, "spent": 1.25})
+    ctx = _ctx({})
+    ctx.user["email"] = "=cmd@example.com"
+    fname, rows = _parse(server.billing_receipt(ctx))
     assert fname.startswith("tau-credits-") and seen == [100000]
     assert rows[0] == ["Tau - Credits & Usage receipt"] and rows[1] == ["Account", "'=cmd@example.com"]
     assert rows[3] == ["Current balance (USD)", "4.5000"] and rows[4] == ["Total spent (USD)", "1.2500"]

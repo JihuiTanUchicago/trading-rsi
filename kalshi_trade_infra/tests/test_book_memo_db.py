@@ -24,7 +24,7 @@ NOW = datetime(2026, 10, 26, 12, 0, 0)
 # The full-history sums the kept reads stand for: none may run on a request while the book is unchanged.
 HEAVY = ("SUM(pnl) OVER (PARTITION BY deployment_id", "LEFT JOIN (SELECT p.deployment_id", "AS paper_all",
          "GROUP BY p.mode, p.deployment_id, COALESCE(p.order_ref", "COUNT(DISTINCT SUBSTRING(p.ticker",
-         "SELECT t.strategy_id, COUNT(*) AS trips", "SELECT d.strategy_id, p.order_ref, SUM(p.pnl)", "AS pnl_sq", "GROUP BY DATE(closed_at)")
+         "SELECT t.strategy_id, COUNT(*) AS trips", "SELECT d.strategy_id, CONCAT_WS(',', COALESCE(SUM(p.pnl)", "AS pnl_sq", "GROUP BY DATE(closed_at)")
 
 
 @pytest.fixture(scope="module")
