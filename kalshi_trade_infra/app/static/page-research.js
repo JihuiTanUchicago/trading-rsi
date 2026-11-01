@@ -9,7 +9,7 @@ window.TauPage('research', (T) => {
     failText, feedMd, fig, fillLiveRow, flash, gl, glo, GLOSSARY, go, ICON, liveOpen, loading, logTime, marketPicker, marketShort,
     markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
     runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, waitSpan, when,
-    dateFmt, LOG_STAMP, settleAt, dayAt,
+    dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay,
     whyFailedHtml, wireMarketPicker
   } = T;
   // Each theme lays the pages out its own way. Tau's list is cards under the form, a line of words and figures over
@@ -895,7 +895,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         const dec = (e2.data || {}).decision || 'review';
         const reason = strip(strip(e2.message, /^Challenger\s+\w+\s+[-–]\s*/i), new RegExp('^' + title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\s*'));
         reviewEl.hidden = false;
-        reviewEl.insertAdjacentHTML('beforeend', `<p class="hx-crit"><span class="hx-tag">Skeptic’s review${SEP}${esc(REVIEW_SAID[dec] || dec)}</span>${esc(upper1(reason))}</p>`);
+        reviewEl.insertAdjacentHTML('beforeend', `<p class="hx-crit"><span class="hx-tag">Skeptic’s review${SEP}${esc(REVIEW_SAID[dec] || dec)}</span> ${esc(upper1(reason))}</p>`);
       },
       verdict(e2) {
         const dd = e2.data || {};
@@ -1008,6 +1008,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     const log = section.querySelector('.log');
     const jump = section.querySelector('.jumplatest');
     const pulse = section.querySelector('.runpulse');  // Tau's foot
+    const span = section.querySelector('.log-span');  // the line over the log: every entry, or only the latest
     let unseen = 0, first = true, appended = 0, pulseSt = null, pulseKey = '', pulseKind = '', lastAt = Date.now(), queuedAt = null;
     const MER_SAID = { paused: 'Paused — resume and it picks up exactly where it left off.', running: 'Researching', queued: 'Queued — waiting for a free agent to pick this up…' };
     // Meridian's: whether the session's state has been said once.
@@ -1039,14 +1040,52 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       earlier.forEach((el) => el.remove());
       paintTop();
     }
+    // The line over the log says which it shows: every entry since the session started, or only the latest (a long
+    // session's first paint holds its earlier rows, and its first read sends only its newest lines). It said nothing,
+    // and "Show 92 earlier entries" at the top was the only sign the log was cut (walk 2026-11-01).
+    function paintSpan() {
+      if (!span) return;
+      const shown = log.querySelectorAll('.ln').length;
+      const said = !shown ? '' : earlier || olderAt ? `Showing the latest ${num(shown)} entr${shown === 1 ? 'y' : 'ies'}; earlier ones open at the top.`
+        : 'Showing every entry since the session started.';
+      if (span.textContent !== said) span.textContent = said;
+      span.hidden = !said;
+    }
     // The one control at the top of the log: the held rows first, then the server's earlier steps.
     function paintTop() {
       let li = log.querySelector('.log-earlier');
       const label = earlier ? `Show ${num(earlier.length)} earlier entries` : olderAt ? 'Show earlier steps' : '';
+      paintSpan();
       if (!label) { if (li) li.remove(); return; }
       if (!li) { li = document.createElement('li'); li.className = 'log-earlier'; log.insertBefore(li, log.firstChild); }
       li.innerHTML = `<button type="button" class="btn small">${label}</button>`;
       li.querySelector('button').onclick = (e) => (earlier ? showEarlier(true) : showOlder(e.currentTarget));
+    }
+    // Day lines: a log that isn't all from today starts each day's first row with its day ("Yesterday", "Sat, Oct 31"),
+    // as the autopilot feed does; the bare clock times under it read as that day's. One all from today has none, its
+    // clock times being today's. The words are dayAt's, said again when the day turns (dayTimes), and the lines are
+    // worked out again then too (days(), the page's dayWatch): a log open past midnight gains its "Yesterday". A run of
+    // a session that spans days read "23:53 … 00:05 … 01:02" with nothing to say which day each was (walk 2026-11-01).
+    const rowTime = (li) => Array.from(li.children || []).find((c) => c.tagName === 'TIME' && !c.removed);
+    const dayLine = (li) => Array.from(li.children || []).find((c) => c.classList && c.classList.contains('log-day') && !c.removed);
+    function markDays() {
+      const rows = Array.from(log.children).filter((li) => li.classList && li.classList.contains('ln'));
+      const at = rows.map((li) => { const t = rowTime(li); return t ? t.getAttribute('datetime') : ''; });
+      const keys = at.map((iso) => (iso ? localDay(iso) : ''));
+      const today = localDay(new Date(Date.now()).toISOString());
+      const need = keys.some((k) => k && k !== today);
+      let prev = '';
+      rows.forEach((li, i) => {
+        const k = keys[i], has = dayLine(li), want = need && !!k && k !== prev;
+        if (k) prev = k;
+        if (has && (!want || has.dataset.key !== k)) has.remove();
+        if (want && !(has && has.dataset.key === k)) {
+          const d = document.createElement('div');
+          d.className = 'log-day'; d.dataset.key = k;
+          d.innerHTML = dayAt(at[i], 'day');
+          li.insertBefore(d, li.children[0] || null);
+        }
+      });
     }
     // Puts the held rows back above what is on screen, which stays where it was.
     function showEarlier(focus) {
@@ -1094,13 +1133,16 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // Puts rows above what is on screen, which stays where it was.
     function putAbove(rows, focus) {
       const btn = log.querySelector('.log-earlier'), ref = btn ? btn.nextSibling : log.firstChild;
-      const was = ref ? ref.offsetTop : 0, top = log.scrollTop;
+      // Held by its clock time, which stays put when its row loses its day line (the day now starts higher up).
+      const mark = ref && ref.children ? rowTime(ref) || ref : ref;
+      const was = mark ? mark.offsetTop : 0, top = log.scrollTop;
       rows.forEach((el) => log.insertBefore(el, ref));
       paintTop();
+      markDays();
       // Instantly, not with the log's smooth scrolling, and the same whether or not the browser
       // anchored the scroll itself.
       log.style.scrollBehavior = 'auto';
-      log.scrollTop = top + ((ref ? ref.offsetTop : 0) - was);
+      log.scrollTop = top + ((mark ? mark.offsetTop : 0) - was);
       log.style.scrollBehavior = '';
       // Focus goes to the newest revealed entry (the button it pressed is gone), just above the view.
       const last = rows[rows.length - 1];
@@ -1162,6 +1204,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
 
     return {
       reveal: () => showEarlier(false),  // a jump to an older card shows the held rows first
+      days: markDays,  // the day turned: the day lines worked out again (viewRun's dayWatch)
       // The server holds steps before the first one sent (its `earlier`): "Show earlier steps" reads them, `read(before)`.
       older(before, read) { olderAt = before ? { before, read } : null; paintTop(); },
       push(events) {
@@ -1171,6 +1214,8 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         appended = 0;
         events.forEach((ev) => { try { dispatch(ev); } catch (e) { /* one bad event must not break the feed */ } });
         if (first) foldEarlier();
+        markDays();
+        paintSpan();
         if (stick) toLatest();
         else if (appended) { unseen += appended; jump.hidden = false; jump.textContent = unseen + ' new ↓'; }
         if (!first) sayVerdicts(events);
@@ -1259,12 +1304,12 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       const why = whyFailedHtml(data.why_failed);
       inner = `${tag} ${titleHtml}${why ? '' : esc(tail)}${why}`;
     } else if (ev.kind === 'challenger') {
-      inner = `<span class="say-kind">Skeptic’s review</span>${esc(ev.message.replace(/^Challenger\s+/, ''))}`;
+      inner = `<span class="say-kind">Skeptic’s review</span> ${esc(ev.message.replace(/^Challenger\s+/, ''))}`;
     } else if (/^(Dreaming:|Research policy evolved:)/.test(ev.message)) {
       lane = 'rsi';
       inner = `<b class="rsi-badge">RSI</b> ${esc(plainDream(ev.message))}`;
     } else if (ev.kind === 'paused' || ev.kind === 'resumed') {
-      inner = `<span class="say-kind">${ev.kind === 'paused' ? 'Paused' : 'Resumed'}</span>${esc(ev.message)}`;
+      inner = `<span class="say-kind">${ev.kind === 'paused' ? 'Paused' : 'Resumed'}</span> ${esc(ev.message)}`;
     } else {
       // The server's plain sentence for a step written in the ledger's terms ("Froze 2 finalists; ...
       // validation budget"), else the step itself: inline markdown (bold/code/italic/links), escaped.
@@ -1709,7 +1754,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       <div id="rsiobs" class="rsiobs"></div>
       <section><div class="section-head"><h2>Agent log</h2></div>
         <p class="hint" style="margin:2px 0 10px">Watch the agent reason in real time — each idea, its backtest and its verdict as they happen. Every strategy links to its full result once its outcome is in; see them all on the <a href="/strategies">Strategies</a> page.${tzName() ? ` Times are ${esc(tzName())}.` : ''}</p>
-        <div class="runfeed" id="runfeed"><ol class="log stream" id="log" aria-label="Agent reasoning log"><li class="log-empty" data-empty>Waiting for the first event.</li></ol><button class="jumplatest" id="jumplatest" type="button" hidden>new ↓</button><div class="runpulse" id="runpulse" hidden></div></div><div id="runend"></div></section>`);
+        <div class="runfeed" id="runfeed"><p class="log-span" hidden></p><ol class="log stream" id="log" aria-label="Agent reasoning log"><li class="log-empty" data-empty>Waiting for the first event.</li></ol><button class="jumplatest" id="jumplatest" type="button" hidden>new ↓</button><div class="runpulse" id="runpulse" hidden></div></div><div id="runend"></div></section>`);
     } else {
       shell('/research', '<div class="run-header"><div id="runboard">' + boardTitle('Research run') + '</div><span id="runact"></span></div><dl class="figures measure" id="runfigs" style="margin-top:14px"></dl><div id="runnext"></div><p class="stale-note" id="run-stale" role="status"></p>', `
       <div id="flash"></div>
@@ -1717,7 +1762,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       <div id="rsibox"></div>
       <div id="rsiobs" class="rsiobs"></div>
       <details class="run-history" id="run-history" open><summary class="section-head"><h2>Agent log</h2>${ICON.chev}</summary>${tzName() ? `<p class="hint" style="margin:0 0 8px">Times are ${esc(tzName())}.</p>` : ''}
-        <div class="runfeed" id="runfeed"><ol class="log stream" id="log" aria-label="Agent reasoning log"><li class="log-empty" data-empty>Waiting for the first event.</li></ol><button class="jumplatest" id="jumplatest" type="button" hidden>new ↓</button></div><div id="runend-log"></div></details>`);
+        <div class="runfeed" id="runfeed"><p class="log-span" hidden></p><ol class="log stream" id="log" aria-label="Agent reasoning log"><li class="log-empty" data-empty>Waiting for the first event.</li></ol><button class="jumplatest" id="jumplatest" type="button" hidden>new ↓</button></div><div id="runend-log"></div></details>`);
     }
     let after = 0, tried = 0, dropped = 0, runActive = true, loaded = false, outOfCredits = false;
     const pauses = { ms: 0, since: null, last: null };
@@ -1742,6 +1787,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' }); else go('/strategies/' + b.dataset.goto);
     });
     const stream = runFeed(root.querySelector('#runfeed'));
+    { const gen = S.gen; dayWatch.add(() => { if (gen !== S.gen) return false; stream.days(); }); }
     const obs = rsiObservatory(root.querySelector('#rsiobs'));
     if (!tau) root.querySelector('#run-artifacts').addEventListener('click', (e) => { if (e.target.closest('[data-allstrats]')) { showAllStrats = true; load(); } });
     // A finished session's cost beside what the research form says sessions like it usually cost: the same

@@ -17,6 +17,7 @@ import {communityCases} from './community_frontend_cases.mjs';
 import {researchPollCases} from './research_poll_frontend_cases.mjs';
 import {runPageCases} from './run_page_frontend_cases.mjs';
 import {olderStepsCases} from './run_feed_older_cases.mjs';
+import {runLogCases} from './run_log_frontend_cases.mjs';
 import {moneyPollCases} from './money_poll_frontend_cases.mjs';
 import {strategyPageCases} from './strategy_page_frontend_cases.mjs';
 import {marketNameCases} from './market_names_frontend_cases.mjs';
@@ -6159,12 +6160,14 @@ if (!Object.getOwnPropertyDescriptor(Element.prototype, 'nextSibling')) {
 const longFeed = (f) => {
   const section = new Element(), log = new LiveList('ol', {class: 'log stream'});
   const jump = new Element('button', {class: 'jumplatest', hidden: ''}), pulse = new Element('div', {class: 'runpulse'});
-  section.querySelector = sel => ({'.log': log, '.jumplatest': jump, '.runpulse': pulse})[sel] || null;
+  const span = new Element('p', {class: 'log-span', hidden: ''});
+  section.querySelector = sel => ({'.log': log, '.jumplatest': jump, '.runpulse': pulse, '.log-span': span})[sel] || null;
   f.document.createDocumentFragment = () => new LiveList('#fragment');
-  return {stream: f.runFeed(section), log, jump};
+  return {stream: f.runFeed(section), log, jump, span};
 };
 const runEvent = (id, kind, message, data = {}) => ({id, kind, message, data, created_at: '2026-10-17T10:00:00Z'});
 olderStepsCases({name: 'Tau', frontend, longFeed, runEvent});
+runLogCases({name: 'Tau', frontend, longFeed, runEvent});
 
 test('Tau: a long research log paints its latest rows first and shows the earlier ones on request, in place', () => {
   const f = frontend(), {stream, log, jump} = longFeed(f);
@@ -6214,7 +6217,8 @@ test('Tau: run log times build each date format once, and read as toLocaleString
   assert.equal(made, after10);
   const d = new Date('2026-10-17T10:00:00Z');
   const title = d.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'});
-  const time = log.children[0].querySelector('time');
+  // The row's own clock time (a log not from today starts with its day line, which holds a time of its own).
+  const time = log.children[0].children.find((c) => c.tagName === 'TIME');
   assert.equal(time.getAttribute('title'), title);
   assert.equal(time.textContent, d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit', hourCycle: 'h23'}));
   assert.match(source, /if \(!Number\.isFinite\(d\.getTime\(\)\)\) return 'Invalid Date';/);
