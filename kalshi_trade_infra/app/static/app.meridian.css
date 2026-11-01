@@ -865,8 +865,10 @@ details.mkt-group[open] > .mkt-group-h .mkt-chev { transform: rotate(180deg); }
 .rsi-rail .rsi-dot { fill: var(--stock-raised); stroke: var(--rule-2); stroke-width: 1.8; transition: fill .3s var(--ease), stroke .3s var(--ease); }
 .rsi-rail .is-done .rsi-dot { fill: var(--ink); stroke: var(--ink); }
 .rsi-rail .is-active .rsi-dot { fill: var(--signal); stroke: var(--signal); }
-.rsi-labels { display: flex; gap: 24px; list-style: none; margin: 16px 0 8px; padding: 0; }
-.rsi-lab { flex: 1; padding-bottom: 8px; border-bottom: 2px solid var(--rule); font-family: var(--f-nar); font-size: 13px; font-weight: 400; color: var(--ink-3); transition: color .3s var(--ease); }
+/* A stage name never narrower than its word: at 200% text "Improve" ran past the card on a 390px phone (walked
+   2026-11-01). Where four don't fit on one line they wrap two and two. */
+.rsi-labels { display: flex; flex-wrap: wrap; gap: 24px; list-style: none; margin: 16px 0 8px; padding: 0; }
+.rsi-lab { flex: 1; min-width: max-content; padding-bottom: 8px; border-bottom: 2px solid var(--rule); font-family: var(--f-nar); font-size: 13px; font-weight: 400; color: var(--ink-3); transition: color .3s var(--ease); }
 .rsi-lab.is-done { color: var(--ink-2); }
 .rsi-lab.is-active { color: var(--ink); border-color: var(--ink); font-weight: 600; }
 .rsiobs-phase { margin-top: 8px; font-size: 13px; color: var(--ink); }

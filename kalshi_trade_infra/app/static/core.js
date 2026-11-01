@@ -648,7 +648,10 @@
     const last = +curve[curve.length - 1][1], n = trades == null ? curve.length : +trades;
     const vals = curve.map((p) => +p[1]), lo = Math.min(...vals), hi = Math.max(...vals);
     const range = lo === hi ? `flat at ${usd(lo, true)}` : `low ${usd(lo, true)}, high ${usd(hi, true)}`;
-    const label = `${SPARK_BOOK[mode] ? SPARK_BOOK[mode] + ' cumulative' : 'Cumulative'} P&L, ${usd(last, true)} over ${num(n)} trade${n === 1 ? '' : 's'}; ${range}`;
+    // And its period and first figure: it said where it ended, its low and its high, not over which days or where it began.
+    const day = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const span = day(t0) === day(t1) ? `on ${day(t0)}` : `from ${day(t0)} to ${day(t1)}`;
+    const label = `${SPARK_BOOK[mode] ? SPARK_BOOK[mode] + ' cumulative' : 'Cumulative'} P&L, ${usd(last, true)} over ${num(n)} trade${n === 1 ? '' : 's'} ${span}; ${usd(+curve[0][1], true)} after the first; ${range}`;
     return `<svg class="spark ${last > 0 ? 'up' : last < 0 ? 'down' : 'flat'}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" preserveAspectRatio="none" role="img" aria-label="${esc(plain(label))}"><line class="spark-zero" x1="0" x2="${W}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" vector-effect="non-scaling-stroke"/><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>`;
   }
   // The underwater drawdown plot: the research paper's third figure, and the track record's.

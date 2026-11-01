@@ -1041,3 +1041,17 @@ test('@-mention suggestions: the one highlighted is the one marked selected, in 
     assert.equal(decl(all, '.mention-opt.on', 'background'), 'var(--stock-sunk)', file);
   }
 });
+
+// Chart walk 2026-11-01, 200% text on a 390px phone: the research session's loop diagram ran its stage names past the
+// card ("IMPROVE" 145px in Tau, "Improve" 17px in Meridian). A name is never narrower than its word, and four that don't
+// fit on one line wrap two and two. The track record's charts share `.chart text`: that rule stays as it was.
+test('Research loop diagram: a stage name keeps its word and the names wrap, in both themes; the shared chart text is unchanged', () => {
+  for (const file of ['app.css', 'app.meridian.css']) {
+    const all = rules(read(file));
+    assert.equal(decl(all, '.rsi-labels', 'flex-wrap'), 'wrap', file);
+    assert.equal(decl(all, '.rsi-lab', 'min-width'), 'max-content', file);
+    assert.equal(decl(all, '.rsi-lab', 'flex'), '1', file);
+    assert.equal(decl(all, '.chart text', 'font'), '500 11px var(--f-nar)', file);
+    assert.equal(all.filter((r) => sels(r).includes('.chart text')).length, 1, file);
+  }
+});

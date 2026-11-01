@@ -119,7 +119,9 @@ export function chartTrustCases({name, frontend, detailStrategy, strategyFronten
     await f.viewDeploy(); await settle();
     const html = f.root.querySelector('#deps').innerHTML;
     const sparks = [...html.matchAll(/<svg class="spark[^"]*"[^>]*aria-label="([^"]*)"[^>]*>[\s\S]*?<\/svg>/g)];
-    assert.deepEqual(sparks.map((m) => m[1]).sort(), ['Demo cumulative P&amp;L, +$2.00 over 30 trades; low −$40.00, high +$2.00', 'Paper cumulative P&amp;L, $0.00 over 2 trades; flat at $0.00']);
+    const d9 = new Date(1760000000e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+    assert.deepEqual(sparks.map((m) => m[1]).sort(), [`Demo cumulative P&amp;L, +$2.00 over 30 trades on ${d9}; −$40.00 after the first; low −$40.00, high +$2.00`,
+      `Paper cumulative P&amp;L, $0.00 over 2 trades on ${d9}; $0.00 after the first; flat at $0.00`]);
     assert.doesNotMatch(html, /NaN/);
     f.clearTimers();
   });
