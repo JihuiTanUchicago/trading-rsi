@@ -26,7 +26,7 @@ def _kalshi_key_ids(cur, uid):
 
 def _ledger_rows_with_balance(cur, uid, limit=repo.LEDGER_LISTED):
     rows = repo.ledger_rows(cur, uid) if limit == repo.LEDGER_LISTED else repo.ledger_rows(cur, uid, limit)
-    return rows, repo.paper_balance(cur, uid)
+    return rows, repo.paper_balance(cur, uid), len(rows)  # a faked ledger lists every entry it holds
 
 
 def _book_versions(cur, uid):

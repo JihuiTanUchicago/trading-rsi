@@ -508,7 +508,8 @@
     sol15m: 'SOL 15-min up/down', sol_daily: 'SOL above set price at 5pm ET', xrp15m: 'XRP 15-min up/down', xrp_daily: 'XRP above set price at 5pm ET',
     doge15m: 'DOGE 15-min up/down', near15m: 'NEAR 15-min up/down', zec15m: 'ZEC 15-min up/down', hype15m: 'HYPE 15-min up/down',
     nba_game: 'NBA winner', nfl_game: 'NFL winner', nhl_game: 'NHL winner',
-    ncaaf_game: 'NCAAF winner', mlb_game: 'MLB winner', epl_game: 'EPL result',
+    // A league in words people use: "EPL" and "NCAAF" are a bettor's shorthand (sports walk 2026-11-01).
+    ncaaf_game: 'College football winner', mlb_game: 'MLB winner', epl_game: 'Premier League result',
     high_ny: 'NYC high temp',
     tao_sn64: 'SN64 Chutes', tao_sn19: 'SN19 Nineteen', tao_sn8: 'SN8 PTN',
     tao_sn4: 'SN4 Targon', tao_sn56: 'SN56 Gradients',
@@ -581,12 +582,23 @@
   // says its city, the day and the degrees it pays on, and a game its teams, its day and the outcome it pays on.
   // Positions on two NYC highs both read "NYC daily high temperature", and a game's "NFL game winner (moneyline)" said
   // neither team nor which one the trade was on (walk 2026-11-01). Kalshi's ticker carries the city's local day
-  // (KXHIGHNY-26NOV01) and the game's date (KXNFLGAME-26NOV01KCBUF-KC); its teams are Kalshi's own codes. A -B bucket
+  // (KXHIGHNY-26NOV01) and the game's date (KXNFLGAME-26NOV01KCBUF-KC); its teams are Kalshi's codes, named by TEAM_NAMES. A -B bucket
   // (B58.5) pays on 58° to 59°; a -T end pays above or below its figure, and which one isn't in the ticker, so it says
   // the threshold only. '' for any other contract, which keeps its market's name.
   const TICKER_MON = { JAN: 'Jan', FEB: 'Feb', MAR: 'Mar', APR: 'Apr', MAY: 'May', JUN: 'Jun', JUL: 'Jul', AUG: 'Aug', SEP: 'Sep', OCT: 'Oct', NOV: 'Nov', DEC: 'Dec' };
   const WX_CONTRACT = /^KX(?:HIGH|LOWT)[A-Z]*-\d{2}([A-Z]{3})(\d{2})-([BT])(\d+(?:\.\d+)?)$/;
   const GAME_CONTRACT = /^KX[A-Z]+GAME-\d{2}([A-Z]{3})(\d{2})([A-Z]+)-([A-Z]+)$/;
+  // A team as people name it, from Kalshi's code for it in the league's game tickers: "NBA: LAL vs BOS on Nov 1, LAL to
+  // win" read in codes on Home, Deploy, Funds and the market page (sports walk 2026-11-01). Keyed by the series, as a code
+  // means another team in another league (CHI, DAL). A code not listed stays as Kalshi wrote it. Display only.
+  const TEAMS = (s) => Object.fromEntries(s.split(',').map((p) => p.split(':')));
+  const TEAM_NAMES = {
+    KXNBAGAME: TEAMS('ATL:Hawks,BOS:Celtics,BKN:Nets,BRK:Nets,CHA:Hornets,CHI:Bulls,CLE:Cavaliers,DAL:Mavericks,DEN:Nuggets,DET:Pistons,GSW:Warriors,GS:Warriors,HOU:Rockets,IND:Pacers,LAC:Clippers,LAL:Lakers,MEM:Grizzlies,MIA:Heat,MIL:Bucks,MIN:Timberwolves,NOP:Pelicans,NYK:Knicks,OKC:Thunder,ORL:Magic,PHI:76ers,PHX:Suns,POR:Trail Blazers,SAC:Kings,SAS:Spurs,TOR:Raptors,UTA:Jazz,WAS:Wizards'),
+    KXNFLGAME: TEAMS('ARI:Cardinals,ATL:Falcons,BAL:Ravens,BUF:Bills,CAR:Panthers,CHI:Bears,CIN:Bengals,CLE:Browns,DAL:Cowboys,DEN:Broncos,DET:Lions,GB:Packers,HOU:Texans,IND:Colts,JAC:Jaguars,JAX:Jaguars,KC:Chiefs,LA:Rams,LAR:Rams,LAC:Chargers,LV:Raiders,MIA:Dolphins,MIN:Vikings,NE:Patriots,NO:Saints,NYG:Giants,NYJ:Jets,PHI:Eagles,PIT:Steelers,SEA:Seahawks,SF:49ers,TB:Buccaneers,TEN:Titans,WAS:Commanders,WSH:Commanders'),
+    KXNHLGAME: TEAMS('ANA:Ducks,BOS:Bruins,BUF:Sabres,CGY:Flames,CAR:Hurricanes,CHI:Blackhawks,COL:Avalanche,CBJ:Blue Jackets,DAL:Stars,DET:Red Wings,EDM:Oilers,FLA:Panthers,LA:Kings,LAK:Kings,MIN:Wild,MTL:Canadiens,NSH:Predators,NJ:Devils,NJD:Devils,NYI:Islanders,NYR:Rangers,OTT:Senators,PHI:Flyers,PIT:Penguins,SJ:Sharks,SJS:Sharks,SEA:Kraken,STL:Blues,TB:Lightning,TBL:Lightning,TOR:Maple Leafs,VAN:Canucks,VGK:Golden Knights,WSH:Capitals,WPG:Jets'),
+    KXEPLGAME: TEAMS('ARS:Arsenal,AVL:Aston Villa,BOU:Bournemouth,BRE:Brentford,BHA:Brighton,BUR:Burnley,CHE:Chelsea,CRY:Crystal Palace,EVE:Everton,FUL:Fulham,IPS:Ipswich,LEE:Leeds,LEI:Leicester,LIV:Liverpool,MCI:Man City,MUN:Man United,NEW:Newcastle,NFO:Nottingham Forest,SOU:Southampton,SUN:Sunderland,TOT:Tottenham,WHU:West Ham,WOL:Wolves'),
+  };
+  const teamName = (ticker, code) => ((TEAM_NAMES[String(ticker || '').split('-')[0]] || {})[code]) || code;
   const contractWords = (ticker, short) => {
     const t = String(ticker || ''), w = WX_CONTRACT.exec(t), g = !w && GAME_CONTRACT.exec(t), mon = TICKER_MON[(w || g || [])[1]];
     if (!short || !mon) return '';
@@ -601,7 +613,8 @@
       : teams.length > out.length && teams.startsWith(out) ? [out, teams.slice(out.length)]
       : teams.length > out.length && teams.endsWith(out) ? [teams.slice(0, -out.length), out] : null;
     if (!pair && out !== 'TIE') return '';
-    return `${lead}: ${pair ? `${pair[0]} vs ${pair[1]} ` : ''}on ${day}, ${out === 'TIE' ? 'a draw' : out + ' to win'}`;
+    const nm = (code) => teamName(t, code);
+    return `${lead}: ${pair ? `${nm(pair[0])} vs ${nm(pair[1])} ` : ''}on ${day}, ${out === 'TIE' ? 'a draw' : nm(out) + ' to win'}`;
   };
   // Bitcoin series the app shows (Explore, the hot rail, a market page, a position held at Kalshi) that no
   // market here covers: KXBTC's hourly price ranges. Each still says its contract and close as the markets above
@@ -1153,9 +1166,14 @@
     settles: (iso, s) => (s > 0 || Number.isNaN(s) ? `settles ${settleDay(iso)}` : 'closed, result pending'),
     settleTime: (iso, s) => (s > 0 || Number.isNaN(s) ? settleDay(iso, true) : MKT_STATUS.closed),
   };
+  // One settling on the reader's next day says "tomorrow" with its time and zone: tonight's game past midnight UTC and
+  // tomorrow's read alike as dates ("Nov 2, 22:00 EST"), and a reader had to work out which was which (sports walk
+  // 2026-11-01). The next day is counted on the reader's calendar, so a 23-hour or 25-hour day (the clock change) is one day.
   function settleDay(iso, cap) {
-    const d = new Date(iso || NaN), t = settleAt(iso);
-    return Number.isFinite(d.getTime()) && d.toDateString() === new Date(Date.now()).toDateString() ? `${cap ? 'Today' : 'today'}, ${t}` : t;
+    const d = new Date(iso || NaN), t = settleAt(iso), now = new Date(Date.now());
+    if (!Number.isFinite(d.getTime())) return t;
+    if (d.toDateString() === now.toDateString()) return `${cap ? 'Today' : 'today'}, ${t}`;
+    return d.toDateString() === new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toDateString() ? `${cap ? 'Tomorrow' : 'tomorrow'}, ${dateFmt(d, CLOCK_ZONE)}` : t;
   }
   const closeWords = (iso, form, skew, cap) => { const t = CLOSE_FORM[form](iso, closeLeft(iso, skew)); return cap ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
   // The clock's attributes on an element of the caller's own (Deploy's Settles cell is the cell itself).
@@ -1608,7 +1626,11 @@
   const paperCount = (p) => +p.trades >= +p.trades_needed ? `${num(+p.trades)} realistic paper trades (${num(+p.trades_needed)} needed)` : `${num(+p.trades)} of ${num(+p.trades_needed)} realistic paper trades`;
   // A backtest trade's exit, in words (backtest.py / spec.exit_signal reasons); an unknown one loses its underscores.
   const EXIT_WORD = { settled: 'settled', take_profit: 'take-profit', stop_loss: 'stop-loss', stop: 'stop', edge_gone: 'edge gone', signal: 'signal', exit: 'signal', mark: 'marked at end' };
-  const exitWord = (r) => r == null ? '' : EXIT_WORD[r] || String(r).replace(/_/g, ' ');
+  // A trade held to settlement that paid between nothing and $1 a contract (`exit`) was in a market Kalshi cancelled (a
+  // postponed game: it settles those at a price it sets, or refunds them at cost), as services/trade_why.py says it; a
+  // voided game read "Closed (settled) @ 50¢", like a result (sports walk 2026-11-01). Words only.
+  const voidExit = (r, exit) => r === 'settled' && exit != null && exit !== '' && +exit > 0 && +exit < 1;
+  const exitWord = (r, exit) => r == null ? '' : voidExit(r, exit) ? 'cancelled by Kalshi' : EXIT_WORD[r] || String(r).replace(/_/g, ' ');
   const AP_FOCUS = [['', 'Any market'], ['crypto', 'Crypto only'], ['btc', 'Bitcoin only'], ['sports', 'Sports only']];
 
   // ---------- credits and runway in words ----------

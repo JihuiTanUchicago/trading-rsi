@@ -24,6 +24,7 @@ import {strategyPageCases} from './strategy_page_frontend_cases.mjs';
 import {marketNameCases} from './market_names_frontend_cases.mjs';
 import {rawCodeCases} from './raw_code_frontend_cases.mjs';
 import {weatherSportsCases} from './weather_sports_frontend_cases.mjs';
+import {sportsPathCases} from './sports_path_frontend_cases.mjs';
 import {strategyListCases} from './strategy_list_frontend_cases.mjs';
 import {strategyListParityCases} from './strategy_list_parity_frontend_cases.mjs';
 import {strategyMarketFilterCases} from './strategy_market_filter_frontend_cases.mjs';
@@ -294,6 +295,7 @@ strategyPageCases({name: 'Tau', frontend, detailStrategy, strategyFrontend, post
 marketNameCases({name: 'Tau', frontend, detailStrategy, strategyFrontend});
 rawCodeCases({name: 'Tau', detailStrategy, strategyFrontend});
 weatherSportsCases({name: 'Tau', frontend, detailStrategy, strategyFrontend});
+sportsPathCases({name: 'Tau', frontend});
 strategyListCases({name: 'Tau', frontend, detailStrategy});
 strategyListParityCases({name: 'Tau', frontend, detailStrategy});
 strategyMarketFilterCases({name: 'Tau', frontend, detailStrategy});
@@ -4456,11 +4458,13 @@ test('past its paper-trade target the autopilot card says how many and how many 
 test('a backtest trade\'s exit reads in words, and a sub-cent charge shows its amount', async () => {
   const opened = '2026-10-17T10:00Z';
   const recent = ['take_profit', 'stop_loss', 'edge_gone', 'settled', 'brand_new_reason'].map((reason, i) =>
-    ({ticker: 'KXBTC15M-T' + i, side: 'yes', qty: 2, entry: 0.4, exit: 0.6, pnl: 0.4, reason, opened}));
+    ({ticker: 'KXBTC15M-T' + i, side: 'yes', qty: 2, entry: 0.4, exit: reason === 'settled' ? 1 : 0.6, pnl: 0.4, reason, opened}));
+  // A trade held through a market Kalshi cancelled settled at its price (50¢): it reads cancelled, not settled (sports walk 2026-11-01).
+  recent.push({ticker: 'KXNBAGAME-26OCT31NYKCHI-CHI', side: 'yes', qty: 2, entry: 0.4, exit: 0.5, pnl: 0.2, reason: 'settled', opened});
   const f = strategyFrontend(detailStrategy({recent_trades: recent}), () => response({deployments: [], open_positions: []}));
   await f.viewStrategy(42); await flush();
   const html = f.root.querySelector('#main').innerHTML;
-  for (const word of ['take-profit', 'stop-loss', 'edge gone', 'settled', 'brand new reason']) assert.ok(html.includes(`<small class="hint">${word}</small>`), word);
+  for (const word of ['take-profit', 'stop-loss', 'edge gone', 'settled', 'brand new reason', 'cancelled by Kalshi']) assert.ok(html.includes(`<small class="hint">${word}</small>`), word);
   assert.doesNotMatch(html, /take_profit|stop_loss|edge_gone|brand_new_reason/);
   const b = billingPage(cardedBilling({ledger: [{kind: 'usage', amount: -0.0042, memo: 'Agent usage · sonnet', created_at: '2026-10-25T17:00:00Z'},
     {kind: 'usage', amount: -0.21, memo: 'Agent usage · sonnet', created_at: '2026-10-25T16:00:00Z'}]}));
