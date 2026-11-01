@@ -171,7 +171,12 @@ window.TauPage('explore', (T) => {
     // Settled with no Yes or No (Kalshi voided it, or its record says settled and sends no result): the page read
     // "Settled" over a live-looking "≈ 41% chance of Yes" and "Result expected" a day gone, and never said there was no
     // result (walk 2026-10-31). It says so where the result goes, and in How it settles.
-    const voided = !settled && d.result === 'void';
+    // A game Kalshi cancelled (postponed or called off) settles "scalar" at a price Kalshi sets (settle_value): it read
+    // "Kalshi lists it as settled but sent no Yes or No result" (walk 2026-11-01). It says it was cancelled and what each
+    // contract paid, in the words a trade held through it says (trade_why).
+    const cancelled = !settled && d.result === 'scalar';
+    const paidEach = cancelled && d.settle_value != null && Number.isFinite(+d.settle_value) ? `paid ${cents(+d.settle_value)} a contract` : '';
+    const voided = !settled && (d.result === 'void' || cancelled);
     const noResult = !settled && (voided || ['determined', 'settled', 'finalized'].includes(d.status));
     const over = settled || noResult;
     // The close, counting down from when Tau read the market (as_of; the feed's snapshot is older, so it counts from
@@ -190,7 +195,7 @@ window.TauPage('explore', (T) => {
     // pending" once the close passes; Kalshi's own closed and settled statuses stay as Kalshi sent them.
     // A read with no status (the Explore feed's snapshot) said "Market" there, a word that says nothing: it says nothing.
     const statusLine = d.close_time && (d.status === 'active' || d.status === 'open') ? liveClose(d.close_time, 'status', { skew: closeSkew })
-      : voided ? 'Voided' : esc(MKT_STATUS[d.status] || d.status || '');
+      : cancelled ? 'Cancelled by Kalshi' : voided ? 'Voided' : esc(MKT_STATUS[d.status] || d.status || '');
     // A count Kalshi didn't send reads "—", not 0 ("0 contracts traded" for a figure that never came), and a long one is set
     // smaller on a phone (.fig-long): 98,765,432,100 ran out of its figure on a 390px phone (walk 2026-10-31).
     const count = (label, v, small) => {
@@ -202,12 +207,13 @@ window.TauPage('explore', (T) => {
     shell('/explore', `<p class="mk-back"><a href="${esc(exploreBackHref())}">← Back to Explore</a></p>` + boardTitle(label, [esc(contractMarket(d.ticker)), statusLine, d.ticker ? kalshiRef(d.ticker) : ''].filter(Boolean).join(SEP)) +
       '<dl class="figures measure" style="margin-top:14px">' +
         (settled ? fig('Result', d.result === 'yes' ? 'Yes' : 'No', { small: d.result === 'yes' ? 'each Yes contract paid $1' : 'each No contract paid $1' })
+          : cancelled ? fig('Result', 'Cancelled', { small: `Kalshi cancelled this market${paidEach ? ' and ' + paidEach : ''}: no Yes or No result` })
           : voided ? fig('Result', 'Voided', { small: 'Kalshi voided this market: no Yes or No result' })
           : noResult ? fig('Result', '—', { small: 'Kalshi lists it as settled but sent no Yes or No result' })
           : fig('Yes price', mid == null ? '—' : cents(mid), { small: priceSub })) + count('24h volume', d.volume_24h, 'contracts traded') +
         count('Open interest', d.open_interest, 'contracts held') + closesFig + '</dl>' + marketNext(d.ticker, d.my_markets), `${spotReq && !over ? spotSect(d.ticker || ticker) : ''}
       <section class="sect"><div class="sect-head"><h2>Your positions here</h2><p>Each money book on its own</p></div>${marketMine(d)}</section>
-      <section class="sect"><div class="sect-head"><h2>How it settles</h2><p>${settled ? `Settled${SEP}${d.result === 'yes' ? 'Yes' : 'No'}` : voided ? 'Voided, no result' : noResult ? 'Settled, no result sent' : d.settles_at ? `Result expected ${dayAt(d.settles_at)}` : 'Kalshi’s rules'}</p></div>
+      <section class="sect"><div class="sect-head"><h2>How it settles</h2><p>${settled ? `Settled${SEP}${d.result === 'yes' ? 'Yes' : 'No'}` : cancelled ? `Cancelled by Kalshi${paidEach ? SEP + paidEach : ''}` : voided ? 'Voided, no result' : noResult ? 'Settled, no result sent' : d.settles_at ? `Result expected ${dayAt(d.settles_at)}` : 'Kalshi’s rules'}</p></div>
         ${d.rules ? `<p class="mk-rules">${esc(rulesText(d.rules))}</p>${d.rules_more ? `<p class="hint mk-rules">${esc(rulesText(d.rules_more))}</p>` : ''}`
           : `<p class="hint mk-rules">Kalshi’s settlement rules didn’t come with this snapshot. <a href="${kalshiLink}" target="_blank" rel="noopener">Read them on Kalshi ↗</a></p>`}</section>
       <section class="sect"><div class="sect-head"><h2>Price history</h2><p>Yes price${d.history_unavailable ? '' : `${SEP}${GRAN_EACH[gran]}, from Kalshi`}</p></div>

@@ -485,6 +485,11 @@
   };
   // Order the research picker groups by how often they're used; unknown categories fall to the end.
   const MKT_CATS = ['Crypto', 'Sports', 'Economics', 'Commodities', 'Science and Technology', 'Climate and Weather', 'Weather', 'Bittensor'];
+  // The group a market is listed under in the research picker and the Strategies market filter. Kalshi files the city
+  // highs the catalog adds under "Climate and Weather" and the curated NYC high is "Weather", so both lists showed two
+  // weather groups, Chicago's high under one and New York's under the other (walk 2026-11-01). One group, "Weather".
+  // Display only: the stored category is unchanged.
+  const mktCat = (m) => (m.category === 'Climate and Weather' ? 'Weather' : m.category);
   // Category sort shared by the research picker and the strategies market filter.
   const catOrder = (a, b) => { const ia = MKT_CATS.indexOf(a), ib = MKT_CATS.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); };
   // No market picked: the agent chooses. Said as a market ("Any market (agent’s choice)"), since a header or
@@ -506,8 +511,13 @@
     const m = k && me && (me.markets || []).find((x) => x.key === k);
     return (m && m.label) || (k && me && me.market_names && me.market_names[k]) || '';
   };
+  // A city's daily high or low the catalog adds (Kalshi titles it "Highest temperature in Chicago") has no MKT_SHORT
+  // entry, since the catalog's series aren't known here ahead of time: its short name says it as the NYC high's does
+  // ("Chicago high temp"). A chip clipped the title to "HIGHEST TEMPERATURE IN CHICAG" (walk 2026-11-01). '' otherwise.
+  const WX_TITLE = /^(Highest|Lowest) temperature in (.+?)(?: today| tomorrow)?\??$/i;
+  const wxShort = (label) => { const m = WX_TITLE.exec(String(label || '').trim()); return m ? `${m[2]} ${/^h/i.test(m[1]) ? 'high' : 'low'} temp` : ''; };
   const mktLong = (k, me) => (!k ? NO_MARKET : mktCatalog(k, me) || MKT_SHORT[k] || UNLISTED_MARKET);
-  const mktShort = (k, me) => (!k ? NO_MARKET : MKT_SHORT[k] || mktCatalog(k, me) || UNLISTED_MARKET);
+  const mktShort = (k, me) => (!k ? NO_MARKET : MKT_SHORT[k] || wxShort(mktCatalog(k, me)) || mktCatalog(k, me) || UNLISTED_MARKET);
   // Whether a key is a market the app can name (a line quoting one by its key can be said in words).
   const mktKnown = (k, me) => !!(k && (MKT_SHORT[k] || mktCatalog(k, me)));
   // The readable market a contract ticker belongs to, by its series prefix (KXBTCD-26OCT2617-T68499.99 is
@@ -530,6 +540,32 @@
     // Any other strike, and a KXBTC -T end (the ticker doesn't say which way it points), keeps its exact figure.
     if (/^KXBTCD-/.test(String(ticker)) && k[2] === '.99' && LADDER_WORDS.test(label)) return label.replace(LADDER_WORDS, `$${num(+k[1] + 1)} or above`);
     return label.replace(LADDER_WORDS, 'above $' + num(k[1]) + (k[2] || ''));
+  };
+  // A weather or game contract in words, from its ticker, after its market's short name (`short`): a day's high or low
+  // says its city, the day and the degrees it pays on, and a game its teams, its day and the outcome it pays on.
+  // Positions on two NYC highs both read "NYC daily high temperature", and a game's "NFL game winner (moneyline)" said
+  // neither team nor which one the trade was on (walk 2026-11-01). Kalshi's ticker carries the city's local day
+  // (KXHIGHNY-26NOV01) and the game's date (KXNFLGAME-26NOV01KCBUF-KC); its teams are Kalshi's own codes. A -B bucket
+  // (B58.5) pays on 58° to 59°; a -T end pays above or below its figure, and which one isn't in the ticker, so it says
+  // the threshold only. '' for any other contract, which keeps its market's name.
+  const TICKER_MON = { JAN: 'Jan', FEB: 'Feb', MAR: 'Mar', APR: 'Apr', MAY: 'May', JUN: 'Jun', JUL: 'Jul', AUG: 'Aug', SEP: 'Sep', OCT: 'Oct', NOV: 'Nov', DEC: 'Dec' };
+  const WX_CONTRACT = /^KX(?:HIGH|LOWT)[A-Z]*-\d{2}([A-Z]{3})(\d{2})-([BT])(\d+(?:\.\d+)?)$/;
+  const GAME_CONTRACT = /^KX[A-Z]+GAME-\d{2}([A-Z]{3})(\d{2})([A-Z]+)-([A-Z]+)$/;
+  const contractWords = (ticker, short) => {
+    const t = String(ticker || ''), w = WX_CONTRACT.exec(t), g = !w && GAME_CONTRACT.exec(t), mon = TICKER_MON[(w || g || [])[1]];
+    if (!short || !mon) return '';
+    if (w) {
+      const day = `${mon} ${+w[2]}`, x = +w[4];
+      if (w[3] === 'T') return `${short} on ${day}, ${num(x)}°F threshold`;
+      const lo = Math.floor(x - 0.5 + 1e-9);
+      return `${short} on ${day}, ${lo}° to ${lo + 1}°F`;
+    }
+    const day = `${mon} ${+g[2]}`, teams = g[3], out = g[4], lead = short.replace(/ (?:winner|result)$/, '');
+    const pair = out === 'TIE' ? (teams.length === 6 ? [teams.slice(0, 3), teams.slice(3)] : null)
+      : teams.length > out.length && teams.startsWith(out) ? [out, teams.slice(out.length)]
+      : teams.length > out.length && teams.endsWith(out) ? [teams.slice(0, -out.length), out] : null;
+    if (!pair && out !== 'TIE') return '';
+    return `${lead}: ${pair ? `${pair[0]} vs ${pair[1]} ` : ''}on ${day}, ${out === 'TIE' ? 'a draw' : out + ' to win'}`;
   };
   // Bitcoin series the app shows (Explore, the hot rail, a market page, a position held at Kalshi) that no
   // market here covers: KXBTC's hourly price ranges. Each still says its contract and close as the markets above
@@ -930,6 +966,11 @@
   // A multi-game combo's title is Kalshi's legs run together ("yes Denver,yes Boston,no Over 220.5 points scored"): each
   // leg gets its space after the comma and the line starts with a capital, as every other title does. Any other title as sent.
   const comboTitle = (t) => /^(?:yes|no) [^,]+(?:,\s*(?:yes|no) [^,]+)+$/i.test(t) ? t.split(/,\s*/).join(', ').replace(/^./, (c) => c.toUpperCase()) : t;
+  // Whether a title already says its yes subtitle, so the subtitle adds nothing. A game's title names both teams
+  // ("Kansas City at Buffalo Winner?", sub "Kansas City"): there the subtitle is the side the contract pays on, and
+  // dropping it left the row saying neither (walk 2026-11-01), so it stays.
+  const MATCHUP = /\s(?:at|vs\.?|v)\s.+\bwinner\b/i;
+  const subSaid = (t, s) => t.toLowerCase().includes(s.toLowerCase()) && !MATCHUP.test(t);
   const kalshiUrl = (m) => `https://kalshi.com/markets/${encodeURIComponent((m.s || '').toLowerCase())}`;
   const marketHref = (ticker) => `/explore?m=${encodeURIComponent(ticker || '')}`;
   // Kalshi's market status in words: "active" read as jargon, and "finalized" never said it had settled.
@@ -1467,12 +1508,12 @@
     logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
-    catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
+    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, btCheckLine, roadDays, roadLine,
     depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
-    trLeftGap, trRowLeft, trOver, midOf, comboTitle, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
+    trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips,
     exploreNoBtc, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,

@@ -23,6 +23,7 @@ import {moneyPollCases} from './money_poll_frontend_cases.mjs';
 import {strategyPageCases} from './strategy_page_frontend_cases.mjs';
 import {marketNameCases} from './market_names_frontend_cases.mjs';
 import {rawCodeCases} from './raw_code_frontend_cases.mjs';
+import {weatherSportsCases} from './weather_sports_frontend_cases.mjs';
 import {strategyListCases} from './strategy_list_frontend_cases.mjs';
 import {strategyListParityCases} from './strategy_list_parity_frontend_cases.mjs';
 import {strategyMarketFilterCases} from './strategy_market_filter_frontend_cases.mjs';
@@ -311,6 +312,7 @@ moneyPollCases({name: 'Meridian', frontend, stripe: () => ({stripeLoader: async 
 strategyPageCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend, postRequests});
 marketNameCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend});
 rawCodeCases({name: 'Meridian', detailStrategy, strategyFrontend});
+weatherSportsCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend});
 strategyListCases({name: 'Meridian', frontend, detailStrategy});
 strategyListParityCases({name: 'Meridian', frontend, detailStrategy});
 strategyMarketFilterCases({name: 'Meridian', frontend, detailStrategy});

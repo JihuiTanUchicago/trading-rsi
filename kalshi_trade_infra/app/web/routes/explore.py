@@ -200,9 +200,11 @@ def _my_strategy_markets(ctx: Ctx, ticker: str) -> Optional[List[str]]:
 
 def _market_terms(m: Dict) -> Dict:
     """How a contract settles, from Kalshi's market record: its rules, when the result is expected,
-    and the result once it has one."""
+    and the result once it has one. A game Kalshi cancels (postponed, abandoned) settles with result "scalar" at a
+    price it sets (settlement_value_dollars, often 0.50): the page says it was cancelled and what each contract paid."""
     return {"rules": m.get("rules_primary") or "", "rules_more": m.get("rules_secondary") or "",
-            "settles_at": m.get("expected_expiration_time") or m.get("expiration_time"), "result": m.get("result") or ""}
+            "settles_at": m.get("expected_expiration_time") or m.get("expiration_time"), "result": m.get("result") or "",
+            "settle_value": _cnum(m.get("settlement_value_dollars"))}
 
 
 def _iso_now() -> str:

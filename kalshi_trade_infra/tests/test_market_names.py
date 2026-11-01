@@ -138,4 +138,4 @@ def test_the_front_end_names_markets_only_through_the_core():
             assert "MKT_SHORT" not in p.read_text() and "marketLabel" not in p.read_text(), p.name
     core = (ROOT / "app" / "static" / "core.js").read_text()
     assert "const mktLong = (k, me) => (!k ? NO_MARKET : mktCatalog(k, me) || MKT_SHORT[k] || UNLISTED_MARKET);" in core
-    assert "const mktShort = (k, me) => (!k ? NO_MARKET : MKT_SHORT[k] || mktCatalog(k, me) || UNLISTED_MARKET);" in core
+    assert "const mktShort = (k, me) => (!k ? NO_MARKET : MKT_SHORT[k] || wxShort(mktCatalog(k, me)) || mktCatalog(k, me) || UNLISTED_MARKET);" in core

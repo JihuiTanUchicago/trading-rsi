@@ -1514,6 +1514,22 @@ def test_explore_market_says_how_it_settles_and_lists_the_readers_positions(monk
     assert "order_ref" not in o and "user_id" not in o  # only what the page shows
 
 
+def test_explore_market_says_what_a_cancelled_game_paid(monkeypatch):
+    # Kalshi settles a game it cancels (postponed, abandoned) with result "scalar" at a price it sets. The page said
+    # "Kalshi lists it as settled but sent no Yes or No result": it now gets the price (settle_value) to say what each
+    # contract paid. A market with no such price sends None.
+    import data_pipeline.common as common
+    monkeypatch.setattr(server.repo, "user_positions_in_ticker", lambda *a, **k: {"open": [], "closed": []})
+    monkeypatch.setattr(server.repo, "markets_with_strategies", lambda *a, **k: [])
+    rec = {"title": "Golden State at Miami Winner?", "status": "finalized", "result": "scalar", "settlement_value_dollars": "0.5000"}
+    monkeypatch.setattr(common, "api_get", lambda path, params=None: {"candlesticks": []} if "/candlesticks" in path else {"market": dict(rec)})
+    page = lambda: server.explore_market(server.Ctx(FakeConn(), {"id": 7}, (), {"ticker": "KXNBAGAME-26OCT30GSWMIA-GSW"}, {}, None))
+    d = page()
+    assert d["result"] == "scalar" and d["settle_value"] == 0.5
+    rec.pop("settlement_value_dollars")
+    assert page()["settle_value"] is None
+
+
 def test_explore_market_says_which_of_its_markets_the_reader_has_strategies_on(monkeypatch, capsys):
     # The page offered "Your <market> strategies" to a reader with none there. It now sends the contract's markets
     # the reader has a strategy on (`my_markets`), read for this reader and this contract's series only; None when
