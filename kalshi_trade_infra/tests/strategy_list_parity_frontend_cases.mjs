@@ -140,6 +140,25 @@ export function strategyListParityCases({name, frontend, detailStrategy}) {
     return shot;
   };
 
+  // Walk 2026-11-01: a copy someone shared read "<title> maya" to a screen reader, the sharer's name run on after the title
+  // with nothing saying who that was (the share icon is hidden from it). It says "Shared by maya", and so does its hover.
+  test(`${name}: a shared copy's row says who shared it, to a screen reader and on hover`, async () => {
+    for (const phone of [false, true]) {
+      const f = frontend({matchMedia: () => ({matches: phone}), fetchImpl: (path) => path.startsWith('/api/strategies') ? response(list({strategies: [ROWS[13]], matched: 1})) : response({})});
+      f.S.me.markets = MARKETS;
+      f.location.pathname = '/strategies'; f.location.search = '?status=';
+      const drawing = f.viewStrategies();
+      for (let i = 0; i < 4; i++) { await settle(); f.elapse(2000); }
+      await drawing; await settle();
+      const flag = f.root.querySelector('.shared-flag');
+      assert.ok(flag, 'the row has its shared flag');
+      assert.equal(flag.getAttribute('title'), 'Shared by maya');
+      assert.equal(flag.querySelector('.vh').textContent, 'Shared by ');
+      assert.match(flag.textContent, /^Shared by maya$/);
+      f.clearTimers();
+    }
+  });
+
   test(`${name}: the Strategies list draws what it drew before it was one file for both themes, in every state and at both widths`, async () => {
     const shots = {};
     for (const [label, state] of Object.entries(STATES)) {

@@ -420,9 +420,13 @@ def share_strategy(ctx: Ctx):
     new_id = repo.share_strategy(ctx.cur, s["id"], ctx.uid, recipient["id"])
     if new_id is None:
         return {"ok": True, "already": True}  # idempotent: they already have this one
-    sender = customer_text.display_name((repo.get_user(ctx.cur, ctx.uid) or {}).get("name"), "A friend")
+    # The sender as the copy's page names them (_shared_from): their name, or their @handle when the name is unset or an
+    # email address. The notice said "A friend shared…" beside a page saying "Shared by @dana". An empty title reads as
+    # the app names one, never "“”".
+    me = repo.get_user(ctx.cur, ctx.uid) or {}
+    sender = customer_text.display_name(me.get("name"), "@" + me["username"] if me.get("username") else "A friend")
     repo.add_notification(ctx.cur, recipient["id"], "share",
-                          "%s shared the strategy “%s” with you." % (sender, s["title"]),
+                          "%s shared the strategy “%s” with you." % (sender, str(s["title"] or "").strip() or UNTITLED_STRATEGY),
                           "/strategies/%d" % new_id)
     return {"ok": True}
 

@@ -35,6 +35,41 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     assert.ok(rule.root.querySelector('#dep-paper'));
   });
 
+  // Walk 2026-11-01: a copy someone shared carries no held-out record of its own (the original's stays with the sharer),
+  // and its verdict said "there's no record of its held-out tests", as if the sharer's pass were never tested. It says it
+  // is a copy that doesn't bring them, by the sharer's name, and still that nothing on it is held-out evidence.
+  test(`${name}: a shared copy's verdict says a copy doesn't bring the original's held-out tests, by who shared it`, async () => {
+    for (const oos of [null, {pnl: 12, trades: 6, win_rate: .5, days: 15}]) {
+      const f = await open({status: 'passed', experiment: null, shared_from: '@alice', out_of_sample: oos, recent_trades: []});
+      const html = main(f);
+      assert.match(html, /<p>This is a copy @alice shared\. A copy doesn’t bring the original’s held-out tests \(a test on data it hadn’t seen and the one-time final test\) with it, so nothing on this page is held-out evidence: /);
+      assert.match(html, /Treat it as unvalidated\.<\/p>/);
+      assert.doesNotMatch(html, /there’s no record of its held-out tests/);
+      assert.match(html, /Shared by @alice/);
+      f.clearTimers();
+    }
+    // Its own pass with no record keeps its words.
+    const own = await open({status: 'passed', experiment: null, out_of_sample: null, recent_trades: []});
+    assert.match(main(own), /It’s marked Passed, but there’s no record of its held-out tests/);
+    assert.doesNotMatch(main(own), /This is a copy/);
+    own.clearTimers();
+  });
+
+  // Walk 2026-11-01: the Share panel said only "Send a copy… They can deploy it like their own" (Meridian: "They keep a
+  // permanent copy"): nothing on what the copy carries or leaves behind before the sender confirms. It says so, and the
+  // email field points a screen reader at those words.
+  test(`${name}: the Share panel says what a copy carries and what it never does, before the sender confirms`, async () => {
+    for (const over of [{status: 'passed'}, {status: 'passed', kind: 'code', research_only: true}]) {
+      const f = await open(over);
+      const hint = f.root.querySelector('#share-what');
+      assert.ok(hint, 'the share panel has its words');
+      assert.match(hint.textContent, /rules, thesis and backtest/);
+      assert.match(hint.textContent, /marked as shared by you; never your deployments, trades, balances or keys, nor its held-out test record\./);
+      assert.equal(f.root.querySelector('#share-email').getAttribute('aria-describedby'), 'share-what');
+      f.clearTimers();
+    }
+  });
+
   // Walk 2026-10-31: the trade list's Opened read "Oct 25, 11:21 PM EDT" on a page whose other times are 24-hour
   // ("21:36 EDT"). It reads on the page's clock, with its date and zone: "Oct 25, 23:21 EDT".
   test(`${name}: the trade list says when each trade opened on the page's 24-hour clock, with its date and zone`, async () => {
