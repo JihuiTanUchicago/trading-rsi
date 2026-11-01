@@ -9,6 +9,7 @@ import pytest
 
 from app.adapters.kalshi import kalshi_account
 from app import repository as repo
+from tests.combined_reads import compose_combined_reads
 
 
 class FakeFundsCursor:
@@ -234,6 +235,7 @@ def _no_closed_trades(monkeypatch, realized=None, closed=None):
 def test_funds_dates_the_demo_balance_from_its_memo_and_never_reads_kalshi_for_it(monkeypatch):
     """The demo key line says when its balance was read, from the demo memo's own fill time; a balance
     that couldn't be read carries no time, and dating it never makes another demo read."""
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     from datetime import datetime, timezone
 
     from app import server
@@ -265,6 +267,7 @@ def test_funds_dates_the_demo_balance_from_its_memo_and_never_reads_kalshi_for_i
 def test_funds_names_each_books_open_positions_and_paper_matches_the_dashboard(monkeypatch):
     """Funds' paper figure is the dashboard's (cash + open at cost), and every book reports only its own
     open positions: a live, a demo and two paper positions never land in another book's count."""
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     from app import server
 
     pos = [{"mode": "live", "qty": 10, "entry_price": 0.40}, {"mode": "demo", "qty": 5, "entry_price": 0.61},

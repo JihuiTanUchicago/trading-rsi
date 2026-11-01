@@ -165,19 +165,10 @@ def test_api_me_carries_a_declined_reload_only_while_it_is_why_credits_are_short
     from app.web.routes import account as account_routes
     failed = {'at': NOW, 'text': "It couldn't add $25.00 in credits. Your card was declined for insufficient funds. Try another card."}
     balance = [0.62]
-
-    class Reads:
-        def __init__(self, cur, uid):
-            pass
-
-        def customer(self):
-            return ON
-
-        def balance(self):
-            return balance[0]
-
+    # me's one account read: no Kalshi key, the card on file with auto-reload on, and the balance.
+    monkeypatch.setattr(server.repo, 'account_reads', lambda cur, uid: {
+        'live_key': False, 'demo_key': False, 'customer': ON, 'credit_balance': balance[0]})
     monkeypatch.setattr(server.billing, 'configured', lambda: True)
-    monkeypatch.setattr(server.billing, 'Reads', Reads)
     monkeypatch.setattr(billing_routes, '_reload_failed', lambda cur, uid: failed)
     monkeypatch.setattr(account_routes, '_researchable_markets', lambda cur: [])
     monkeypatch.setattr(account_routes, 'models', lambda ctx: [])

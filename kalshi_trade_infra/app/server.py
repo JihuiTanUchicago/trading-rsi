@@ -711,9 +711,13 @@ class Handler(BaseHTTPRequestHandler):
             if user is None:
                 return theme, [], None, []
             theme = user.get("ui_theme") if user.get("ui_theme") in UI_THEMES else "tau"
-            ctx = Ctx(conn, user, (), {}, {}, self)
+            # One request: the account and the reads it carries share what each has read (Ctx.shared), so a carried
+            # read takes the Kalshi keys' presence or the Stripe customer /api/me just read instead of reading it again.
+            shared: Dict[str, Any] = {}
+            ctx = Ctx(conn, user, (), {}, {}, self, shared=shared)
             account = me(ctx)
-            first, first_cookies = shell_reads.first_reads(path, query, cookies, lambda params, q: Ctx(conn, user, params, q, {}, self))
+            first, first_cookies = shell_reads.first_reads(path, query, cookies,
+                                                           lambda params, q: Ctx(conn, user, params, q, {}, self, shared=shared))
             return theme, ctx.set_cookies + first_cookies, account, first
         except Exception as e:  # noqa: BLE001 - the shell must never fail on this; the app reads /api/me
             _log_line("[app] shell account read failed (%s); the app reads /api/me" % type(e).__name__)

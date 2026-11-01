@@ -14,6 +14,7 @@ import pytest
 
 from app import server
 from app.web import static_strip, webperf
+from tests.combined_reads import compose_combined_reads
 
 USER = {"id": 7, "email": "trader@example.invalid", "name": "Sample", "picture_url": None, "autopilot": 0,
         "ui_theme": "meridian"}
@@ -98,6 +99,7 @@ def _account_reads(monkeypatch):
 
 
 def test_the_carried_account_is_the_same_reply_api_me_gives(web, monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     _account_reads(monkeypatch)
     monkeypatch.setattr(server.repo, "session_user", lambda cur, token: dict(USER))
     _, body = _get(web, "/research", {"Cookie": "rsid=abc"})
@@ -137,6 +139,7 @@ def test_a_stale_session_or_a_failed_account_read_still_serves_a_plain_shell(web
 
 
 def test_me_carries_the_research_model_list(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     # /research used to wait on /api/models before starting its own reads (two serial round trips).
     _account_reads(monkeypatch)
     ctx = server.Ctx(SimpleNamespace(cursor=lambda: object()), dict(USER), (), {}, {}, SimpleNamespace())

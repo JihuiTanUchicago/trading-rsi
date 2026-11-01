@@ -29,7 +29,9 @@ from app.web.views import (
     _start_of_day_utc,
     credit_exact,
     credit_usd,
+    kalshi_keys,
     position_out,
+    demo_book_equity,
 )
 from trading_core.domain.money import cents, exact
 from trading_core.domain.slippage import paper_estimate
@@ -72,11 +74,14 @@ def dashboard(ctx: Ctx):
         if u is not None and p.get("deployment_id") is not None:
             unreal_by_dep[p["deployment_id"]] = round(unreal_by_dep.get(p["deployment_id"], 0.0) + u, 2)
     # The reads summed from the positions alone are kept until the positions change (services.book_memo).
-    memo = book_memo.BookMemo(cur, ctx.uid)
+    # Both versions they are kept against (the positions' and the paper ledger's) in one read, before any kept read.
+    positions_v, ledger_v = repo.book_versions(cur, ctx.uid)
+    memo = book_memo.BookMemo(cur, ctx.uid, version=positions_v)
     deps = book_memo.deployments_for_display(memo)
     # Curves only for the deployments the Deployed table shows (a stopped one's history is not drawn).
     curves = book_memo.deployment_curves(memo, [d["id"] for d in deps])
-    ledger = book_memo.paper_ledger_summary(cur, ctx.uid)  # balance, deposits and reset: one read, kept until the ledger moves
+    # Balance, deposits and reset: one read, kept until the ledger moves.
+    ledger = book_memo.paper_ledger_summary(cur, ctx.uid, version=ledger_v)
     balance, deposited = ledger["balance"], ledger["deposited"]
     visit, first = _visit_since(ctx.query.get("since"))
     # Every book's realized P&L and closed-trade count (today and since the last visit), and its contract
@@ -105,10 +110,11 @@ def dashboard(ctx: Ctx):
     # Demo: real fills applied to the capital WE set. Equity = capital + realized-since-reload,
     # and the displayed realized P&L is net of the reload baseline (so a reload reads as $X flat).
     demo = _mode_bucket(cur, ctx.uid, "demo", open_pos, deps, day, realized["demo"], closed)
-    de = repo.demo_equity(cur, ctx.uid, realized=realized["demo"][0])
+    de = demo_book_equity(ctx, realized["demo"][0])
     # Capital and P&L look fine while Kalshi refuses every order. From the demo cash memo alone: pending when
     # it isn't kept (a line from a figure read under two minutes ago meanwhile, so it doesn't drop for a poll).
-    health, health_pending = demo_health_memo(cur, ctx.uid, deps)
+    live_key, demo_key = kalshi_keys(ctx)  # whether each is saved: from the shell's /api/me read, else one statement
+    health, health_pending = demo_health_memo(cur, ctx.uid, deps, demo_key=demo_key)
     # realized_all: every closed demo trade's P&L (the read above, one SUM rounded once), what the demo trades CSV sums
     # to; the card says it beside the file's link only while realized_pnl counts from a reload. Display only.
     demo.update(capital=de["capital"], equity=de["equity"], realized_pnl=de["realized"], realized_all=cents(realized["demo"][0]),
@@ -116,14 +122,16 @@ def dashboard(ctx: Ctx):
     if health_pending:
         demo["health_pending"] = True
     live = _mode_bucket(cur, ctx.uid, "live", open_pos, deps, day, realized["live"], closed)
-    live.update(kalshi_cash(cur, ctx.uid))
+    live.update(kalshi_cash(cur, ctx.uid, connected=live_key))
     paper_sids = _paper_strategy_ids(deps)
-    key_back = _demo_key_back(cur, ctx.uid, deps)
+    key_back = _demo_key_back(cur, ctx.uid, deps, demo_key)
     rows = [_deployment_out(d, curves.get(d["id"], []), unreal_by_dep.get(d["id"]), paper_sids, key_back,
                             _paper_books(deps)) for d in deps]
     # A paper row's closed trades that were instant fills, as Deploy says them (the same kept read, only when
     # a paper row has a closed trade). Display only.
     _stamp_row_instant_fills(lambda ids: book_memo.realistic_paper_closed(memo, ids), rows)
+    # The strip's activity since the visit and the agents at work now (repo.active_run_counts) in one read.
+    act = repo.activity_since(cur, ctx.uid, visit, silent_before=_silent_before(), active=True)
     # The page polls every 15s with its last answer's version (?v=): an unchanged answer is sent as
     # "same" with only the marks and data ages, which move every tick (services.page_poll).
     return page_poll.answer({
@@ -137,10 +145,10 @@ def dashboard(ctx: Ctx):
         # open discrepancies the reconciler flagged (shown as a trust badge on the Live bucket).
         "reconcile": repo.open_reconcile_rows(cur, ctx.uid),
         "deployments": rows,
-        "agents": repo.active_run_counts(cur, ctx.uid, silent_before=_silent_before()),
+        "agents": act["active"],
         "freshness": _freshness(cur),
         "since": _since_visit(cur, ctx.uid, visit, first, recent, by_dep, {d["id"] for d in deps},
-                              created_at=(getattr(ctx, "user", None) or {}).get("created_at")),
+                              created_at=(getattr(ctx, "user", None) or {}).get("created_at"), act=act),
         # The server's live switch (/api/me's), polled with the page as the Deploy board's is.
         "live_trading_available": engine.LIVE_TRADING_ENABLED,
     }, ctx.query.get("v"))
@@ -169,7 +177,7 @@ def _visit_since(raw) -> Tuple[datetime, bool]:
 
 def _since_visit(cur, uid: int, visit: datetime, first: bool, recent: Dict,
                  by_dep: Optional[Dict[Tuple[str, int], Tuple[float, int]]] = None, listed: Optional[set] = None,
-                 created_at=None) -> Dict:
+                 created_at=None, act: Optional[Dict] = None) -> Dict:
     """The dashboard's "since your last visit" strip: each book's realized P&L and closed trades
     since then (from the books' one pass; books are never added together), the strategies that
     passed, the autopilot's own changes and the research sessions started. Two reads. Credits spent
@@ -182,8 +190,10 @@ def _since_visit(cur, uid: int, visit: datetime, first: bool, recent: Dict,
     named one with no deployment listed "Strategy 10". A deleted one has none, and the strip says "a strategy".
     `by_deployment` splits each book's figure by the deployment that traded it ({mode: [{deployment_id,
     pnl, trades}]}, best first), the same rows, so a net loss names the strategy that made it. A row
-    whose deployment the page doesn't list (`listed`: it was removed) says whose it was itself."""
-    act = repo.activity_since(cur, uid, visit, silent_before=_silent_before())
+    whose deployment the page doesn't list (`listed`: it was removed) says whose it was itself. `act` is
+    repo.activity_since's answer when the caller read it (with the agents at work, in the same statement)."""
+    if act is None:
+        act = repo.activity_since(cur, uid, visit, silent_before=_silent_before())
     return {"at": visit, "first": first,
             "books": {m: _since_book(m, *b) for m, b in recent.items()},
             "passed": _passed_since(cur, uid, visit),

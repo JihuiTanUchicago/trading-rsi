@@ -3,7 +3,7 @@ dashboard's carries the autopilot status, so neither is one more round trip afte
 
 Through the real handlers, over the counting cursor the hot-endpoint budgets use (payments on, live trading on,
 a Kalshi key, autopilot on, a paper and a demo deployment, no cash memo kept): what the shell carries is what the
-endpoints answer; each shell stays in its statement budget, the bell adding its two statements explicitly; and
+endpoints answer; each shell stays in its statement budget, the bell adding its one statement explicitly; and
 nothing under any of it reaches outside the process (no Kalshi, Stripe, model, AWS or any other HTTP).
 
 Measured 2026-10-30 on a local seeded account (autopilot on, 3 paper + 1 demo deployment, 400 closed trades,
@@ -28,7 +28,7 @@ from app.services import book_memo
 from app.web import shell_reads, webperf
 from app.web.routes import chat as chat_routes
 from tests.test_hot_endpoint_query_budget import (
-    CREDITS, PULSE, CountingCursor, _board_rows, _pulse_row, production)  # noqa: F401 - production is a fixture
+    ACCOUNT, CREDITS, PULSE, CountingCursor, _account_row, _board_rows, _pulse_row, production)  # noqa: F401 - production is a fixture
 
 USER = {"id": 7, "email": "trader@example.invalid", "name": "T", "username": "t", "picture_url": None,
         "autopilot": 1, "autopilot_live": 1, "autopilot_daily_loss_limit": 50, "autopilot_model": None,
@@ -43,14 +43,19 @@ NOTICES = [
 ]
 BELL_SQL = ("SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at",
             "SELECT COUNT(*) AS c FROM app_notifications")
+# The bell's first page with its unread count riding it (repo.notifications_first_page): one statement.
+BELL_FIRST = "AS unread_all FROM app_notifications"
 
 # Every statement a shell sends, counted cold (a page's first load after a restart: no memo, no minute cache, the
-# shared series reads warm): the session, /api/me's, its page's carried reads, then the bell's two, added
-# explicitly (carried on every signed-in shell since 2026-10-30: the newest notices and the unread count). Each
-# page's own reads are budgeted on their own in test_hot_endpoint_query_budget; these are the shells before the
-# bell, on this harness: dashboard 33 (with its autopilot status), Deploy 16, Research 12.
-BELL_STATEMENTS = 2
-SHELL_BUDGET = {"/": 33 + BELL_STATEMENTS, "/deploy": 16 + BELL_STATEMENTS, "/research": 12 + BELL_STATEMENTS}
+# shared series reads warm): the session, /api/me's, its page's carried reads, then the bell's, added explicitly
+# (carried on every signed-in shell since 2026-10-30: the newest notices, the unread count riding the same
+# statement since 2026-11-01). Each page's own reads are budgeted on their own in test_hot_endpoint_query_budget;
+# these are the shells before the bell, on this harness: dashboard 33 (with its autopilot status), Deploy 16,
+# Research 12, then 25, 12 and 9 (2026-11-01): /api/me's keys, card and balance in one statement, and the carried
+# reads take what /api/me read a moment earlier in the same request (the keys' presence, the card) instead of
+# reading it again; the dashboard's two versions, its agents and its demo capital ride reads it already makes.
+BELL_STATEMENTS = 1
+SHELL_BUDGET = {"/": 25 + BELL_STATEMENTS, "/deploy": 12 + BELL_STATEMENTS, "/research": 9 + BELL_STATEMENTS}
 
 
 class Outside(list):
@@ -108,8 +113,11 @@ def shell_web(production, outside, monkeypatch):
         "FROM app_sessions s JOIN app_users u": [USER],
         PULSE: [_pulse_row({"n": 9, "closed": 7, "top": 30}, [{"id": 5, "strategy_id": 9}, {"id": 6, "strategy_id": 9}])],
         CREDITS: [{"part": "balance", "run_kind": None, "brief": None, "example": None, "s": 10.0}],
+        # /api/me's one account read: no Kalshi key saved (as the single probes answer here), the card and the balance.
+        ACCOUNT: [_account_row(10.0)],
         "FROM app_stripe_customers": [{"user_id": 7, "stripe_customer_id": "cus_1", "default_pm_id": "pm_1",
                                        "auto_reload": 0, "reload_amount": 20, "reload_threshold": 5}],
+        BELL_FIRST: [dict(n, unread_all=2) for n in NOTICES],
         "SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at": NOTICES,
         "SELECT COUNT(*) AS c FROM app_notifications": [{"c": 2}],
     })
@@ -178,7 +186,7 @@ def test_each_shell_stays_in_its_statement_budget_with_the_bell_added_explicitly
     assert len(bell) == BELL_STATEMENTS, bell
     assert len(sent) <= SHELL_BUDGET[path], "the %s shell sent %d statements (budget %d):\n  %s" % (
         path, len(sent), SHELL_BUDGET[path], "\n  ".join(sent))
-    # The bell's two are the only statements it added: without it the shell sends exactly the rest.
+    # The bell's is the only statement it added: without it the shell sends exactly the rest.
     del log[:]
     book_memo.clear()
     for cache in (server._TRACK_RECORD, server._BACKTEST_CHECKS, server._ROADS, server._FAILING, server._RUN_TOTALS):
@@ -201,6 +209,7 @@ def test_nothing_the_shell_carries_reaches_outside_whatever_the_autopilot_state(
         USER_ROW = dict(USER, autopilot=autopilot)
         rows[CREDITS] = [{"part": "balance", "run_kind": None, "brief": None, "example": None, "s": balance}]
         rows["SELECT COALESCE(SUM(amount_usd),0) AS b FROM app_credit_ledger"] = [{"b": balance}]
+        rows[ACCOUNT] = [_account_row(balance)]
         book_memo.clear()
         monkeypatch.setattr(server.repo, "session_user", lambda cur, token, row=USER_ROW: (cur.execute("SELECT session"), row)[1])
         for path in ("/", "/deploy", "/research", "/strategies", "/funds", "/explore", "/research/41"):

@@ -450,13 +450,13 @@ def positions_version(cur, user_id: int) -> Tuple[int, int, int]:
     moves a row from open to closed. A closed row's money (pnl, fees, qty, prices, times, mode,
     deployment) is never written again; the only later writes are hold_pnl/settle_result (the early-
     exit score) and the open rows' marks and close claims, which no memoized read uses."""
-    cur.execute(
-        "SELECT COUNT(*) AS n, COUNT(CASE WHEN status='closed' THEN 1 END) AS closed, COALESCE(MAX(id),0) AS top "
-        "FROM app_positions FORCE INDEX (idx_pos_user) WHERE user_id=%s",
-        (user_id,),
-    )
+    cur.execute(POSITIONS_VERSION_SQL, (user_id,))
     r = cur.fetchone() or {}
     return int(r.get("n") or 0), int(r.get("closed") or 0), int(r.get("top") or 0)
+
+
+POSITIONS_VERSION_SQL = ("SELECT COUNT(*) AS n, COUNT(CASE WHEN status='closed' THEN 1 END) AS closed, COALESCE(MAX(id),0) AS top "
+                         "FROM app_positions FORCE INDEX (idx_pos_user) WHERE user_id=%s")
 
 
 def realized_pnl_between(cur, user_id: int, mode: str, start: datetime, end: datetime) -> Optional[Dict]:

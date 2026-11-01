@@ -3,7 +3,7 @@ waitlist signup. Moved verbatim from app.server, which re-imports every name for
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app import repository as repo
 from app.adapters.kalshi import kalshi_account, kalshi_dev_exec
@@ -14,7 +14,7 @@ from app.web.http import ApiError, Ctx, _num
 from app.web.routes.brokers import _perps_live_call
 from app.web import settings as web_settings
 from app.web.settings import MAX_PAPER_BALANCE, MAX_WAITLIST_PER_MINUTE
-from app.web.views import FOLLOW_UP_TTL, _demo_cash, _live_balance, _open_book, _paper_equity
+from app.web.views import FOLLOW_UP_TTL, _demo_cash, _live_balance, _open_book, _paper_equity, demo_book_equity
 from trading_core.domain.money import cents
 from trading_core.domain.slippage import PAPER, paper_estimate
 
@@ -39,13 +39,15 @@ def _memo_cash(memo, kept: bool) -> Dict[str, Any]:
 _UNREAD = object()
 
 
-def kalshi_cash(cur, uid: int, key: Any = _UNREAD) -> Dict[str, Any]:
+def kalshi_cash(cur, uid: int, key: Any = _UNREAD, connected: Optional[bool] = None) -> Dict[str, Any]:
     """The live key's cash at Kalshi as Funds and the dashboard show it: {"connected", "funding_url",
     "balance" (cents) [, "balance_at"]}. It never waits on Kalshi: the cash comes from its memo when kept,
     else is marked pending (_memo_cash), and the page asks /api/funds/cash?book=live for it. `key` is the
     user's live key row (None: none) when the caller has read it; else whether one is saved is read here,
-    once (repo.has_kalshi_key: the dashboard's 15s poll never reads the key's id or encrypted bytes)."""
-    connected = repo.has_kalshi_key(cur, uid) if key is _UNREAD else key is not None
+    once (repo.has_kalshi_key: the dashboard's 15s poll never reads the key's id or encrypted bytes), unless
+    `connected` says whether one is saved (the request read it already: views.kalshi_keys)."""
+    if connected is None:
+        connected = repo.has_kalshi_key(cur, uid) if key is _UNREAD else key is not None
     if not connected:
         return {"connected": False, "balance": None, "funding_url": kalshi_account.KALSHI_FUNDING_URL}
     return {"connected": True, "funding_url": kalshi_account.KALSHI_FUNDING_URL,
@@ -59,14 +61,15 @@ def funds(ctx: Ctx):
     from app.trading import demo_twins
 
     cur = ctx.cur
-    key = repo.get_kalshi_key(cur, ctx.uid)
-    kalshi = kalshi_cash(cur, ctx.uid, key)
+    # Each key's id (never its encrypted bytes), both in one read.
+    key_ids = repo.kalshi_key_ids(cur, ctx.uid)
+    key, dev = key_ids["live"], key_ids["demo"]
+    kalshi = kalshi_cash(cur, ctx.uid, connected=key is not None)
     if key is not None:
-        kalshi["key_id"] = key["key_id"][:4] + "…" + key["key_id"][-4:]
-    dev = repo.get_kalshi_dev_key(cur, ctx.uid)
+        kalshi["key_id"] = key[:4] + "…" + key[-4:]
     kalshi_dev_key: Dict[str, Any] = {"connected": dev is not None}
     if dev is not None:
-        kalshi_dev_key["key_id"] = dev["key_id"][:4] + "…" + dev["key_id"][-4:]
+        kalshi_dev_key["key_id"] = dev[:4] + "…" + dev[-4:]
         # The demo account's cash at Kalshi from its memo (the one the demo check reads), so Funds can say
         # "Connected ✓ (balance $X)"; pending when the memo isn't kept, and the page asks the follow-up.
         kalshi_dev_key.update(_memo_cash(kalshi_account.memo_peek(demo_twins._BALANCE_CACHE, ctx.uid),
@@ -79,12 +82,13 @@ def funds(ctx: Ctx):
     day = repo.now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
     # The same pass sums each book's contract fills, for the paper book's after-slippage estimate (display only).
     realized, closed, _, fills = book_memo.closed_book_totals(book_memo.BookMemo(cur, ctx.uid), day, fills=True)
-    de = repo.demo_equity(cur, ctx.uid, realized=realized["demo"][0])
+    de = demo_book_equity(ctx, realized["demo"][0])
     # Each book's open positions, so every figure says what it leaves out; paper's balance is cash plus
     # open at cost, the dashboard's paper figure. Books are never added together.
     open_pos = repo.user_positions(cur, ctx.uid, "open")
     paper = _open_book(open_pos, "paper")
-    balance = repo.paper_balance(cur, ctx.uid)
+    # The paper balance and the newest LEDGER_LISTED history entries, in one read.
+    ledger, balance = repo.ledger_rows_with_balance(cur, ctx.uid)
     kalshi.update(_open_book(open_pos, "live"), realized_pnl=cents(realized["live"][0]),
                   closed_trades=int(closed.get("live", 0)))
     return {
@@ -93,7 +97,7 @@ def funds(ctx: Ctx):
                   # Beside realized_pnl, never in place of it: the dashboard's paper estimate for the same figure
                   # (trading_core.domain.slippage). None before a closed paper trade; live and demo never carry one.
                   "slippage_estimate": paper_estimate(PAPER, realized["paper"][0], fills.get(PAPER)),
-                  "ledger": repo.ledger_rows(cur, ctx.uid)},
+                  "ledger": ledger},
         "demo": {"capital": de["capital"], "equity": de["equity"], "realized": de["realized"],
                  "before_reload": de["before_reload"], "closed_trades": int(closed.get("demo", 0)),
                  **_open_book(open_pos, "demo")},

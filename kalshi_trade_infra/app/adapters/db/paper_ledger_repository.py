@@ -67,12 +67,25 @@ def paper_ledger_version(cur, user_id: int) -> Tuple[int, int]:
     to (add_ledger) or wiped and restarted with a deposit (reset_paper_account), and no row is ever
     rewritten, so every write moves it: a new row raises the highest id, and a reset changes the count
     or raises the highest id. services.book_memo keeps the summary against it."""
-    cur.execute(
-        "SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS top FROM app_ledger FORCE INDEX (idx_ledger_user_time) WHERE user_id=%s",
-        (user_id,),
-    )
+    cur.execute(LEDGER_VERSION_SQL, (user_id,))
     r = cur.fetchone() or {}
     return int(r.get("n") or 0), int(r.get("top") or 0)
+
+
+LEDGER_VERSION_SQL = "SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS top FROM app_ledger FORCE INDEX (idx_ledger_user_time) WHERE user_id=%s"
+
+
+def book_versions(cur, user_id: int) -> Tuple[Tuple[int, int, int], Tuple[int, int]]:
+    """(position_repository.positions_version, paper_ledger_version) in one statement, each its own read as a
+    derived table (the same index-only reads, no row fetched): for the dashboard, which keys the position sums
+    and the paper cash on both (services.book_memo) and read them one after the other."""
+    from app.adapters.db.position_repository import POSITIONS_VERSION_SQL
+
+    cur.execute("SELECT p.n AS book_n, p.closed AS book_closed, p.top AS book_top, l.n AS ledger_n, l.top AS ledger_top "
+                "FROM (" + POSITIONS_VERSION_SQL + ") p, (" + LEDGER_VERSION_SQL + ") l", (user_id, user_id))
+    r = cur.fetchone() or {}
+    return ((int(r.get("book_n") or 0), int(r.get("book_closed") or 0), int(r.get("book_top") or 0)),
+            (int(r.get("ledger_n") or 0), int(r.get("ledger_top") or 0)))
 
 
 # How many entries Funds' paper history lists at a time: the newest LEDGER_LISTED in /api/funds, then each
@@ -86,6 +99,21 @@ def ledger_rows(cur, user_id: int, limit: int = LEDGER_LISTED) -> List[Dict]:
         (user_id, limit),
     )
     return cur.fetchall()
+
+
+def ledger_rows_with_balance(cur, user_id: int, limit: int = LEDGER_LISTED) -> Tuple[List[Dict], float]:
+    """(ledger_rows, paper_balance) in one statement, for Funds: the balance (the whole ledger's sum, computed once)
+    rides each listed row; with no row listed the ledger is empty and sums to 0."""
+    cur.execute(
+        "SELECT id, kind, amount, memo, created_at, (SELECT COALESCE(SUM(amount),0) FROM app_ledger WHERE user_id=%s) AS balance_all "
+        "FROM app_ledger WHERE user_id=%s ORDER BY id DESC LIMIT %s",
+        (user_id, user_id, limit),
+    )
+    rows = cur.fetchall()
+    balance = float(rows[0]["balance_all"]) if rows else 0.0
+    for r in rows:
+        r.pop("balance_all", None)
+    return rows, balance
 
 
 def ledger_rows_before(cur, user_id: int, before: int, limit: int = LEDGER_LISTED) -> List[Dict]:

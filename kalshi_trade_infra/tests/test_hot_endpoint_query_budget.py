@@ -68,6 +68,14 @@ from app.web.routes import chat as chat_routes
 # dream line are warm, as they are for every request but one a minute. get_run's run is queued past
 # the overdue limit, so it also counts the queue ahead (5 for a run that is working normally).
 BUDGET = {"autopilot_status": 9, "me": 4, "get_run": 6, "dashboard": 14}  # dashboard: the trades CSV counts ride the realized-P&L pass
+# Measured 2026-11-01 on the seeded heavy account (80 strategies, 46 deployments, 1,500 positions), local MariaDB:
+# /api/me 4 -> 2 (the Kalshi keys' presence, the Stripe customer and the credit balance in one statement,
+# repo.account_reads); /api/dashboard 14 -> 12 here (11 on a real request, whose user row carries the demo
+# capital): both Kalshi keys asked in one statement, the positions' and paper ledger's versions in one
+# (repo.book_versions), the agents at work riding the since-visit read (activity_since `active`), and the demo
+# capital taken from the session's user row; Funds 8 -> 6 (each key's id in one statement, the paper balance riding
+# the history read).
+BUDGET.update({"me": 2, "dashboard": 12})
 # Counted cold, as above: each page that sums the positions reads their version first (book_memo), +1
 # (not the strategy page, which sums only its own deployments).
 # The Deploy board polls /api/deployments every 10s; /api/strategies/<id> is the strategy page. Both
@@ -92,7 +100,7 @@ BUDGET.update({"trades_csv": 2})
 # Funds (the shell's first read, a visit and its 30s poll): each key once, the books' version and realized pass,
 # demo's capital, the open positions, the paper balance and the newest LEDGER_LISTED history entries. Its "Show older
 # entries" (/api/funds/ledger, clicked, never polled) is one read of its own and adds none to Funds.
-BUDGET.update({"funds": 8, "funds_ledger": 1})
+BUDGET.update({"funds": 6, "funds_ledger": 1})
 
 # Statements that return one aggregate row; any other SELECT answers no rows unless listed below.
 AGGREGATE = ("SELECT COALESCE(", "SELECT COUNT(", "SELECT MAX(", "SELECT st.started")
@@ -127,6 +135,8 @@ class CountingCursor:
 # the balance (repo.credit_week).
 PULSE = "AS pos_n"
 CREDITS = "SELECT 'usage' AS part"
+# /api/me's one account read (repo.account_reads): both Kalshi keys' presence, the Stripe customer and the balance.
+ACCOUNT = "AS live_key, EXISTS(SELECT 1 FROM app_kalshi_dev_keys"
 
 
 def _pulse_row(book=None, deps=()):
@@ -140,9 +150,17 @@ def _pulse_row(book=None, deps=()):
             "engine_age": 20}
 
 
+def _account_row(balance, live_key=False, demo_key=False):
+    """/api/me's one account read (repo.account_reads): the keys' presence, the card on file and the balance."""
+    return {"live_key": int(live_key), "demo_key": int(demo_key), "credit_balance": balance, "has_customer": 1,
+            "user_id": 7, "stripe_customer_id": "cus_1", "default_pm_id": "pm_1", "auto_reload": 0, "reload_amount": 20,
+            "reload_threshold": 5}
+
+
 def _ctx(log, balance, run_status="queued", query=None, params=(), extra=None):
     long_ago = datetime(2026, 10, 25) - timedelta(hours=2)
     rows = {
+        ACCOUNT: [_account_row(balance)],
         PULSE: [_pulse_row()],
         CREDITS: [{"part": "balance", "run_kind": None, "brief": None, "example": None, "s": balance}],
         "FROM app_stripe_customers": [{"user_id": 7, "stripe_customer_id": "cus_1", "default_pm_id": "pm_1",
@@ -609,30 +627,33 @@ def test_shared_billing_reads_answer_as_the_unshared_gate_does(monkeypatch):
 
 
 # The dashboard polls every 15s and asked for both Kalshi key rows (the key's id and its encrypted bytes) only to
-# say whether each is saved. It asks whether each is saved, selecting a constant (repo.has_kalshi_key and
-# has_kalshi_dev_key): the same statements, none of them reading key material. Its demo deployment (id 6,
-# running) makes the demo check ask for the demo key, so both tables are probed.
+# say whether each is saved. It asks whether each is saved, selecting constants: both tables in one statement
+# (repo.kalshi_keys_saved, /api/me's own probe), none of it key material. Carried in a page shell it asks nothing:
+# /api/me read both a moment earlier in the same request (Ctx.shared).
 KEY_COLUMNS = ("private_key_enc", "key_id")
+KEYS_SAVED = "SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live, EXISTS"
 
 
 @pytest.mark.parametrize("live_key,demo_key", [(True, True), (True, False), (False, True), (False, False)])
 def test_the_dashboard_poll_asks_whether_each_kalshi_key_is_saved_and_never_reads_one(production, live_key, demo_key):
-    rows = dict(_board_rows())
-    if live_key:
-        rows["FROM app_kalshi_keys WHERE user_id=%s"] = [{"present": 1}]
-    if demo_key:
-        rows["FROM app_kalshi_dev_keys WHERE user_id=%s"] = [{"present": 1}]
+    rows = dict(_board_rows(), **{KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]})
     log = []
     out = server.dashboard(_ctx(log, 10.0, extra=rows))
-    keys = [s for s, _ in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]
-    assert sorted("app_kalshi_dev_keys" in s for s in keys) == [False, True], keys  # one probe of each table
-    assert all(s.startswith("SELECT 1 AS present FROM ") and s.endswith(" LIMIT 1") for s in keys), keys
-    assert not [s for s in keys if any(c in s for c in KEY_COLUMNS)], keys
-    assert not [s for s, _ in log if "private_key_enc" in s], log
+    keys = [(s, p) for s, p in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]
+    assert keys == [("SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live, "
+                     "EXISTS(SELECT 1 FROM app_kalshi_dev_keys WHERE user_id=%s) AS demo", (7, 7))], keys  # both, once
+    assert not [s for s, _ in log if any(c in s for c in KEY_COLUMNS)], log
     # The answers say what the key rows said before: connected or not, and the demo key line when it is missing.
     assert out["live"]["connected"] is live_key
     health = out["demo"].get("health") or {}
     assert (health.get("code") == "demo_key") is (not demo_key)
+    # Carried in the shell after /api/me (which read both): no key statement at all, the same answer.
+    log = []
+    ctx = _ctx(log, 10.0, extra=dict(_board_rows()))
+    ctx.shared["kalshi_keys"] = (live_key, demo_key)
+    shelled = server.dashboard(ctx)
+    assert not [s for s, _ in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s], log
+    assert shelled["live"]["connected"] is live_key and shelled["demo"].get("health") == out["demo"].get("health")
 
 
 def test_the_presence_reads_answer_as_the_key_reads_did():
@@ -651,39 +672,47 @@ def test_the_presence_reads_answer_as_the_key_reads_did():
 
 
 # /api/me, which every signed-in page's shell carries, asked for both Kalshi key rows (the key's id and its encrypted
-# bytes) only to say whether each is saved. It asks both in one statement selecting constants
-# (repo.kalshi_keys_saved): me 5 -> 4 statements on every page load (measured 2026-11-01 on the seeded heavy account,
-# local MariaDB; the shells of /, /deploy, /strategies, /research, /funds and the rest each one fewer).
-KEYS_SAVED = "SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live"
-
-
+# bytes) only to say whether each is saved; then both in one statement selecting constants (repo.kalshi_keys_saved),
+# me 5 -> 4. It asks them with the Stripe customer and the credit balance in one statement (repo.account_reads), never
+# a key's id or its bytes: me 4 -> 2 on every page load (measured 2026-11-01 on the seeded heavy account, local
+# MariaDB; every signed-in page's shell two fewer).
 @pytest.mark.parametrize("live_key,demo_key", [(True, True), (True, False), (False, True), (False, False)])
 def test_me_asks_whether_each_kalshi_key_is_saved_in_one_statement_and_never_reads_one(production, live_key, demo_key):
     log = []
-    out = server.me(_ctx(log, 10.0, extra={KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]}))
+    out = server.me(_ctx(log, 10.0, extra={ACCOUNT: [_account_row(10.0, live_key, demo_key)]}))
     keys = [(s, p) for s, p in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]
-    assert keys == [("SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live, "
-                     "EXISTS(SELECT 1 FROM app_kalshi_dev_keys WHERE user_id=%s) AS demo", (7, 7))], keys
+    assert len(keys) == 1 and ACCOUNT in keys[0][0] and keys[0][1] == (7, 7, 7, 7), keys
+    assert "app_stripe_customers" in keys[0][0] and "app_credit_ledger" in keys[0][0]  # the same statement
     assert not [s for s, _ in log if any(c in s for c in KEY_COLUMNS)], log
+    assert not [s for s, _ in log if s not in (keys[0][0],) and ("app_stripe_customers" in s or "app_credit_ledger" in s)], log
     assert (out["kalshi_connected"], out["kalshi_dev_connected"]) == (live_key, demo_key)
 
 
-def test_me_answers_as_it_did_reading_the_key_rows(production, monkeypatch):
-    """The same reply as when me read each key row and asked whether it was there, for each pair of keys."""
+@pytest.mark.parametrize("customer", [None, {"default_pm_id": None}, {"default_pm_id": "pm_1", "auto_reload": 1, "reload_amount": 30,
+                                                                       "reload_threshold": 8}])
+def test_me_answers_as_it_did_reading_the_key_rows(production, monkeypatch, customer):
+    """The same reply from me's one account read as from the reads it stands for (whether each key is saved, the
+    Stripe customer, the credit balance), for each pair of keys, card and balance."""
     import json
 
+    from tests.combined_reads import compose_combined_reads
+
+    cust_cols = ("user_id", "stripe_customer_id", "default_pm_id", "auto_reload", "reload_amount", "reload_threshold")
+    full = None if customer is None else dict({"user_id": 7, "stripe_customer_id": "cus_1", "auto_reload": 0, "reload_amount": 20,
+                                               "reload_threshold": 5}, **customer)
     for live_key in (True, False):
         for demo_key in (True, False):
-            saved = server.me(_ctx([], 10.0, extra={KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]}))
-            row = {"key_id": "placeholder", "private_key_enc": b"\x00", "created_at": None}
-            with monkeypatch.context() as m:
-                m.setattr(server.repo, "kalshi_keys_saved", lambda cur, uid: (
-                    server.repo.get_kalshi_key(cur, uid) is not None, server.repo.get_kalshi_dev_key(cur, uid) is not None))
-                rows = {"FROM app_kalshi_keys WHERE user_id=%s": [row] if live_key else [],
-                        "FROM app_kalshi_dev_keys WHERE user_id=%s": [row] if demo_key else []}
-                read = server.me(_ctx([], 10.0, extra=rows))
-            assert json.dumps(saved, default=server._json_default, sort_keys=True) == json.dumps(
-                read, default=server._json_default, sort_keys=True)
+            for balance in (0.0, 4.25, 10.0):
+                row = dict(_account_row(balance, live_key, demo_key), has_customer=int(full is not None),
+                           **{k: (full or {}).get(k) for k in cust_cols})
+                one = server.me(_ctx([], balance, extra={ACCOUNT: [row]}))
+                with monkeypatch.context() as m:
+                    compose_combined_reads(m)
+                    rows = {KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}],
+                            "FROM app_stripe_customers": [full] if full else []}
+                    apart = server.me(_ctx([], balance, extra=rows))
+                assert json.dumps(one, default=server._json_default, sort_keys=True) == json.dumps(
+                    apart, default=server._json_default, sort_keys=True), (live_key, demo_key, balance, customer)
 
 
 # The run page's first read of a long run-until-stopped session: the newest RUN_EVENTS_PAGE lines and, in the same
@@ -779,10 +808,15 @@ def test_funds_and_its_older_history_page_stay_in_their_query_budget(production)
     repeats = sorted({s for s in log if log.count(s) > 1})
     assert not repeats and len(log) <= BUDGET["funds"], "funds sent %d statements (budget %d):\n  %s" % (
         len(log), BUDGET["funds"], "\n  ".join(s for s, _ in log))
-    # Its history is the newest page alone, as before the older pages: one read, LEDGER_LISTED rows.
-    pages = [(s, p) for s, p in log if s.startswith("SELECT id, kind, amount, memo, created_at FROM app_ledger")]
-    assert pages == [("SELECT id, kind, amount, memo, created_at FROM app_ledger WHERE user_id=%s ORDER BY id DESC LIMIT %s",
-                      (7, server.repo.LEDGER_LISTED))]
+    # Its history is the newest page alone, as before the older pages: one read, LEDGER_LISTED rows, with the paper
+    # balance (the whole ledger's sum) riding it.
+    pages = [(s, p) for s, p in log if s.startswith("SELECT id, kind, amount, memo, created_at")]
+    assert pages == [("SELECT id, kind, amount, memo, created_at, (SELECT COALESCE(SUM(amount),0) FROM app_ledger WHERE user_id=%s) "
+                      "AS balance_all FROM app_ledger WHERE user_id=%s ORDER BY id DESC LIMIT %s", (7, 7, server.repo.LEDGER_LISTED))]
+    assert not [s for s, _ in log if s.startswith("SELECT COALESCE(SUM(amount),0) AS b FROM app_ledger")], log
+    # Each key's id in one statement, never its encrypted bytes.
+    keys = [s for s, _ in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]
+    assert len(keys) == 1 and "private_key_enc" not in keys[0], keys
     # An older page: one statement on the user's own rows, newest first, bounded at a page and one more (for `more`).
     log = _call("funds_ledger", 10.0, query={"before": "9001"})
     assert log == [("SELECT id, kind, amount, memo, created_at FROM app_ledger FORCE INDEX (idx_ledger_user_time) "
@@ -1039,6 +1073,16 @@ HEAVY = ("SUM(pnl) OVER (PARTITION BY deployment_id", "LEFT JOIN (SELECT p.deplo
          "TIMESTAMPDIFF(SECOND, '1970-01-01', MIN(p.opened_at))", "SELECT d.strategy_id, p.order_ref, SUM(p.pnl)", "AS pnl_sq",
          "AND mode='paper' AND order_ref LIKE %s GROUP BY deployment_id")
 STRATEGIES = "SELECT id, strategy_id FROM app_deployments WHERE user_id=%s"
+# The dashboard reads the positions' version with the paper ledger's in one statement (repo.book_versions).
+BOOK_VERSIONS = "SELECT p.n AS book_n"
+
+
+def _with_versions(rows, book):
+    """`rows` with the positions at `book` (repo.positions_version's read and, first, repo.book_versions' with the
+    paper ledger's version from rows[LEDGER] when there is one, else an empty ledger)."""
+    ledger = (rows.get(LEDGER) or [{"n": 0, "top": 0}])[0]
+    return {BOOK_VERSIONS: [{"book_n": book["n"], "book_closed": book["closed"], "book_top": book["top"],
+                             "ledger_n": ledger["n"], "ledger_top": ledger["top"]}], **rows, VERSION: [book]}
 
 
 def _panel_rows(strategy_of_4=8):
@@ -1050,7 +1094,7 @@ def _panel_rows(strategy_of_4=8):
 # the reads grouped by strategy, the deployments' strategies once); kept drops every heavy sum.
 # The board's removed deployments are read every poll (one is removed without a position changing): +1.
 # A paper row with a closed trade also counts its instant fills (book_memo.realistic_paper_closed), cold only: +1.
-KEPT_BUDGET = {"dashboard": (17, 14), "list_deployments": (11, 7), "get_track_record": (3, 2), "autopilot_status": (13, 8)}
+KEPT_BUDGET = {"dashboard": (14, 11), "list_deployments": (11, 7), "get_track_record": (3, 2), "autopilot_status": (13, 8)}
 KEPT_PAGES = [("dashboard", {}, _board_rows), ("list_deployments", {}, _board_rows),
               ("get_track_record", {}, _book_rows),
               ("autopilot_status", {}, _panel_rows)]
@@ -1064,7 +1108,7 @@ def _poll(name, kw, rows, version):
     for cache in (server._TRACK_RECORD, server._BACKTEST_CHECKS, server._ROADS, server._FAILING):
         cache.clear()
     log = []
-    extra = dict(rows(), **{VERSION: [version]})
+    extra = _with_versions(rows(), version)
     if name == "autopilot_status":  # the panel reads the version and the deployments' strategies in its pulse
         extra[PULSE] = [_pulse_row(version, extra.get(STRATEGIES, []))]
     out = getattr(server, name)(_ctx(log, 10.0, extra=extra, **kw))
@@ -1108,7 +1152,7 @@ def test_the_autopilot_panel_sums_again_when_a_deployment_moves_to_another_strat
 # 14 statements, ~24ms and ~0.9KB while unchanged (the ledger's ~22ms sum -> its ~8ms version read);
 # /api/deployments 5 statements, ~11ms and 62KB -> 5, ~10ms and ~0.8KB.
 # The board's 6th is its removed deployments (the deployments alone; their totals are kept).
-SAME_BUDGET = {"dashboard": 14, "list_deployments": 6}
+SAME_BUDGET = {"dashboard": 11, "list_deployments": 6}  # dashboard 14 -> 11 (2026-11-01, BUDGET above)
 SAME_KEYS = {"v", "same", "marks", "unrealized", "freshness", "since_at"}
 LEDGER = "FROM app_ledger FORCE INDEX (idx_ledger_user_time)"
 LEDGER_SUM = "SELECT COALESCE(SUM(amount),0) AS b"
@@ -1136,7 +1180,7 @@ def test_an_unchanged_money_page_poll_says_same_inside_its_budget(production, pa
 
     def poll(rows, v=None):
         log = []
-        out = getattr(server, name)(_ctx(log, 10.0, query={"v": v} if v else {}, extra=dict(rows, **{VERSION: [book]})))
+        out = getattr(server, name)(_ctx(log, 10.0, query={"v": v} if v else {}, extra=_with_versions(rows, book)))
         return out, [s for s, _ in log]
 
     first, _ = poll(_ledger_rows())

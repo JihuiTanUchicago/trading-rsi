@@ -22,6 +22,7 @@ from app.web import views
 from app.web.http import ApiError
 from app.web.routes import admin as admin_routes
 from app.web.routes import billing as billing_routes
+from tests.combined_reads import compose_combined_reads
 
 STRAIGHT = re.compile(r"[A-Za-z]'[A-Za-z]")
 NOW = datetime(2026, 10, 27, 15, 0)
@@ -51,6 +52,7 @@ def test_customer_text_fallbacks_write_apostrophes_curly():
 
 
 def test_the_bell_says_its_fallback_curly(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     monkeypatch.setattr(repo, "list_notifications", lambda cur, uid, **k: [
         {"id": 1, "kind": "x", "body": "Traceback (most recent call last): boom", "link": None, "created_at": NOW, "read_at": None}])
     monkeypatch.setattr(repo, "count_unread_notifications", lambda cur, uid: 1)
@@ -84,6 +86,7 @@ def test_a_failed_auto_reload_reads_curly_on_billing_and_in_the_bell(monkeypatch
 
 
 def test_a_failed_auto_reload_groups_its_dollar_figure_in_the_bell_and_on_billing(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     # Walk 2026-10-31: a $1,000 auto-reload (MAX_TOPUP) read "couldn't add $1000.00 in credits" in the bell and on
     # Billing's banner; every other figure on the page groups its thousands. The stored body is unchanged.
     body = billing.reload_failed_body(Decimal("1000"), billing.CARD_DECLINED)

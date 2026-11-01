@@ -19,6 +19,7 @@ from app.adapters.db.billing_repository import (  # noqa: F401
     last_credit_at, usage_by_source, save_stripe_customer, set_auto_reload, set_default_pm, user_by_email,
     credit_week, card_charged, _usage_key,
 )
+from app.adapters.db.account_repository import account_reads, kalshi_key_ids  # noqa: F401
 from app.adapters.db.autopilot_pulse_repository import _pulse_at, _pulse_list, _pulse_secs, autopilot_pulse  # noqa: F401
 from app.adapters.db.kalshi_keys_repository import (  # noqa: F401
     delete_kalshi_key, get_kalshi_key, has_kalshi_key, kalshi_keys_saved, save_kalshi_key,
@@ -36,7 +37,7 @@ from app.adapters.db.order_intent_repository import (  # noqa: F401
     order_intents_between, ticker_has_inflight_intent, yes_quote_at,
 )
 from app.adapters.db.agent_run_repository import (  # noqa: F401
-    MAX_RESUMES, OUT_OF_CREDITS_STEP, RUN_ACTIVE, _has_progress, add_event, cancel_run, claim_run, count_active_research,
+    MAX_RESUMES, OUT_OF_CREDITS_STEP, RUN_ACTIVE, _has_progress, active_run_tally, add_event, cancel_run, claim_run, count_active_research,
     count_runs, create_run, example_run_id, fail_abandoned_runs, finish_run, forward_verdict, forward_verdicts, get_run,
     heartbeat, list_runs, list_runs_version,
     load_checkpoint, pause_run, research_queue_ahead, research_week, resume_run, run_events, run_worker, save_checkpoint,
@@ -74,7 +75,7 @@ from app.adapters.db.position_repository import (  # noqa: F401
     score_early_exit, unscored_early_exits, update_marks, user_open_exposure, user_positions, user_positions_in_ticker,
 )
 from app.adapters.db.paper_ledger_repository import (  # noqa: F401
-    LEDGER_LISTED, STARTING_PAPER_BALANCE, add_ledger, ledger_rows, ledger_rows_before, lock_user, paper_balance,
+    LEDGER_LISTED, STARTING_PAPER_BALANCE, add_ledger, book_versions, ledger_rows, ledger_rows_before, ledger_rows_with_balance, lock_user, paper_balance,
     paper_deposits, paper_ledger_summary, paper_ledger_version, paper_reset_at, reset_paper_account,
 )
 from app.adapters.db.demo_capital_repository import (  # noqa: F401
@@ -306,9 +307,11 @@ def create_session(cur, user_id: int, token_hash: str, ttl: timedelta) -> None:
 
 
 def session_user(cur, token_hash: str) -> Optional[Dict]:
+    """The signed-in user's row. demo_capital and demo_pnl_base ride it (demo_account's two columns of the same row),
+    so a page read that shows the demo book (the dashboard, Funds) takes them from here instead of reading the row again."""
     cur.execute(
         """SELECT u.id, u.email, u.name, u.username, u.picture_url, u.autopilot, u.autopilot_live, u.autopilot_daily_loss_limit,
-                  u.autopilot_model, u.autopilot_focus, u.ui_theme, u.email_opt_out, u.created_at
+                  u.autopilot_model, u.autopilot_focus, u.ui_theme, u.email_opt_out, u.created_at, u.demo_capital, u.demo_pnl_base
            FROM app_sessions s JOIN app_users u ON u.id=s.user_id
            WHERE s.token_hash=%s AND s.expires_at > %s""",
         (token_hash, now_utc()),
@@ -427,14 +430,30 @@ def list_notifications(cur, user_id: int, limit: int = 20, before: int = 0) -> L
     table the optimizer walked the primary key down from `before`, through every user's notices. No index has
     (user_id, id), so both pages sort the user's rows (filesort, LIMIT-bounded output)."""
     older = " FORCE INDEX (idx_notif_user)" if before else ""
-    cur.execute(
-        "SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at, "
-        "(n.link LIKE '/strategies/%%' AND (st.id IS NULL OR st.user_id<>n.user_id)) AS gone FROM app_notifications n" + older + " "
-        "LEFT JOIN app_strategies st ON n.link LIKE '/strategies/%%' AND st.id=CAST(SUBSTRING(n.link, 13) AS UNSIGNED) "
-        "WHERE n.user_id=%s" + (" AND n.id<%s" if before else "") + " ORDER BY n.id DESC LIMIT %s",
-        (user_id, before, limit) if before else (user_id, limit),
-    )
+    cur.execute(_NOTICES_SQL.format(unread="", older=older, before=" AND n.id<%s" if before else ""),
+                (user_id, before, limit) if before else (user_id, limit))
     return cur.fetchall()
+
+
+_NOTICES_SQL = ("SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at, "
+                "(n.link LIKE '/strategies/%%' AND (st.id IS NULL OR st.user_id<>n.user_id)) AS gone{unread} "
+                "FROM app_notifications n{older} "
+                "LEFT JOIN app_strategies st ON n.link LIKE '/strategies/%%' AND st.id=CAST(SUBSTRING(n.link, 13) AS UNSIGNED) "
+                "WHERE n.user_id=%s{before} ORDER BY n.id DESC LIMIT %s")
+# count_unread_notifications' count, as one more column of the bell's first page (computed once, not per row).
+_UNREAD_COL = ", (SELECT COUNT(*) FROM app_notifications WHERE user_id=%s AND read_at IS NULL) AS unread_all"
+
+
+def notifications_first_page(cur, user_id: int, limit: int) -> Tuple[List[Dict], int]:
+    """(list_notifications' first page, count_unread_notifications) in one statement: the bell's read, which every
+    signed-in page's shell carries. The count rides each listed row; with none listed the user has no notice at
+    all, so none is unread."""
+    cur.execute(_NOTICES_SQL.format(unread=_UNREAD_COL, older="", before=""), (user_id, user_id, limit))
+    rows = cur.fetchall()
+    unread = int(rows[0]["unread_all"]) if rows else 0
+    for r in rows:
+        r.pop("unread_all", None)
+    return rows, unread
 
 
 def latest_notification(cur, user_id: int, kind: str) -> Optional[Dict]:
@@ -991,16 +1010,7 @@ def active_run_counts(cur, user_id: int, silent_before=None) -> Dict[str, int]:
            WHERE user_id=%s AND status IN ('queued','running','paused')""" + silent + " GROUP BY kind, status",
         (user_id,) if silent_before is None else (user_id, silent_before),
     )
-    out = {"research_running": 0, "research_paused": 0, "research_queued": 0, "chat_active": 0}
-    for r in cur.fetchall():
-        if r["kind"] == "research":
-            # A paused run still holds one of the user's session slots (count_runs active_only), but
-            # it isn't researching: counted under "running", one running and one paused read
-            # "Researching now 2". The pages say running and paused apart.
-            out["research_" + r["status"]] += int(r["n"])
-        else:
-            out["chat_active"] += int(r["n"])
-    return out
+    return active_run_tally((r["kind"], r["status"], r["n"]) for r in cur.fetchall())
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")

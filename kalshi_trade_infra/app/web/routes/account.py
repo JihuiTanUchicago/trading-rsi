@@ -14,14 +14,16 @@ from app.web.routes.auth import UI_THEMES, _sync_ui_cookie
 from app.web.routes.billing import reload_failed_now
 from app.web.routes.research import _researchable_markets, models
 from app.web.settings import ADMIN_EMAIL
-from app.web.views import _auto_reload_terms, _needs_card, credit_exact
+from app.web.views import _auto_reload_terms, _needs_card, account_reads, credit_exact
 
 
 def me(ctx: Ctx):
     _sync_ui_cookie(ctx, ctx.user.get("ui_theme") if ctx.user.get("ui_theme") in UI_THEMES else "tau")
-    reads = billing.Reads(ctx.cur, ctx.uid)  # needs_card, auto_reload and credit_balance share one read each
     listed = _researchable_markets(ctx.cur)
-    live_key, demo_key = repo.kalshi_keys_saved(ctx.cur, ctx.uid)  # whether each is saved; never the key itself
+    # Whether each Kalshi key is saved (never the key itself), the Stripe customer and the credit balance, in one
+    # read: needs_card, auto_reload, reload_failed and credit_balance share it, and so do the shell's carried reads.
+    acct, reads = account_reads(ctx)
+    live_key, demo_key = acct["live_key"], acct["demo_key"]
     return {
         "user": {
             "id": ctx.user["id"], "email": ctx.user["email"], "name": ctx.user["name"],
@@ -69,13 +71,18 @@ def notifications(ctx: Ctx):
         before = max(0, int(ctx.query.get("before") or 0))
     except (TypeError, ValueError):
         before = 0
-    # One row past the window says, in the same read, whether any notice is older than the bell lists (`older`).
-    read = customer_text.notification_rows(repo.list_notifications(ctx.cur, ctx.uid, limit=bell.READ_ROWS + 1, before=before))
+    # One row past the window says, in the same read, whether any notice is older than the bell lists (`older`);
+    # the first page's unread count rides the same statement.
+    if before:
+        listed, unread = repo.list_notifications(ctx.cur, ctx.uid, limit=bell.READ_ROWS + 1, before=before), None
+    else:
+        listed, unread = repo.notifications_first_page(ctx.cur, ctx.uid, bell.READ_ROWS + 1)
+    read = customer_text.notification_rows(listed)
     rows = read[:bell.READ_ROWS]
     items, older, next_before = bell.page(read)
     if before:
         return {"items": items, "older": older, "next_before": next_before}
-    return {"unread": repo.count_unread_notifications(ctx.cur, ctx.uid), "items": items,
+    return {"unread": unread, "items": items,
             # unread_kinds counts the newest READ_ROWS notices only, while `unread` counts them all: the bell's
             # summary says which window its parts cover when the two differ ("131 new; the newest 100: …").
             "unread_kinds": bell.unread_kinds(rows), "unread_kinds_of": bell.READ_ROWS,

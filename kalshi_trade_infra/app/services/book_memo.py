@@ -91,13 +91,14 @@ class BookMemo:
 _LEDGER: Dict[int, Tuple[Tuple[int, int], Dict]] = {}
 
 
-def paper_ledger_summary(cur, uid: int) -> Dict:
+def paper_ledger_summary(cur, uid: int, version: Optional[Tuple[int, int]] = None) -> Dict:
     """repo.paper_ledger_summary (the paper cash, net deposits and last reset), kept per user against
     repo.paper_ledger_version (the ledger's rows and highest id, from its index alone): every write to
     the ledger moves that version, so a kept summary is served only while its rows are the rows there
     now. The version is read first, so a row added in between is summed on the next request. An empty
-    ledger sums to nothing, so it is not read at all. A copy: the caller may change it."""
-    v = repo.paper_ledger_version(cur, uid)
+    ledger sums to nothing, so it is not read at all. A copy: the caller may change it. `version`, when given, is
+    repo.paper_ledger_version as this request read it a moment ago (repo.book_versions), before this summary."""
+    v = repo.paper_ledger_version(cur, uid) if version is None else version
     if not v[0]:
         return {"balance": 0.0, "deposited": 0.0, "reset_at": None}
     hit = _LEDGER.get(int(uid))

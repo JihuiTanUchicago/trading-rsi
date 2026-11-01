@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from app.adapters.db.sql import _json, _loads, now_utc, transaction
 from app.adapters.db.strategy_repository import DEMO_DIRECTION
@@ -504,4 +504,19 @@ def research_verdicts_after(cur, user_id: int, markets: List[str], after_run_id:
         out.append({"run_id": r["run_id"], "market": run["market"],
                     "day": created.strftime("%Y-%m-%d") if hasattr(created, "strftime") else str(created or "")[:10],
                     "message": r.get("message") or "", "data": _loads(r.get("data_json")) or {}})
+    return out
+
+
+def active_run_tally(rows: Iterable[Tuple[str, str, Any]]) -> Dict[str, int]:
+    """repo.active_run_counts' answer from its (kind, status, n) rows: queued, running and paused research apart,
+    every other kind as chat_active (also what activity_since tallies with `active`)."""
+    out = {"research_running": 0, "research_paused": 0, "research_queued": 0, "chat_active": 0}
+    for kind, status, n in rows:
+        if kind == "research":
+            # A paused run still holds one of the user's session slots (count_runs active_only), but
+            # it isn't researching: counted under "running", one running and one paused read
+            # "Researching now 2". The pages say running and paused apart.
+            out["research_" + status] += int(n)
+        else:
+            out["chat_active"] += int(n)
     return out

@@ -2,6 +2,7 @@
 line in order, and reads a bounded number of rows however many notices a user has."""
 from app import server
 from app.services import bell
+from tests.combined_reads import compose_combined_reads
 
 
 def _row(i, kind, link, read=True, body=None):
@@ -42,6 +43,7 @@ def test_the_list_stops_at_its_size_and_a_trailing_run_still_counts():
 
 
 def test_the_endpoint_reads_a_bounded_window_and_groups_it(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     asked = {}
 
     def rows(cur, uid, limit=20, before=0):
@@ -129,6 +131,7 @@ def test_a_pause_opens_at_since_deploying_and_a_failed_reload_at_billings_notice
 
 
 def test_the_bell_says_when_older_notices_are_past_its_lines(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     many = [_row(500 - i, "share", "/strategies/%d" % i) for i in range(bell.READ_ROWS + 1)]
     monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 0)
     ctx = type("C", (), {"cur": None, "uid": 1, "query": {}})()
@@ -149,6 +152,7 @@ def test_the_bell_says_when_older_notices_are_past_its_lines(monkeypatch):
 
 
 def test_the_bell_says_how_many_unread_notices_its_lines_stand_for(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     # 47 unread and 20 lines: the list shows 20 new ones and says the other 27 are older, so the count agrees.
     rows = [_row(500 - i, "deployed", "/strategies/%d" % i, read=True) for i in range(bell.READ_ROWS + 1)]
     for r in rows[:47]:
@@ -166,6 +170,7 @@ def test_the_bell_says_how_many_unread_notices_its_lines_stand_for(monkeypatch):
 
 
 def test_show_older_notices_reads_the_next_page_by_cursor_grouped_alike_with_no_count_and_no_mark(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     # "Older notices aren't listed here" led nowhere: past the newest 20 lines nothing older could be read. ?before=<id>
     # (the page above's next_before) reads the next page through the same endpoint, grouped as the first page is.
     asked = []

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.adapters.db.agent_run_repository import active_run_tally
 from app.adapters.db.sql import contract_fills_sql, now_utc
 from app.adapters.db.strategy_repository import DEMO_DIRECTION, NO_EXPERIMENT_SQL, VOID_NO_RECORD_SQL, _strategy_row
 
@@ -602,7 +603,7 @@ _AUTOPILOT_STRATEGIES = ("SELECT strategy_id FROM app_proposals WHERE user_id=%s
                          "AND status='applied' AND decided_at IS NULL AND strategy_id IS NOT NULL")
 
 
-def activity_since(cur, user_id: int, since, silent_before=None) -> Dict:
+def activity_since(cur, user_id: int, since, silent_before=None, active: bool = False) -> Dict:
     """What happened since `since` besides trades, in one read: the changes the autopilot made on
     its own ({kind: n} of its applied, never-decided proposals: deploy, pause, resume, adjust...,
     plus `research`: the research sessions it started, its brief runs, which write no proposal),
@@ -623,7 +624,9 @@ def activity_since(cur, user_id: int, since, silent_before=None) -> Dict:
     never counted them.
     With `silent_before` (views._silent_before), a running session whose last beat (or start) is older than it is
     counted under `silent`, not `running`, by the line active_run_counts draws: the strip read "1 running" over a
-    Research page that listed the session as "Silent 5 min" and counted "Running 0" (walk 2026-10-31)."""
+    Research page that listed the session as "Silent 5 min" and counted "Running 0" (walk 2026-10-31).
+    With `active`, `active` is repo.active_run_counts(user_id, silent_before) from the same statement (the runs
+    queued, running and paused now, the silent ones left out): the dashboard reads both."""
     week = now_utc() - timedelta(days=7)
     run_k = ("status" if silent_before is None else
              "CASE WHEN status='running' AND COALESCE(heartbeat_at, started_at, created_at) < %s THEN 'silent' ELSE status END")
@@ -649,16 +652,22 @@ def activity_since(cur, user_id: int, since, silent_before=None) -> Dict:
         "UNION ALL SELECT 'bought' AS src, kind AS k, COUNT(*) AS n FROM app_credit_ledger "
         "WHERE user_id=%s AND kind IN ('topup','autoreload') AND created_at>=%s GROUP BY kind "
         "UNION ALL SELECT 'bought_usd' AS src, kind AS k, SUM(amount_usd) AS n FROM app_credit_ledger "
-        "WHERE user_id=%s AND kind IN ('topup','autoreload') AND created_at>=%s GROUP BY kind",
+        "WHERE user_id=%s AND kind IN ('topup','autoreload') AND created_at>=%s GROUP BY kind" + (_ACTIVE_RUNS.format(
+            silent="" if silent_before is None else _NOT_SILENT) if active else ""),
         (user_id, since, *(() if silent_before is None else (silent_before,)), user_id, since, DEMO_DIRECTION, user_id, since, user_id, DEMO_DIRECTION,
-         user_id, since, user_id, week, user_id, since, user_id, user_id, since, user_id, since),
+         user_id, since, user_id, week, user_id, since, user_id, user_id, since, user_id, since,
+         *(((user_id,) if silent_before is None else (user_id, silent_before)) if active else ())),
     )
     out: Dict[str, Any] = {"autopilot": {}, "runs": {}, "own_sessions": False, "card_charged": False,
                            "spent": {"since": 0.0, "week": 0.0}, "bought": {"usd": 0.0, "charges": 0, "auto": 0},
                            "milestones": {"passed": [], "live_ready": []}, "titles": {}, "auto_paused": []}
     bought = Decimal(0)  # top-ups and auto-reloads summed exact; the page rounds credits half up (credit_cents)
+    runs_now = []
     for r in cur.fetchall():
-        if r["src"] == "bought":
+        if r["src"] == "active":
+            kind, _, status = str(r["k"]).partition(" ")
+            runs_now.append((kind, status, r["n"]))
+        elif r["src"] == "bought":
             out["bought"]["charges"] += int(r["n"])
             if r["k"] == "autoreload":
                 out["bought"]["auto"] = int(r["n"])
@@ -684,7 +693,15 @@ def activity_since(cur, user_id: int, since, silent_before=None) -> Dict:
     out["bought"]["usd"] = float(bought)
     for ids in [*out["milestones"].values(), out["auto_paused"]]:
         ids.sort(reverse=True)
+    if active:
+        out["active"] = active_run_tally(runs_now)
     return out
+
+
+# repo.active_run_counts' read as one more part of activity_since's (`active`): kind and status in `k`.
+_ACTIVE_RUNS = (" UNION ALL SELECT 'active' AS src, CONCAT(kind, ' ', status) AS k, COUNT(*) AS n FROM app_agent_runs "
+                "WHERE user_id=%s AND status IN ('queued','running','paused'){silent} GROUP BY kind, status")
+_NOT_SILENT = " AND NOT (status='running' AND COALESCE(heartbeat_at, started_at, created_at) < %s)"
 
 
 def autopilot_paper_week(cur, user_id: int, since) -> Dict:

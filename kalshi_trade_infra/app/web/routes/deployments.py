@@ -18,7 +18,8 @@ from app.web.caches import _ROADS, _forget_own_change
 from app.web.http import ApiError, Ctx, _int_param
 from app.web.routes.strategies import _backtest_checks, _stamp_row_instant_fills, _with_marks, _with_why
 from app.web.settings import MAX_ACTIVE_DEPLOYMENTS
-from app.web.views import _demo_key_back, _deployment_out, _paper_books, _realized_by_book, demo_health_memo, position_out
+from app.web.views import (_demo_key_back, _deployment_out, _paper_books, _realized_by_book, demo_health_memo, known_kalshi_keys,
+                            position_out)
 from trading_core.domain.slippage import PAPER, paper_estimate
 
 
@@ -52,14 +53,16 @@ def list_deployments(ctx: Ctx):
     checks = _backtest_checks(ctx.cur, ctx.uid, {d["strategy_id"]: d for d in deps}, memo)
     roads = _deploy_roads(ctx.cur, ctx.uid, deps, memo)
     paper_sids = _paper_strategy_ids(deps)
-    key_back = _demo_key_back(ctx.cur, ctx.uid, deps)
+    # Whether a demo key is saved, when the shell's /api/me read it a moment ago; else each check below asks if it must.
+    demo_key = (known_kalshi_keys(ctx) or (None, None))[1]
+    key_back = _demo_key_back(ctx.cur, ctx.uid, deps, demo_key)
     books = _paper_books(deps)
     # The removed deployments it doesn't list, so its Realized can say what it leaves out (display only).
     removed = book_memo.removed_deployments(memo)
     # Why the demo book can't trade, from the demo cash memo alone: this read (the shell's, a visit's, the 10s
     # poll's) never waits on Kalshi. A check that needs the demo cash while the memo isn't kept comes
     # demo_health_pending, and the page asks /api/funds/cash?book=demo, then reads the board again once.
-    health, health_pending = demo_health_memo(ctx.cur, ctx.uid, deps)
+    health, health_pending = demo_health_memo(ctx.cur, ctx.uid, deps, demo_key=demo_key)
     # The board polls every 10s with its last answer's version (?v=): services.page_poll.
     # Each row carries its own book's backtest comparison (same strategy, same mode), and a paper
     # row its strategy's paper record toward the live check (all its paper deployments, as the
