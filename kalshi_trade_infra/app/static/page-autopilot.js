@@ -19,7 +19,9 @@ window.TauPage('autopilot', (T) => {
   // never wipes the chat/composer. apChatTimer polls chat (3s) only while expanded.
   let apChatLastId = 0, apChatTimer = null, apFeedFirst = true, apFeedDay = '';
   // The feed's day line: the rail's times are the reader's clock, so each day starts with its date and zone.
-  const tzShort = () => { try { return (new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName') || {}).value || ''; } catch (e) { return ''; } };
+  // The zone is the one in force on that day (`at`, its noon): on the day the clocks changed, the days before it read
+  // "times in CST" over times that were CDT, beside the bell's "Oct 30, 23:25 CDT" (walk 2026-11-01).
+  const tzShort = (at) => { try { return (new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(at ? new Date(at) : new Date()).find((p) => p.type === 'timeZoneName') || {}).value || ''; } catch (e) { return ''; } };
   // Its words go by the reader's day now, so a feed open past midnight says them again (apDays): its evening's
   // check-ins stayed under "Today" after midnight, and the next one started a second "Today" (walk 2026-11-01).
   const apDayText = (iso) => {
@@ -27,7 +29,8 @@ window.TauPage('autopilot', (T) => {
     const yest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
     const label = d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === yest.toDateString() ? 'Yesterday'
       : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    return label + (tzShort() ? `${SEP}times in ` + tzShort() : '');
+    const zone = tzShort(Number.isFinite(d.getTime()) ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime() : 0);
+    return label + (zone ? `${SEP}times in ` + zone : '');
   };
   function apDayLi(iso) {
     const li = document.createElement('li');
@@ -123,6 +126,11 @@ window.TauPage('autopilot', (T) => {
     // read "Reviewed" under a widened focus's feed of weather and sports sessions (walk 2026-11-01).
     [/^Started a (?:fresh|new) research session\b/, 'Started research'],
     [/^Autopilot research has used its \$[\d,]+ for the last 24 hours\b/, 'Research cap reached'],
+    // The paper forward gate's verdict and a demo copy starting, pausing or resuming (the server says each in plain
+    // words, customer_text.forward_line and demo_unmarked): both read "Reviewed", and a pass looked like a fail (walk
+    // 2026-11-01, a reader back after 3 days).
+    [/^(?:Paper forward gate: |.+ (?:passed|did not pass) its paper forward test\b)/, 'Paper forward test'],
+    [/^(?:\[demo\] )?(?:“.+” now also trades on the demo exchange|(?:Paused|Resumed) the demo copy of )/, 'Demo copy'],
   ];
   // One feed entry, rendered with the SAME research-session parts (.ln timeline rail, .say card,
   // feedMd markdown, lane tint) so the autopilot reads as one family with the research log —

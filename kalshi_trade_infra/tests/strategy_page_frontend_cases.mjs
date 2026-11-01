@@ -461,6 +461,31 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     assert.doesNotMatch(main(ok), /<b>Passed validation|held up on the one-time locked holdout/);
   });
 
+  // Walk 2026-11-01, back after 3 days: a Void strategy on paper probation missed its one paper judgment, and its glance
+  // spoke of the validation miss alone, beside "Paper since deploying: +$8.63". It says the paper judgment missed too,
+  // so it won't be cleared, and where to stop its paper run while one is running.
+  test(`${name}: a probation strategy that missed its one paper judgment says so in its glance, and where to stop it`, async () => {
+    const luck = [{gate: 'significance', label: 'The edge could be luck', measured: 'p-value 0.081', needed: '0.013 or lower', next: 'More trades.'}];
+    const near = {classification: 'inconclusive', n_trades: 48, mean_net_return: 0.021, p_value: 0.081};
+    const paper = {classification: 'inconclusive', n_trades: 20, mean_net_return: -0.012, p_value: 0.412, verdict_at: '2026-10-31T15:25:00Z'};
+    const run = [{id: 5, mode: 'paper', status: 'running', title: 'Rain', strategy_id: 42}];
+    const f = await open({status: 'failed', out_of_sample: null, why_failed: luck, deployments: run,
+      experiment: {classification: 'inconclusive', validation: near, holdout: null, paper}});
+    const day = new Date('2026-10-31T15:25:00Z').toLocaleString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'});
+    const glance = f.root.querySelector('.verdict-glance').innerHTML;
+    assert.match(glance, /<b>Void\.<\/b> It missed a check: the edge could be luck\./);
+    assert.ok(glance.includes(`Its one judgment on its own paper trades (20, judged ${day}) didn’t pass either, so it won’t be cleared to trade; Deploy is where to stop its paper run.`), glance);
+    // Off paper, it says only that it won't be cleared; with no paper judgment yet, nothing is added.
+    const off = await open({status: 'failed', out_of_sample: null, why_failed: luck, deployments: [],
+      experiment: {classification: 'inconclusive', validation: near, holdout: null, paper}});
+    assert.match(off.root.querySelector('.verdict-glance').innerHTML, /didn’t pass either, so it won’t be cleared to trade\.<\/p>|didn’t pass either, so it won’t be cleared to trade\.$/);
+    assert.doesNotMatch(off.root.querySelector('.verdict-glance').innerHTML, /Deploy is where/);
+    const none = await open({status: 'failed', out_of_sample: null, why_failed: luck, deployments: run,
+      experiment: {classification: 'inconclusive', validation: near, holdout: null, paper: null}});
+    assert.doesNotMatch(none.root.querySelector('.verdict-glance').innerHTML, /paper judgment|judgment on its own paper/);
+    f.clearTimers(); off.clearTimers(); none.clearTimers();
+  });
+
   test(`${name}: a true pass keeps its stamp, summary, Deploy on paper up top and Road to live`, async () => {
     const f = await open({status: 'passed', why_failed: [], experiment: {classification: 'deployment_candidate', promoted: true, validation: val,
       holdout: {classification: 'forward_validated', n_trades: 64, mean_net_return: 0.024, consumed: true}}});

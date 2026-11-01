@@ -4857,9 +4857,9 @@ test('money pages: an open position names its market and settles with a date and
   assert.match(html, /<a href="\/explore\?m=KXBTCD-26OCT2617-T68499\.99">Bitcoin \$68,500 or above at 5pm ET<\/a><div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T68499\.99<\/span>/);
   assert.match(html, /<a href="\/explore\?m=KXOTHER-1">Kalshi contract<\/a><div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXOTHER-1<\/span>/);
   assert.doesNotMatch(html, />KX[A-Z]+-[^<]*<\/a>/);
-  // Another day carries its date; today only the time; both name the zone (a bare "21:17" read as today, zone unknown).
+  // Another day carries its date; today says "Today"; both name the zone (a bare "21:17" read as today, zone unknown).
   assert.match(html, /data-lab="Settles">Jan 1[56], \d\d:\d\d [^<\s]+<\/td>/);
-  assert.match(html, /data-lab="Settles">\d\d:\d\d [^<\s]+<\/td>/);
+  assert.match(html, /data-lab="Settles">Today, \d\d:\d\d [^<\s]+<\/td>/);  // later today: says so (walk 2026-11-01)
   // The strategy page's holding says its cost includes the fee, and settles the same way.
   const s = strategyFrontend(detailStrategy({holdings: [pos()]})); s.S.me.markets = markets; await s.viewStrategy(42); await flush();
   const side = s.root.querySelector('#main').innerHTML;

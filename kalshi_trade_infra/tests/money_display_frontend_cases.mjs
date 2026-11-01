@@ -179,8 +179,11 @@ export function unmarkedPositionCases({name, frontend}) {
 // figures, in its own book.
 export function pastCloseCases({name, frontend, strategyFrontend, detailStrategy, dashboard}) {
   const settle = async () => { for (let i = 0; i < 6; i++) await flush(); };
-  // Today's time alone, or another day's date with it, always with a zone (settleAt).
-  const AT = '(?:[A-Z][a-z]{2} \\d{1,2}, )?\\d\\d:\\d\\d \\S+';
+  // Today's time after "today", or another day's date with it, always with a zone (settleAt, CLOSE_FORM's settleDay).
+  const AT = '(?:[A-Z][a-z]{2} \\d{1,2}, |[Tt]oday, )?\\d\\d:\\d\\d \\S+';
+  // A close later today says "today" (walk 2026-11-01: Deploy's Settles column read "Nov 3, 09:00 CST" over a bare
+  // "15:25 CST" to a reader back after days away). Only checked when "soon" is today on this runner's clock.
+  const isToday = (iso) => new Date(iso).toDateString() === new Date(Date.now()).toDateString();
   const tick = async (f) => { for (const run of [...f.intervals.values()]) await run(); await settle(); };
   // Each close sits half a second off a whole second and tens of seconds from now, so a slow runner never decides it.
   const closes = () => { const now = Date.now(); return {soon: new Date(now + 150.5e3).toISOString(), gone: new Date(now - 90.5e3).toISOString()}; };
@@ -196,6 +199,7 @@ export function pastCloseCases({name, frontend, strategyFrontend, detailStrategy
     const settles = col('Settles');
     assert.equal(settles.length, 3, 'every position is still listed open');
     assert.match(settles[0], new RegExp('^' + AT + '$'), 'before its close: the time, as before');
+    if (isToday(soon)) assert.match(settles[0], /^Today, \d\d:\d\d \S+$/, 'later today: says today');
     assert.equal(settles[1], 'Closed, result pending');
     assert.match(settles[2], /^Jan 1[56], \d\d:\d\d \S+$/, 'another day: its date and time, as before');
     const costs = col('Cost + fee'), unreal = col('Unrealized');
@@ -217,6 +221,7 @@ export function pastCloseCases({name, frontend, strategyFrontend, detailStrategy
     const reads = () => f.requests.filter((r) => r.path === '/api/strategies/42').length;
     assert.equal(lines().length, 3);
     assert.match(lines()[0], new RegExp('^Settles ' + AT + '$'));
+    if (isToday(soon)) assert.match(lines()[0], /^Settles today, /);
     assert.equal(lines()[1], 'Closed, result pending');
     assert.match(lines()[2], /^Settles Jan 1[56], \d\d:\d\d \S+$/);
     const books = f.root.querySelector('#main').innerHTML;
@@ -247,6 +252,7 @@ export function pastCloseCases({name, frontend, strategyFrontend, detailStrategy
     const smalls = () => f.root.querySelectorAll('#dash-open .stub small').filter((el) => !/stub-why/.test(el.getAttribute('class') || '')).map((el) => el.textContent);
     const settled = () => f.root.querySelectorAll('.panel').find((p) => /Closed lately/.test(p.textContent)).textContent;
     assert.match(smalls()[0], new RegExp('\\s·\\ssettles ' + AT + '\\s·\\sPAPER\\s·\\s'));
+    if (isToday(soon)) assert.match(smalls()[0], /\s·\ssettles today, \d\d:\d\d \S+\s·\sPAPER\s·\s/);
     assert.match(smalls()[1], /\s·\sclosed, result pending\s·\sPAPER\s·\s/);
     assert.doesNotMatch(smalls()[1], /settles/);
     const was = settled();

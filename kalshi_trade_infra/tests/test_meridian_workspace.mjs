@@ -5477,7 +5477,7 @@ test('Meridian money pages: open positions name their market, settle with date a
   assert.match(html, /<a href="\/explore\?m=KXOTHER-1">Kalshi contract<\/a>/);
   assert.doesNotMatch(html, />KX[A-Z]+-[^<]*<\/a>/);
   assert.match(html, /data-lab="Settles">Jan 1[56], \d\d:\d\d [^<\s]+<\/td>/);
-  assert.match(html, /data-lab="Settles">\d\d:\d\d [^<\s]+<\/td>/);
+  assert.match(html, /data-lab="Settles">Today, \d\d:\d\d [^<\s]+<\/td>/);  // later today: says so (walk 2026-11-01)
   const s = strategyFrontend(detailStrategy({holdings: [pos()]})); s.S.me.markets = markets; await s.viewStrategy(42); await flush();
   const side = s.root.querySelector('#main').innerHTML;
   assert.match(side, /<span>Cost \+ fee \$9\.41<\/span>/); assert.match(side, /<span data-close="[^"]+" data-form="settles" data-cap="1">Settles Jan 1[56], \d\d:\d\d [^<\s]+<\/span>/);
