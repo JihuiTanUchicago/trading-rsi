@@ -317,17 +317,113 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
   };
   const pressed = (f) => f.root.querySelectorAll('[data-show]').map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
   const byShow = (path) => (path.includes('show=bitcoin') ? {markets: BTC_ROWS, matched: 5, show: 'bitcoin', spot: SPOT} : {markets: ROWS, matched: 6, show: 'all', spot: SPOT});
+  // Which of the four is pressed, as the group reads: exactly one, by its own name.
+  const on = (v) => [['All markets', 'all'], ['Bitcoin', 'bitcoin'], ['Weather', 'weather'], ['Sports', 'sports']].map(([l, k]) => [l, String(k === v)]);
+
+  // Weather and Sports, beside Bitcoin (research reopened on daily highs and games, 2026-11-01): the same choice, read by
+  // the server (?show=weather|sports keeps the series its market catalog files under that group), kept in the address, the
+  // poll, a sort and the pages, with its own count and its own empty state.
+  const WX_ROWS = [row('KXHIGHNY-26NOV01-B58.5', {ti: 'Highest temperature in NYC today?', su: '58° to 59°', ct: null}),
+    row('KXHIGHCHI-26NOV01-B48.5', {ti: 'Highest temperature in Chicago today?', su: '48° to 49°', ct: null})];
+  const SP_ROWS = [ROWS[5], row('KXNFLGAME-26NOV01KCBUF-KC', {ti: 'Kansas City at Buffalo Winner?', su: 'Kansas City', ct: null})];
+  const byGroup = (path) => (path.includes('show=weather') ? {markets: WX_ROWS, matched: 2, show: 'weather'}
+    : path.includes('show=sports') ? {markets: SP_ROWS, matched: 45, show: 'sports'} : byShow(path));
+
+  test(`${name}: Explore's Weather and Sports choices each show only their markets, kept in the address, the poll, a sort and the pages`, async () => {
+    const {f, asked} = await explore('', byGroup);
+    assert.deepEqual(pressed(f), on('all'));
+    f.root.querySelector('[data-show="weather"]').onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=weather');
+    assert.equal(f.location.search, '?q=&sort=v24&page=0&show=weather', 'the choice is kept in the address');
+    assert.deepEqual(pressed(f), on('weather'));
+    assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 2);
+    assert.match(f.root.querySelector('#xfigs').textContent, /Weather markets\s*2/);
+    assert.doesNotMatch(f.root.querySelector('#xfigs').textContent, /Bitcoin/);
+    assert.equal(f.root.querySelector('#xbody .xspot-note'), null, 'no Bitcoin line over a list with no Bitcoin in it');
+    for (const run of [...f.intervals.values()]) await run(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=weather', 'the poll keeps Weather');
+    f.root.querySelector('[data-show="sports"]').onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=sports');
+    assert.deepEqual(pressed(f), on('sports'));
+    assert.match(f.root.querySelector('#xfigs').textContent, /Sports markets\s*45/);
+    assert.match(f.root.querySelector('#xpager').textContent, /Page 1 of 2/);
+    f.root.querySelector('#xbody [data-pg="1"]').onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=1&show=sports', 'Next pages over sports alone');
+    f.root.querySelectorAll('[data-sort="oi"]')[0].onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=oi&page=0&show=sports', 'a sort keeps Sports and starts at its first page');
+    f.root.querySelector('[data-show="all"]').onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=oi&page=0');
+    assert.deepEqual(pressed(f), on('all'));
+    assert.doesNotMatch(f.root.querySelector('#main').textContent, /KXHIGH|KXNFL|show=|Climate and Weather/);
+    f.clearTimers();
+    // A reload keeps the choice; any other spelling is every market.
+    const g = await explore('?q=nyc&sort=oi&page=0&show=weather', byGroup);
+    assert.deepEqual(g.asked(), ['/api/explore?q=nyc&sort=oi&page=0&show=weather']);
+    assert.deepEqual(pressed(g.f), on('weather'));
+    g.f.clearTimers();
+    const h = await explore('?show=Weather', byGroup);
+    assert.deepEqual(h.asked(), ['/api/explore?q=&sort=v24&page=0']);
+    assert.deepEqual(pressed(h.f), on('all'));
+    h.f.clearTimers();
+  });
+
+  test(`${name}: an empty Weather or Sports list says what it is filtered to and how to show every market`, async () => {
+    const none = (show) => (path) => (path.includes('show=' + show) ? {markets: [], matched: 0, show} : {markets: ROWS, matched: 6});
+    const {f, asked} = await explore('?show=weather', none('weather'));
+    const empty = f.root.querySelector('#xbody .empty');
+    assert.equal(empty.querySelector('h2').textContent, 'No weather markets to show right now');
+    assert.equal(empty.querySelector('p').textContent, 'Explore lists the most traded markets Tau tracks, refreshed about once a minute. Daily high-temperature markets show here when they’re in that list.');
+    assert.equal(empty.querySelector('[data-xall]').textContent, 'Show all markets');
+    assert.doesNotMatch(empty.textContent, /KX|series|show=|error|null|undefined|Bitcoin/i);
+    empty.querySelector('[data-xretry]').onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=weather', 'Try again asks for Weather again');
+    f.root.querySelector('#xbody [data-xall]').onclick(); await settle();
+    assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0');
+    assert.deepEqual(pressed(f), on('all'));
+    assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 6);
+    f.clearTimers();
+    const s = await explore('?show=sports', none('sports'));
+    assert.equal(s.f.root.querySelector('#xbody .empty h2').textContent, 'No sports markets to show right now');
+    assert.match(s.f.root.querySelector('#xbody .empty p').textContent, /^Explore lists the most traded markets Tau tracks, refreshed about once a minute\. Game markets show here when they’re in that list\.$/);
+    s.f.clearTimers();
+    // A search that finds no game says that, offers to clear the search (Sports stays on) and every market.
+    const q = await explore('?q=lakers&show=sports', none('sports'));
+    const e = q.f.root.querySelector('#xbody .empty');
+    assert.equal(e.querySelector('h2').textContent, 'No sports markets match “lakers”');
+    assert.equal(e.querySelector('p').textContent, 'Try a broader search, or clear it to see every open sports market.');
+    assert.ok(e.querySelector('[data-xall]'));
+    e.querySelector('[data-xclear]').onclick(); await settle();
+    assert.equal(q.asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=sports');
+    q.f.clearTimers();
+  });
+
+  test(`${name}: a market page's Back to Explore returns to the Weather list the reader left`, async () => {
+    const T = 'KXHIGHNY-26NOV01-B58.5';
+    const market = {ticker: T, series: 'KXHIGHNY', title: 'Highest temperature in NYC today?', sub: '58° to 59°', points: [], yes_bid: '0.33', yes_ask: '0.37', close_time: LATER, status: 'active'};
+    const fetchImpl = (path) => (path.startsWith('/api/explore?') ? response({at: new Date().toISOString(), total: 6, shown: 6, page: 0, per: 40, sort: 'v24', ...byGroup(path)})
+      : path.startsWith('/api/explore/market?') ? response(market) : response({}));
+    const tab = new Map(), session = {getItem: (k) => tab.get(k) ?? null, setItem: (k, v) => tab.set(k, String(v)), removeItem: (k) => tab.delete(k)};
+    const f = frontend({fetchImpl, session});
+    f.location.pathname = '/explore'; f.location.search = '?q=nyc&sort=v24&page=0&show=weather';
+    await f.viewExplore(); await settle();
+    f.location.search = '?m=' + T;
+    await f.viewMarketDetail(T); await settle();
+    const backs = f.root.querySelectorAll('a').filter((a) => /Back to Explore/.test(a.textContent)).map((a) => a.getAttribute('href').replace(/&amp;/g, '&'));
+    assert.ok(backs.length >= 1);
+    assert.ok(backs.every((h) => h === '/explore?q=nyc&sort=v24&page=0&show=weather'), backs.join(' '));
+    f.clearTimers();
+  });
 
   test(`${name}: Explore's Bitcoin choice shows only Bitcoin markets, and All markets puts every market back`, async () => {
     const {f, asked} = await explore('', byShow);
     const group = f.root.querySelector('.xshow');
     assert.equal(group.getAttribute('role'), 'group'); assert.equal(group.getAttribute('aria-label'), 'Show');
-    assert.deepEqual(pressed(f), [['All markets', 'true'], ['Bitcoin', 'false']]);
+    assert.deepEqual(pressed(f), on('all'));
     assert.deepEqual(asked(), ['/api/explore?q=&sort=v24&page=0'], 'every market until Bitcoin is picked');
     f.root.querySelector('[data-show="bitcoin"]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=bitcoin');
     assert.equal(f.location.search, '?q=&sort=v24&page=0&show=bitcoin', 'the choice is kept in the address');
-    assert.deepEqual(pressed(f), [['All markets', 'false'], ['Bitcoin', 'true']]);
+    assert.deepEqual(pressed(f), on('bitcoin'));
     assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 5);
     assert.match(f.root.querySelector('#xfigs').textContent, /Bitcoin markets\s*5/);
     // The list's poll keeps asking for Bitcoin, and a sort or search keeps it too.
@@ -338,7 +434,7 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
     f.root.querySelector('[data-show="all"]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=oi&page=0');
     assert.equal(f.location.search, '?q=&sort=oi&page=0');
-    assert.deepEqual(pressed(f), [['All markets', 'true'], ['Bitcoin', 'false']]);
+    assert.deepEqual(pressed(f), on('all'));
     assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 6);
     assert.doesNotMatch(f.root.querySelector('#main').textContent, /KXBTC|show=|BTC_SERIES/);
     f.clearTimers();
@@ -347,11 +443,11 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
   test(`${name}: a reload of Explore with Bitcoin picked keeps Bitcoin, the search and the sort`, async () => {
     const {f, asked} = await explore('?q=5pm&sort=oi&page=0&show=bitcoin', byShow);
     assert.deepEqual(asked(), ['/api/explore?q=5pm&sort=oi&page=0&show=bitcoin']);
-    assert.deepEqual(pressed(f), [['All markets', 'false'], ['Bitcoin', 'true']]);
+    assert.deepEqual(pressed(f), on('bitcoin'));
     // Any other value is every market, never an error.
     const g = await explore('?show=nonsense', byShow);
     assert.deepEqual(g.asked(), ['/api/explore?q=&sort=v24&page=0']);
-    assert.deepEqual(pressed(g.f), [['All markets', 'true'], ['Bitcoin', 'false']]);
+    assert.deepEqual(pressed(g.f), on('all'));
     f.clearTimers(); g.f.clearTimers();
   });
 
@@ -365,7 +461,7 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=bitcoin', 'Try again asks for Bitcoin again');
     f.root.querySelector('#xbody [data-xall]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0');
-    assert.deepEqual(pressed(f), [['All markets', 'true'], ['Bitcoin', 'false']]);
+    assert.deepEqual(pressed(f), on('all'));
     assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 6);
     f.clearTimers();
     // A search that finds no Bitcoin market says that, not that none is open.

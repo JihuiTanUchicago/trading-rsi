@@ -110,6 +110,33 @@ for _m in MARKETS.values():
     _SERIES_NAMES[_m.series] = (_SERIES_NAMES.get(_m.series, "") + " " + _m.customer_label).strip()
 
 
+# Explore's market filters (?show=, beside the search). Bitcoin keeps the contracts of the Bitcoin series the app
+# reads spot for (btc_spot.BTC_SERIES), by ticker prefix. Weather and Sports keep the contracts of the series the
+# app's market catalog files under that group (MARKETS: the curated markets and the catalog's, as the research picker
+# and the Strategies market filter group them). The catalog's cities come from Kalshi as "Climate and Weather" and
+# the curated NYC high as "Weather": both are Weather. Worked out once at import, as MARKETS is, so a filter costs a
+# set lookup per feed row: no query and no outside call.
+_SHOW_CATEGORIES: Dict[str, frozenset] = {"weather": frozenset({"Weather", "Climate and Weather"}), "sports": frozenset({"Sports"})}
+EXPLORE_SHOWS = ("bitcoin", "weather", "sports")
+
+
+def _series_by_show(markets) -> Dict[str, frozenset]:
+    """{"weather": series, "sports": series}: the series tickers of the catalog's markets in each filter's groups."""
+    return {show: frozenset(m.series.upper() for m in markets if m.series and m.category in cats)
+            for show, cats in _SHOW_CATEGORIES.items()}
+
+
+_SHOW_SERIES = _series_by_show(MARKETS.values())
+
+
+def _in_show(show: str, m: Dict) -> bool:
+    """Whether one feed row belongs to an Explore filter (one of EXPLORE_SHOWS)."""
+    t = m.get("t") or ""
+    if show == "bitcoin":
+        return btc_spot.is_btc_contract(t)
+    return (m.get("s") or t.partition("-")[0]).upper() in _SHOW_SERIES.get(show, ())
+
+
 def explore_list(ctx: Ctx):
     data = _explore_feed()
     q = (ctx.query.get("q") or "").strip().lower()
@@ -120,11 +147,11 @@ def explore_list(ctx: Ctx):
         page = 0
     per = 40
     markets = data.get("markets") or []
-    # Explore's Bitcoin filter: the contracts of the Bitcoin series the app reads spot for (btc_spot.BTC_SERIES),
-    # by ticker prefix, before the search narrows them, so it pages over Bitcoin alone.
-    btc = ctx.query.get("show") == "bitcoin"
-    if btc:
-        markets = [m for m in markets if btc_spot.is_btc_contract(m.get("t") or "")]
+    # Explore's filters (_in_show), before the search narrows them, so a filter pages over its own markets alone.
+    # Anything but one of EXPLORE_SHOWS, exactly, is every market.
+    show = ctx.query.get("show") if ctx.query.get("show") in EXPLORE_SHOWS else "all"
+    if show != "all":
+        markets = [m for m in markets if _in_show(show, m)]
     if q:
         markets = [m for m in markets
                    if q in " ".join((m.get("ti") or "", m.get("t") or "", m.get("s") or "", _SERIES_NAMES.get(m.get("s") or "", ""))).lower()]
@@ -136,7 +163,7 @@ def explore_list(ctx: Ctx):
     rows, spot = _strike_distances(ctx, [{**{k: v for k, v in m.items() if k != "h"}, "ct": _ticker_close(m.get("t"))}
                                          for m in markets[page * per:(page + 1) * per]], data.get("markets") or [])
     return {"at": data.get("at"), "total": data.get("total"), "shown": data.get("shown"),
-            "matched": matched, "page": page, "per": per, "sort": sort, "show": "bitcoin" if btc else "all", "markets": rows, **spot}
+            "matched": matched, "page": page, "per": per, "sort": sort, "show": show, "markets": rows, **spot}
 
 
 def explore_hot(ctx: Ctx):
