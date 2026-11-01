@@ -6,7 +6,7 @@
 //   "Waiting: live trading isn't open yet", never "Running" or "1 on live money", and Resume is offered
 //   disabled, saying why. A Bitcoin perpetual deployment (research-only: no book trades it) says so too.
 // - A position names its market in plain words with its own strike, as Kalshi names it ("Bitcoin $68,500 or above at 5pm ET" for -T68499.99);
-//   its Kalshi ticker, which carries the raw series key, only sits on a small "Kalshi contract" line.
+//   its Kalshi ticker, which carries the raw series key, is nowhere a reader sees (no_ticker_frontend_cases.mjs).
 // - A strategy row never shows its zero-padded id.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
@@ -25,10 +25,9 @@ const dep = (overrides = {}) => ({id: 1, strategy_id: 1, title: 'Paper one', mar
 const pos = (overrides = {}) => ({id: 11, deployment_id: 2, title: 'Live one', ticker: TICKER, side: 'yes', qty: 2, entry_price: 0.4,
   entry_fee: 0.02, cost: 0.82, at_cost: 0.8, unrealized: null, mode: 'live', opened_at: '2026-10-26T08:00:00Z',
   market_close_time: '2030-01-15T22:00:00Z', closed_at: '2026-10-26T09:00:00Z', pnl: 0.2, ...overrides});
-// The page with every link target and every "Kalshi contract" line taken out: what is left is what reads as a
-// name, and no ticker may stand there.
-const named = (html) => html.replace(/ (href|aria-label|title|data-[a-z-]+)="[^"]*"/g, '')
-  .replace(/<span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">[^<]*<\/span><\/span>/g, '');
+// The page with every link target taken out: what is left is what a reader sees, and no ticker may stand anywhere in
+// it (the "Kalshi contract KX…" line under a name went on the keyboard walk of 2026-11-01).
+const named = (html) => html.replace(/ (href|data-[a-z-]+)="[^"]*"/g, '');
 // One table row's (or monitor card's) HTML, by the deployment title it carries.
 const rowOf = (html, title) => html.split(/<tr\b|<article\b/).find((r) => r.includes(`>${title}</a>`)) || '';
 
@@ -90,14 +89,12 @@ export function liveHonestCases({name, frontend, strategyFrontend, detailStrateg
     f.clearTimers();
   });
 
-  test(`${name}: Deploy's open positions name the market with its strike, and the Kalshi ticker only on a small line`, async () => {
+  test(`${name}: Deploy's open positions name the market with its strike, and never show the Kalshi ticker`, async () => {
     const f = await board({open: true, deployments: [LIVE], open_positions: [pos(), pos({id: 12, ticker: TICKER15, market_close_time: '2030-01-15T21:00:00Z'})]});
     const html = f.root.querySelector('#openpos').innerHTML;
     assert.ok(html.includes(NAME), html); assert.ok(html.includes(NAME15), html);
-    for (const t of [TICKER, TICKER15]) {
-      assert.ok(html.includes(`<span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">${t}</span></span>`), t);
-      assert.ok(!named(html).includes(t), `${t} is never the headline`);
-    }
+    for (const t of [TICKER, TICKER15]) assert.ok(!named(html).includes(t), `${t} is nowhere a reader sees`);
+    assert.doesNotMatch(html, /kalshi-ref/);
     assert.ok(!/KXBTC15M|KXBTCD/.test(named(html)), 'no raw series key either');
     f.clearTimers();
   });
@@ -130,8 +127,8 @@ export function liveHonestCases({name, frontend, strategyFrontend, detailStrateg
     await s.viewStrategy(42); await settle();
     const html = s.root.querySelector('#main').innerHTML;
     assert.ok(html.includes(NAME), 'holding and trade name the market');
-    assert.ok(html.includes(`<span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">${TICKER}</span></span>`));
-    assert.ok(!named(html).includes(TICKER), 'the ticker is never the headline');
+    assert.ok(!named(html).includes(TICKER), 'the ticker is nowhere a reader sees');
+    assert.doesNotMatch(html, /kalshi-ref/);
     // The deploy panel's list of its deployments says the same, never "Live (running)" (Tau's line reads "Deployed on
     // live (waiting: …)").
     assert.match(html, /[Ll]ive[^<]{0,4}(\(|\u00a0· )waiting: live trading isn’t open yet/);

@@ -50,10 +50,11 @@ export function explorePageCases({name, frontend}) {
       assert.deepEqual(g.root.querySelector('.mk-next').querySelectorAll('a').map((a) => a.getAttribute('href')), ['/research?new=1&amp;market=btc_daily'], String(mine));
       assert.doesNotMatch(g.root.querySelector('.mk-next').textContent, /strategies/);
     }
-    // The name line reads the market's name with this contract's strike, its status in words and the contract;
-    // never the raw series alone.
+    // The name line reads the market's name with this contract's strike and its status in words; never the raw series,
+    // and never the contract's code (walk 2026-11-01: it ended "Kalshi contract KXBTCD-…").
     // The status follows the close clock (closeClock), so it sits in a data-close span of its own.
-    assert.match(f.root.innerHTML, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/);
+    assert.match(f.root.querySelector('.board-title .deck').innerHTML, /^Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span>$/);
+    assert.doesNotMatch(f.root.querySelector('.board-title').textContent, /KX[A-Z0-9]{3,}/);
   });
 
   test(`${name}: a market Tau doesn't research says so, with no raw series key in its name line`, async () => {
@@ -62,22 +63,22 @@ export function explorePageCases({name, frontend}) {
     assert.match(next.textContent, /Tau doesn’t research this market, so your strategies can’t trade it\./);
     assert.equal(next.querySelector('a.primary'), null, 'no research button for a market research can’t pick');
     assert.equal(f.root.querySelector('.mk-next-hint'), null, 'no session to lead anywhere on a market Tau doesn’t research');
-    assert.match(f.root.innerHTML, />Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXFEDDECISION-26DEC-H0</);
-    assert.doesNotMatch(f.root.innerHTML, /KXFEDDECISION ·/);
+    assert.match(f.root.querySelector('.board-title .deck').innerHTML, />Open on Kalshi<\/span>$/);
+    assert.doesNotMatch(f.root.querySelector('.board-title').textContent, /KXFEDDECISION/);
   });
 
-  test(`${name}: an untitled contract's page is headed by a plain name, its ticker only on the line under it`, async () => {
+  test(`${name}: an untitled contract's page is headed by a plain name, and its ticker is nowhere in the heading or the line under it`, async () => {
     const f = await open(page({ticker: 'KXFEDDECISION-26DEC-H0', series: 'KXFEDDECISION', title: '', sub: ''}));
     assert.equal(f.root.querySelector('h1').textContent, 'Kalshi contract', 'never the raw ticker as the heading');
-    // The ticker is labelled the way a position's is (kalshiRef): it read "Open for trading · KXFEDDECISION-26DEC-H0".
-    assert.match(f.root.querySelector('.board-title .deck').textContent, /Open on Kalshi\u00a0· Kalshi contract KXFEDDECISION-26DEC-H0$/);
-    assert.doesNotMatch(f.root.querySelector('.board-title .deck').textContent, /·\sKX/);
+    // It read "Open for trading · KXFEDDECISION-26DEC-H0", then "Open on Kalshi · Kalshi contract KXFEDDECISION-26DEC-H0".
+    assert.equal(f.root.querySelector('.board-title .deck').textContent, 'Open on Kalshi');
+    assert.doesNotMatch(f.root.querySelector('.board-title').textContent, /KX/);
   });
 
   test(`${name}: an hourly contract of the 5pm Bitcoin ladder isn't named the 5pm market, and points at the close Tau researches`, async () => {
     const f = await open(page({ticker: 'KXBTCD-26OCT2700-T112999.99', title: 'Bitcoin price on Oct 27, 2026 at 12am EDT?', sub: '$113,000 or above'}));
     assert.doesNotMatch(f.root.innerHTML, /Bitcoin (?:above \S+|\S+ or above) at 5pm ET ·/, 'the midnight contract is not the 5pm market');
-    assert.match(f.root.innerHTML, /Bitcoin \$113,000 or above at midnight ET\u00a0· <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span>\u00a0· <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2700-T112999\.99/, 'named by its own close');
+    assert.match(f.root.innerHTML, /Bitcoin \$113,000 or above at midnight ET\u00a0· <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span><\/p>/, 'named by its own close');
     const next = f.root.querySelector('.mk-next');
     assert.match(next.textContent, /Tau researches only the 5pm ET close of this ladder, so your strategies don’t trade this contract\./);
     assert.deepEqual(next.querySelectorAll('a').map((a) => a.getAttribute('href')), ['/research?new=1&amp;market=btc_daily']);
@@ -92,8 +93,8 @@ export function explorePageCases({name, frontend}) {
     const f = await open(page({ticker: 'KXBTCD-26OCT2617-T112999.99', sub: '$113,000 or above'}));
     assert.match(deck(f), /^Bitcoin \$113,000 or above at 5pm ET · /);
     assert.doesNotMatch(f.root.innerHTML, /Bitcoin above \$112,999\.99/);
-    // Display only: the contract is still found on Kalshi by its own ticker, and read from the server by it.
-    assert.match(deck(f), /Kalshi contract KXBTCD-26OCT2617-T112999\.99$/);
+    // Display only: the page still reads the contract from the server by its own ticker, which the line never shows.
+    assert.doesNotMatch(deck(f), /KXBTCD/);
     assert.ok(f.requests.some(({path}) => path === '/api/explore/market?ticker=KXBTCD-26OCT2617-T112999.99'), f.requests.map(({path}) => path).join(', '));
     // Another hour of the ladder reads the same way at its own close.
     const noon = await open(page({ticker: 'KXBTCD-26OCT2612-T68499.99', title: 'Bitcoin price at 12pm EDT?', sub: '$68,500 or above'}));
@@ -454,7 +455,7 @@ export function explorePageCases({name, frontend}) {
     const deck = () => f.root.querySelector('.board-title .deck').textContent;
     const closes = () => f.root.querySelectorAll('.figures .m').find((m) => /^Clos/.test(m.querySelector('dt').textContent));
     assert.equal(status().textContent, 'Open on Kalshi');
-    assert.match(deck(), / · Open on Kalshi · Kalshi contract KXBTCD-26OCT2803-T112999\.99$/);
+    assert.match(deck(), / · Open on Kalshi$/);
     const tick = async () => { for (const run of [...f.intervals.values()]) await run(); await settle(); };
     f.shiftClock(60000); await tick();
     assert.equal(status().textContent, 'Open on Kalshi', 'a minute and a half still to go');
@@ -466,7 +467,7 @@ export function explorePageCases({name, frontend}) {
     const late = await open(page({as_of: now.toISOString(), close_time: new Date(now.getTime() - 90.5e3).toISOString()}));
     assert.equal(late.root.querySelector('.board-title .deck [data-close]').textContent, 'Closed, result pending');
     assert.doesNotMatch(late.root.querySelector('.board-title .deck').textContent, /Open on Kalshi/);
-    assert.match(late.root.querySelector('.board-title .deck').textContent, / · Closed, result pending · Kalshi contract KXBTCD-26OCT2617-T113499\.99$/);
+    assert.match(late.root.querySelector('.board-title .deck').textContent, / · Closed, result pending$/);
     late.clearTimers && late.clearTimers();
     // Kalshi's other statuses are its own word, on no clock: they read the same before and after the close.
     for (const [over, words] of [[{status: 'closed'}, 'Closed, result pending'], [{status: 'determined'}, 'Result in, paying out'],
@@ -474,9 +475,9 @@ export function explorePageCases({name, frontend}) {
       const g = await open(page({...over, as_of: now.toISOString(), close_time: new Date(now.getTime() + 150.5e3).toISOString()}));
       const line = () => g.root.querySelector('.board-title .deck').textContent;
       assert.equal(g.root.querySelector('.board-title .deck [data-close]'), null, over.status);
-      assert.ok(line().includes(' · ' + words + ' · Kalshi contract'), `${over.status}: ${line()}`);
+      assert.ok(line().endsWith(' · ' + words), `${over.status}: ${line()}`);
       g.shiftClock(180000); for (const run of [...g.intervals.values()]) await run(); await settle();
-      assert.ok(line().includes(' · ' + words + ' · Kalshi contract'), `${over.status} after the close: ${line()}`);
+      assert.ok(line().endsWith(' · ' + words), `${over.status} after the close: ${line()}`);
       assert.doesNotMatch(line(), /Open on Kalshi/);
       g.clearTimers && g.clearTimers();
     }

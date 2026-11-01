@@ -412,6 +412,15 @@ def customer_name(key: Optional[str], unknown: str = "an unlisted market") -> st
     m = MARKETS.get(key or "")
     return m.customer_label if m else unknown
 
+
+def contract_customer_name(ticker: Optional[str], key: Optional[str] = None, unknown: str = "") -> str:
+    """The long name of the market a Kalshi contract trades on, by its ticker's series (KXSOL15M-26NOV011815-00 ->
+    "Solana up or down in 15 minutes"), else by ``key`` (the market it was traded under), else ``unknown``: never
+    the ticker or its series key, which carry no plain words."""
+    series = str(ticker or "").split("-", 1)[0]
+    m = next((x for x in MARKETS.values() if series and x.series == series), None)
+    return m.customer_label if m else customer_name(key, unknown)
+
 FEATURES: Dict[str, str] = {
     "spot": "BTC price (USD)",
     "ret_1m": "BTC log return over the last 1 minute",

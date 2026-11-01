@@ -44,11 +44,12 @@ def test_the_file_has_a_header_row_and_one_row_per_closed_trade_oldest_first(mon
     assert fname.startswith("tau-trades-paper-") and fname.endswith(".csv")
     assert rows[0] == ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
                        "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
-                       "close_reason"]
-    # The strategy by its title, never its internal id (the file once said "No. 00042").
+                       "close_reason", "market"]
+    # The strategy by its title, never its internal id (the file once said "No. 00042"); the market in words last, so
+    # every column a reader already reads keeps its header and place.
     assert rows[1] == ["2026-10-25T13:00:01Z", "2026-10-25T12:00:01Z", "paper", "Fade late spikes", "Fade late spikes",
                        "KXBTCD-26OCT2517-T98000", "yes", "5", "0.4000", "1.0000", "0.0700", "0.0000", "2.9300",
-                       "Held to settlement: paid $1"]
+                       "Held to settlement: paid $1", "Bitcoin above a set price at 5pm ET"]
     assert rows[2][12] == "-1.5000"  # a loss stays a number, not text
     assert len(rows) == 3
 
@@ -103,7 +104,7 @@ def test_a_removed_deployments_trades_say_so_in_the_strategy_column(monkeypatch)
               _row(4, strategy_id=None, title=None, deployment_removed=False)]
     monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(trades)))
     _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
-    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 14
+    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 15
     assert [r[3] for r in rows[1:]] == ["Fade late spikes (removed deployment)", "Fade late spikes", "Fade late spikes", ""]
     assert [r[4] for r in rows[1:]] == ["Fade late spikes", "Fade late spikes", "Fade late spikes", ""]
     # Beside a same-titled strategy the plain-words tag stays, and the mark follows it.
@@ -137,7 +138,7 @@ def test_the_file_names_no_internal_id_and_says_each_close_in_plain_words(monkey
     _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
     assert rows[0] == billing_routes.TRADES_CSV_HEADER
     assert not any("id" in h.split("_") for h in rows[0]), rows[0]
-    assert len(rows[0]) == 14 and all(len(r) == 14 for r in rows[1:])
+    assert len(rows[0]) == 15 and all(len(r) == 15 for r in rows[1:])
     assert [r[13] for r in rows[1:]] == [said for _, _, said in closes]
     assert not any(re.search(r"\b[a-z]+_[a-z_]+\b", r[13]) for r in rows[1:])  # no stored code
     # The money columns as before: dollars, four places, the P&L a number a sum reads.
@@ -385,3 +386,53 @@ def test_receipt_amounts_round_half_up_from_the_exact_decimal():
     assert server._usd4(Decimal("-4.666650")) == "-4.6667"  # through a float this printed -4.6666
     assert server._usd4(Decimal("20.000000")) == "20.0000"
     assert server._usd4(13.7) == "13.7000"
+
+
+def test_the_last_column_names_the_market_in_words_and_every_old_column_stays_put(monkeypatch):
+    """The file's only contract column was the ticker (KXSOL15M-26NOV011815-00, the raw series key and all) with no plain
+    word beside it (keyboard walk 2026-11-01). A market column, added last so no reader's column moves, names the market
+    as the pages do: by the ticker's series, else the strategy's market, else nothing; never a series key or a market
+    key. The ticker column stays where it was, under its own header."""
+    trades = [_row(1, ticker="KXSOL15M-26NOV011815-00"), _row(2, ticker="KXHIGHNY-26NOV02-B58.5"),
+              _row(3, ticker="KXNBAGAME-26OCT30GSWMIA-GSW", exit_price=0.5),
+              _row(4, ticker="KXNEWSERIES-26NOV01-T1", strategy_market="btc15m"), _row(5, ticker="KXNEWSERIES-26NOV01-T2")]
+    monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(trades)))
+    _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
+    head = rows[0]
+    assert head[:14] == ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
+                         "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl", "close_reason"]
+    assert head[14:] == ["market"]
+    market = [r[head.index("market")] for r in rows[1:]]
+    assert market == ["Solana up or down in 15 minutes", "NYC daily high temperature", "NBA game winner (moneyline)",
+                      "Bitcoin up or down in 15 minutes", ""]
+    for r in rows[1:]:
+        assert not re.search(r"KX[A-Z0-9]{3,}|\b[a-z0-9]+_[a-z0-9_]+\b|\bsol15m\b|\bbtc15m\b", r[head.index("market")]), r
+    assert [r[head.index("ticker")] for r in rows[1:]] == [t["ticker"] for t in trades]
+
+
+@db
+def test_the_market_column_names_each_stored_trade_in_words_a_deleted_strategys_too(conn):
+    """Against the real read: a Solana 15-minute trade, a weather high, a game Kalshi cancelled, and a trade whose strategy
+    was deleted since; the market column names each in words and no cell but the ticker column holds a ticker."""
+    from app import repository as repo
+    from app.trading import spec as specmod
+
+    cur = conn.cursor()
+    uid = repo.upsert_google_user(cur, "test:" + uuid.uuid4().hex, "mkt@example.com", "M", None)["id"]
+    spec = specmod.validate({"side": "yes", "entry": {"min_edge": 0.1}})
+    close = datetime(2026, 10, 30, 12, 0)
+    tickers = {"sol15m": "KXSOL15M-26OCT301200-00", "high_ny": "KXHIGHNY-26OCT30-B58.5", "nba_game": "KXNBAGAME-26OCT30GSWMIA-GSW"}
+    sids = {}
+    for market, ticker in tickers.items():
+        sids[market] = repo.insert_strategy(cur, uid, None, None, market, "volatility", "S " + market, "t", spec, "passed", {})
+        did = repo.create_deployment(cur, uid, sids[market], market, "paper")
+        repo.insert_closed_position(cur, did, uid, "paper", ticker, "yes", 3, 0.4, 0.05, 0.5 if market == "nba_game" else 1.0,
+                                    0.0, 0.3, "settled", close)
+    cur.execute("DELETE FROM app_strategies WHERE id=%s", (sids["sol15m"],))
+    _, rows = _parse(server.trades_csv(server.Ctx(conn, {"id": uid}, (), {"mode": "paper"}, {}, None)))
+    head = rows[0]
+    got = {r[head.index("ticker")]: r[head.index("market")] for r in rows[1:]}
+    assert got == {tickers["sol15m"]: "Solana up or down in 15 minutes", tickers["high_ny"]: "NYC daily high temperature",
+                   tickers["nba_game"]: "NBA game winner (moneyline)"}
+    code = head.index("ticker")
+    assert not any(re.search(r"KX[A-Z0-9]{3,}", c) for r in rows[1:] for i, c in enumerate(r) if i != code)

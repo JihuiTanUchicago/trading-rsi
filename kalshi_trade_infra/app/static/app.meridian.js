@@ -12,7 +12,7 @@
     logTime, settleAt, stampAt, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
-    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
+    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared,
@@ -217,11 +217,13 @@
   const contractMarket = (ticker) => { const m = contractMkt(ticker); return m ? keyContract(m.key, ticker) : rangeName(ticker); };
   // A position's contract as people name it: its market's plain label with its own strike ("Bitcoin $68,500
   // or above at 5pm ET"), else the market it was traded on (`key`, its deployment's), else "Kalshi contract".
-  // The ticker (KXBTC15M-26OCT262100-00) carries the raw series key, so it is never the headline: kalshiRef
-  // sets it on a small line, there to find the contract on Kalshi.
+  // The ticker (KXBTC15M-26OCT262100-00) carries the raw series key, so no page shows it: a name other rows share
+  // is told apart by its settle time and side (apartWords, core.js), and the market page links Kalshi's own.
   const contractName = (ticker, key) => contractMarket(ticker) || (key ? keyContract(key, ticker) : 'Kalshi contract');
-  // A contract, by its plain name, that opens its market page (price, settlement rules, your positions in it).
-  const contractLink = (ticker, key) => `<a href="/explore?m=${encodeURIComponent(ticker)}">${esc(contractName(ticker, key))}</a>`;
+  // A contract, by its plain name, that opens its market page (price, settlement rules, your positions in it). `apart`
+  // (apartWords) follows the name when other rows share it, inside the link so each link's name is its own; `quiet`
+  // keeps those words to a screen reader where the row already shows the settle time beside the name.
+  const contractLink = (ticker, key, apart = '', quiet = false) => `<a href="/explore?m=${encodeURIComponent(ticker)}">${esc(contractName(ticker, key))}${apart ? (quiet ? `<span class="vh">${esc(apart)}</span>` : esc(apart)) : ''}</a>`;
   // A contract (a hot-markets row's `t`) as the app names its market ("BTC 15-min"), or its SERIES_SHORT or
   // other-hour chip ("BTC range at 5pm ET", "BTC above set price at noon ET"); '' for any other, so a chip is left off
   // rather than the raw series or another hour's market.
@@ -2803,8 +2805,10 @@
       const posLeft = (r) => posRemovedWhy(r, posDep(r, twinned));
       // An open position's Unrealized P&L says when its mark was read (the engine's mark_ts), as Deploy's does: with
       // the engine stopped, a mark hours old read as this minute's. An old mark's figure is dimmed and says how old.
-      const positions = (rows, closed) => rows.map((r) => {
-        const name = contractName(r.ticker, depMarket(r));
+      // Rows of one market that share a name (five Solana 15-minute windows) say their settle time (and side) inside the
+      // row's name to a screen reader (apartWords); the Expiry cell shows it.
+      const positions = (rows, closed, ap = apartWords(rows, rows.map((r) => contractName(r.ticker, depMarket(r))))) => rows.map((r, i) => {
+        const name = contractName(r.ticker, depMarket(r)), apart = ap[i];
         const close = r.market_close_time && new Date(r.market_close_time);
         const expiry = close && Number.isFinite(close.getTime()) ? dateFmt(close, LOG_STAMP) : '';
         // An open row whose market has already closed says so under its expiry, in the words Tau's dashboard, Deploy and
@@ -2815,7 +2819,7 @@
         // "market · strategy · Demo" over a row that shows "market … Demo", whose words ran together ("minutesDemo") with
         // nothing between them. The grid still places each where it was (a space between grid items draws nothing).
         return `<tr class="${closed ? 'settled-position' : 'open-position'}">
-        <td class="name"><details class="position-details" data-position="${closed ? 'closed' : 'open'}-${esc(r.id)}"><summary aria-label="${esc(name)}${SEP}${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'Demo' : 'Paper'}${SEP}${esc(r.title)}">${ICON.chev}<span class="position-market">${esc(name)}</span> <span class="position-mode">${r.mode === 'live' ? '<span class="mk live">LIVE</span>' : r.mode === 'demo' ? 'Demo' : 'Paper'}</span> <span class="position-title vh">${esc(r.title)}</span></summary><div class="sub-fig">${kalshiRef(r.ticker)}${SEP}${esc(r.title)}<span class="position-opened">${closed ? 'Closed' : 'Opened'} ${ageAt(closed ? r.closed_at : r.opened_at)}</span>${r.why ? `<span class="position-why">${sepLine(r.why)}</span>` : !closed && posLeft(r) ? `<span class="position-why pos-dep-why">${posLeft(r)}</span>` : ''}${close && Number.isFinite(close.getTime()) ? `<span class="position-absolute">Expires ${esc(dateFmt(close, EXPIRES_AT))}</span>` : ''}${!closed && r.unrealized == null ? `<span class="position-mark-note">Unrealized: ${NOT_MARKED.toLowerCase()}</span>` : ''}</div></details></td>
+        <td class="name"><details class="position-details" data-position="${closed ? 'closed' : 'open'}-${esc(r.id)}"><summary aria-label="${esc(name + apart)}${SEP}${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'Demo' : 'Paper'}${SEP}${esc(r.title)}">${ICON.chev}<span class="position-market">${esc(name)}${apart ? `<span class="vh">${esc(apart)}</span>` : ''}</span> <span class="position-mode">${r.mode === 'live' ? '<span class="mk live">LIVE</span>' : r.mode === 'demo' ? 'Demo' : 'Paper'}</span> <span class="position-title vh">${esc(r.title)}</span></summary><div class="sub-fig">${esc(r.title)}<span class="position-opened">${closed ? 'Closed' : 'Opened'} ${ageAt(closed ? r.closed_at : r.opened_at)}</span>${r.why ? `<span class="position-why">${sepLine(r.why)}</span>` : !closed && posLeft(r) ? `<span class="position-why pos-dep-why">${posLeft(r)}</span>` : ''}${close && Number.isFinite(close.getTime()) ? `<span class="position-absolute">Expires ${esc(dateFmt(close, EXPIRES_AT))}</span>` : ''}${!closed && r.unrealized == null ? `<span class="position-mark-note">Unrealized: ${NOT_MARKED.toLowerCase()}</span>` : ''}</div></details></td>
         <td class="position-size-cell"><span class="position-size"><span class="position-side">${esc(r.side.toUpperCase())}</span><span aria-hidden="true"> × </span><span class="position-quantity"><span class="vh">Quantity </span>${esc(r.qty)}</span></span></td>
         <td class="position-expiry-cell">${expiry ? `<time class="position-expiry" datetime="${esc(close.toISOString())}">${esc(expiry)}</time>${pastClose ? `<span class="position-expired">${MKT_STATUS.closed}</span>` : ''}` : '<span class="unavailable" title="Expiry unavailable"><span aria-hidden="true">—</span><span class="vh">Expiry unavailable</span></span>'}</td>
         <td class="num position-entry">${cents(+r.entry_price)}</td>
@@ -2981,7 +2985,7 @@
     // so Deploy is just the board: what's trading and the open positions.
     shell('/deploy', ledeTitle('Deploy', 'Your strategies trading now.') +
       '<dl class="figures measure" id="dfigs" style="margin-top:14px"></dl><p class="stale-note" id="dep-stale" role="status"></p>', `
-      <div class="deploy-board"><div id="flash"></div><div id="demo-health"></div><div id="dep-ap"></div><div id="deps">${loading(260)}</div>
+      <div class="deploy-board"><div id="flash"></div><div id="demo-health"></div><div id="dep-ap"></div><h2 class="vh" id="deps-head">Your deployments</h2><div id="deps">${loading(260)}</div>
         <section class="section"><div class="section-head"><h2>Open positions</h2></div><div id="openpos"></div></section>
       </div>`);
     // Just deployed from a strategy page: say it worked and what happens next, once (the new row
@@ -3102,8 +3106,10 @@
       // card's labels, one more row a position; it sits under its figure, in the Unrealized cell. An old mark's figure
       // is dimmed and its time says how old (markFig, markedAt).
       const posUnreal = (p) => `<div class="pos-unreal">${markFig(p.mark_ts, money(p.unrealized))}${posMarked(p)}</div>`;
+      // Five open positions in one 15-minute market read five alike names: each says its settle time (and side) in its name.
+      const posApart = apartWords(d.open_positions, d.open_positions.map((p) => contractName(p.ticker, depMarket(p))));
       paintKeep(root.querySelector('#openpos'), d.open_positions.length ? `<table class="table stack"><thead><tr><th>Strategy</th><th>Market</th><th>Position</th><th class="num">Cost + fee</th><th class="num">Unrealized</th><th class="num">Settles</th></tr></thead><tbody>
-        ${d.open_positions.map((p) => `<tr><td class="name" data-lab="Strategy">${esc(p.title)} ${posBook(p)}${posWhose(p)}</td><td class="pos-name" data-lab="Market">${contractLink(p.ticker, depMarket(p))}<div class="sub-fig">${kalshiRef(p.ticker)}</div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost != null ? p.cost : p.qty * p.entry_price + +p.entry_fee)}</td><td class="num" data-lab="Unrealized">${p.unrealized == null ? NO_MARK : posUnreal(p)}</td><td class="num"${closeData(p.market_close_time, 'settleTime')} data-lab="Settles">${esc(closeWords(p.market_close_time, 'settleTime'))}</td></tr>`).join('')}</tbody></table>`
+        ${d.open_positions.map((p, i) => `<tr><td class="name" data-lab="Strategy">${esc(p.title)} ${posBook(p)}${posWhose(p)}</td><td class="pos-name" data-lab="Market">${contractLink(p.ticker, depMarket(p), posApart[i])}${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost != null ? p.cost : p.qty * p.entry_price + +p.entry_fee)}</td><td class="num" data-lab="Unrealized">${p.unrealized == null ? NO_MARK : posUnreal(p)}</td><td class="num"${closeData(p.market_close_time, 'settleTime')} data-lab="Settles">${esc(closeWords(p.market_close_time, 'settleTime'))}</td></tr>`).join('')}</tbody></table>`
         : '<p class="hint">No open positions.</p>');
     };
     await loadBoard();
@@ -4435,7 +4441,7 @@
     apMarketNames, apQueued, apNudge, apReloadFailed, apShowFocus, apStale, apStillTrading, apStory, apSwitchOn, apEvery, apWhenSpan,
     apWeek, apOffCost, apSessionLine, apCostWatch, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, bookName, btCheckLine, bulkDeployable, pageLede,
     busy, cardFormFail, cashAt, cashFig, cashNow, cashRead, catOrder, mktCat, cents, chartScale, chartWidth, clearTimers, clock, CLOCK, CLOCK_ZONE, LOG_STAMP, closeClock, liveClose,
-    clipWords, CODE_RESEARCH_ONLY, compact, contractLink, contractMarket, contractName, depIdle, kalshiRef, liveIdleCount, liveIdleShort, liveOpen, liveWaitMark, dateFmt, DEMO_BOOK, DEMO_WHAT, demoCashRead, demoHealthLine, demoKeyless, demoCapital, demoNoClose, demoPnl, FEES_NET, inBalance, openBasis, openCost, openFig, demoSpan,
+    clipWords, CODE_RESEARCH_ONLY, compact, apartWords, contractLink, contractMarket, contractName, depIdle, liveIdleCount, liveIdleShort, liveOpen, liveWaitMark, dateFmt, DEMO_BOOK, DEMO_WHAT, demoCashRead, demoHealthLine, demoKeyless, demoCapital, demoNoClose, demoPnl, FEES_NET, inBalance, openBasis, openCost, openFig, demoSpan,
     DEP_DONE, depActed, deploymentMode, dirLabel, equityChart, errText, esc, EXAMPLE_NOTE, EXAMPLE_TAG,
     exampleLine, exitWord, failText, feedMd, fig, fillLiveRow, flash, fmt0, fold, gl, glo, GLOSSARY, go, halfUp,
     holdFocus, ICON, isPerpetual, KIND_LABEL, loadFail, loading, loadStripe, logTime, mark, marketKalshiUrl,

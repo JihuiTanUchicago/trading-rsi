@@ -71,6 +71,7 @@ import {staleTabCases} from './stale_tab_frontend_cases.mjs';
 import {tabTrustCases} from './tab_trust_frontend_cases.mjs';
 import {deployErrorCases} from './deploy_errors_frontend_cases.mjs';
 import {liveHonestCases} from './live_honest_frontend_cases.mjs';
+import {noTickerCases} from './no_ticker_frontend_cases.mjs';
 import {freshWalkCases} from './fresh_walk_frontend_cases.mjs';
 import {statusWalkCases} from './status_walk_frontend_cases.mjs';
 import {newcomerMoneyCases} from './newcomer_money_frontend_cases.mjs';
@@ -447,8 +448,9 @@ test('the sidebar lists each holding with every figure instead of a clipped five
     ['Entered at 60¢: edge ≥ 2¢ after fees\u00a0· Holds to settlement']);
   // Each contract opens its market page (price, settlement rules, your positions in it), by its market's plain
   // name (here the strategy's market, as no listed market covers these tickers); under it, when it settles, as the
-  // dashboard's rows say it. The raw code is left to the market page, beside its Kalshi link.
-  assert.match(list, /<a href="\/explore\?m=KXBTC15M-B">BTC 15-min up\/down<\/a>/); assert.match(list, /href="\/explore\?m=KXBTC15M-%3Cx%3E"/);
+  // dashboard's rows say it. The raw code is on no page. The two share a name, so each link says its settle time to a
+  // screen reader (apartWords): five alike links read the same (keyboard walk 2026-11-01).
+  assert.match(list, /<a href="\/explore\?m=KXBTC15M-B">BTC 15-min up\/down<span class="vh"> \([^)<]+\)<\/span><\/a>/); assert.match(list, /href="\/explore\?m=KXBTC15M-%3Cx%3E"/);
   assert.match(list, /<\/div><div class="sub-fig"><span data-close="2030-10-25T07:45:00Z" data-form="settles" data-cap="1">Settles /);
   assert.doesNotMatch(list, /kalshi-ref/);
   assert.doesNotMatch(list, /<a [^>]*>KXBTC15M-B</);  // never the headline
@@ -942,12 +944,13 @@ test('an Explore row’s chip breaks only at its "·", never inside the market�
   f.clearTimers();
 });
 
-test('a contract’s ticker moves to the next line whole, in both themes', () => {
-  // Walk 2026-10-27: a 390px market page split "KXBTCD-26OCT2717-" from "T112999.99". It breaks inside only when it is
-  // wider than a whole line.
-  for (const file of ['app.css', 'app.meridian.css']) {
-    const css = readFileSync(new URL(`../app/static/${file}`, import.meta.url), 'utf8');
-    assert.match(css, /\n\.kalshi-ref \.tick \{ display: inline-block; max-width: 100%; overflow-wrap: anywhere; \}/, file);
+test('no page draws a contract’s ticker, so neither theme styles a line for one', () => {
+  // The ticker (KXBTCD-26OCT2717-T112999.99) sat on a small line under a position's name and a market page's heading
+  // (.kalshi-ref). It carries the raw series key, so no page shows it (keyboard walk 2026-11-01); the line and its
+  // style are gone from both themes and from the shared core.
+  for (const file of ['app.css', 'app.meridian.css', 'core.js', 'app.js', 'app.meridian.js']) {
+    const src = readFileSync(new URL(`../app/static/${file}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /kalshi-ref|kalshiRef/, file);
   }
 });
 
@@ -1026,7 +1029,8 @@ test('every trade on the dashboard and Deploy says why it was entered and why it
   await d.viewDeploy(); await flush(); await flush();
   const table = d.root.querySelector('#openpos').innerHTML;
   assert.equal((table.match(/class="sub-fig pos-why"/g) || []).length, 1);
-  assert.match(table, /data-lab="Market"><a href="\/explore\?m=T-1">Kalshi contract<\/a><div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">T-1<\/span><\/span><\/div><div class="sub-fig pos-why">Entered at 41¢: edge ≥ 3¢ after fees/);
+  assert.match(table, /data-lab="Market"><a href="\/explore\?m=T-1">Kalshi contract<\/a><div class="sub-fig pos-why">Entered at 41¢: edge ≥ 3¢ after fees/);
+  assert.doesNotMatch(table, />T-[12]</);
 });
 
 test('while autopilot is off, Turn on autopilot is the only primary button on the dashboard', async () => {
@@ -2171,7 +2175,9 @@ test('a market page says what its price is, how it settles and when, and the rea
   await f.ready;
   const html = f.root.innerHTML;
   // The market's readable name and status in words, not "KXBTCD · active".
-  assert.match(html, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/); assert.doesNotMatch(html, /· active ·/);
+  assert.match(html, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span><\/p>/); assert.doesNotMatch(html, /· active ·/);
+  // Never the contract's code (it read "· Kalshi contract KXBTCD-26OCT2617-T113499.99" there): View on Kalshi opens it there.
+  assert.doesNotMatch(f.root.querySelector('.board-title').textContent, /KXBTCD/);
   // The price: a chance, the book it comes from, and when it was read.
   // Each piece holds together ("bid 58¢" ended a 390px line and "/ ask 61¢" began the next), breaking only at "·".
   assert.match(html, new RegExp('≈\u00a056% chance of Yes\u00a0· bid\u00a055¢\u00a0/ ask\u00a057¢\u00a0· as\u00a0of\u00a0<time datetime="[^"]+" data-day="kz">[^<]*\u00a0' + readerZone + '</time>'));
@@ -2212,7 +2218,7 @@ test('a settled market shows its result in place of a live price', async () => {
   const f = OPEN_MARKET({...MARKET_PAGE, status: 'finalized', result: 'no'});
   await f.ready;
   assert.match(f.root.innerHTML, /Result<\/dt><dd><span class="fig ">No<\/span><\/dd><dd class="sub-fig">each No contract paid \$1/);
-  assert.match(f.root.innerHTML, /Settled\u00a0· <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/); assert.doesNotMatch(f.root.innerHTML, /chance of Yes/);
+  assert.match(f.root.querySelector('.deck').innerHTML, /Settled$/); assert.doesNotMatch(f.root.innerHTML, /chance of Yes/);
 });
 
 // Walk 2026-10-31: a voided market, or one Kalshi lists as settled with no Yes or No, read "Settled" over a live-looking
@@ -2221,7 +2227,7 @@ test('a voided market, or one settled with no result, says so in place of a live
   const v = OPEN_MARKET({...MARKET_PAGE, status: 'finalized', result: 'void', close_time: '2026-10-20T21:00:00Z', settles_at: '2026-10-20T21:05:00Z'});
   await v.ready;
   assert.match(v.root.innerHTML, /Result<\/dt><dd><span class="fig ">Voided<\/span><\/dd><dd class="sub-fig">Kalshi voided this market: no Yes or No result/);
-  assert.match(v.root.querySelector('.deck').innerHTML, /Voided\u00a0· <span class="kalshi-ref">/);
+  assert.match(v.root.querySelector('.deck').innerHTML, /Voided$/);
   assert.match(v.root.innerHTML, /<h2>How it settles<\/h2><p>Voided, no result<\/p>/);
   assert.doesNotMatch(v.root.innerHTML, /chance of Yes|Result expected|Bitcoin vs the/);
   const n = OPEN_MARKET({...MARKET_PAGE, status: 'finalized', result: '', close_time: '2026-10-20T21:00:00Z', settles_at: '2026-10-20T21:05:00Z'});
@@ -2241,7 +2247,10 @@ test('a market page says a price is the last trade, a missing count is —, a lo
   assert.match(f.root.innerHTML, /≈\u00a062% chance of Yes, from the last trade\u00a0· no bid or ask/);
   assert.match(f.root.innerHTML, /24h volume<\/dt><dd><span class="fig ">—<\/span>/);
   assert.match(f.root.innerHTML, /<div class="m fig-long"><dt class="lab">Open interest<\/dt><dd><span class="fig ">98,765,432,100</);
-  const deck = f.root.querySelector('.deck').innerHTML;
+  // With no status and no market of Tau's to name, the line under the heading has nothing to say, so there is none (the
+  // contract's code filled it until the walk of 2026-11-01).
+  const deck = (f.root.querySelector('.deck') || {innerHTML: ''}).innerHTML;
+  assert.doesNotMatch(deck, /KX/);
   assert.doesNotMatch(deck, /\bMarket\b/); assert.doesNotMatch(deck, /^\u00a0·/);
   const quoted = OPEN_MARKET({...MARKET_PAGE});
   await quoted.ready;
@@ -4920,10 +4929,11 @@ test('money pages: an open position names its market and settles with a date and
   f.S.me.markets = markets;
   await f.viewDeploy(); await flush(); await flush();
   const html = f.root.querySelector('#openpos').innerHTML;
-  // The market's plain name leads, its own strike filled in; the raw ticker sits on a small line under it, there to
-  // find the contract on Kalshi. An unknown series gets no guessed label.
-  assert.match(html, /<a href="\/explore\?m=KXBTCD-26OCT2617-T68499\.99">Bitcoin \$68,500 or above at 5pm ET<\/a><div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T68499\.99<\/span>/);
-  assert.match(html, /<a href="\/explore\?m=KXOTHER-1">Kalshi contract<\/a><div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXOTHER-1<\/span>/);
+  // The market's plain name leads, its own strike filled in, and the raw ticker is nowhere (it sat on a small line under
+  // the name: "Kalshi contract KXSOL15M-…", keyboard walk 2026-11-01). An unknown series gets no guessed label.
+  assert.match(html, /<a href="\/explore\?m=KXBTCD-26OCT2617-T68499\.99">Bitcoin \$68,500 or above at 5pm ET<\/a><\/td>/);
+  assert.match(html, /<a href="\/explore\?m=KXOTHER-1">Kalshi contract<\/a><\/td>/);
+  assert.doesNotMatch(html.replace(/<[^>]*>/g, ' '), /KX[A-Z0-9]{3,}/);
   assert.doesNotMatch(html, />KX[A-Z]+-[^<]*<\/a>/);
   // Another day carries its date; today says "Today"; both name the zone (a bare "21:17" read as today, zone unknown).
   assert.match(html, /data-lab="Settles">Jan 1[56], \d\d:\d\d [^<\s]+<\/td>/);
@@ -6511,6 +6521,7 @@ tabTrustCases({name: 'Tau', frontend, theme: 'tau', detailStrategy, fundsData: (
   storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k)})});
 deployErrorCases({name: 'Tau', frontend, strategyFrontend, detailStrategy, postRequests});
 liveHonestCases({name: 'Tau', frontend, strategyFrontend, detailStrategy, dashboard: emptyDashboard});
+noTickerCases({name: 'Tau', frontend, strategyFrontend, detailStrategy, dashboard: emptyDashboard, fundsData: funds, billingPage, cardedBilling});
 freshWalkCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 statusWalkCases({name: 'Tau', frontend});
 newcomerMoneyCases({name: 'Tau', frontend, dashboard: emptyDashboard});

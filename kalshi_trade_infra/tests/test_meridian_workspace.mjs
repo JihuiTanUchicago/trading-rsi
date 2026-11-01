@@ -72,6 +72,7 @@ import {staleTabCases} from './stale_tab_frontend_cases.mjs';
 import {tabTrustCases} from './tab_trust_frontend_cases.mjs';
 import {deployErrorCases} from './deploy_errors_frontend_cases.mjs';
 import {liveHonestCases} from './live_honest_frontend_cases.mjs';
+import {noTickerCases} from './no_ticker_frontend_cases.mjs';
 import {freshWalkCases} from './fresh_walk_frontend_cases.mjs';
 import {statusWalkCases} from './status_walk_frontend_cases.mjs';
 import {newcomerMoneyCases} from './newcomer_money_frontend_cases.mjs';
@@ -1790,7 +1791,7 @@ test('Overview: an open position whose market has closed says so under its expir
   assert.match(css, /\.position-expired \{ display: block;/);
 });
 
-test('Overview contract identities use the catalog and expiry, keep the raw ticker in the details only, and fall back safely', async () => {
+test('Overview contract identities use the catalog and expiry, never show the raw ticker, and fall back safely', async () => {
   const samples = [
     {ticker: 'KXBTC15M-26OCT181230-B105000', title: 'Strategy <script>unsafe</script>', label: 'Bitcoin', known: true, expiry: true},
     {ticker: 'KXRAIN-26OCT18-T1', label: 'Rainfall index', known: true, expiry: true},
@@ -1824,9 +1825,11 @@ test('Overview contract identities use the catalog and expiry, keep the raw tick
       const absolute = new Date(positions[index].market_close_time).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'long', hourCycle: 'h23'});
       assert.equal(secondary.querySelector('.position-absolute').textContent, 'Expires ' + absolute);
     } else { assert.equal(row.querySelector('.position-expiry-cell time'), null); assert.equal(row.querySelector('.position-expiry-cell .vh').textContent, 'Expiry unavailable'); assert.equal(secondary.querySelector('.position-absolute'), null); }
-    // The ticker (it carries the raw series key) sits only in the details, as the Kalshi contract to find it by.
+    // The ticker carries the raw series key, so the row shows it nowhere: it sat in the details as "Kalshi contract KX…"
+    // until the keyboard walk of 2026-11-01. The summary's link target is the only place it stays.
     const raw = sample.known ? sample.ticker : sample.label;
-    assert.equal(secondary.querySelector('.kalshi-ref .tick').textContent, raw, sample.ticker + ' raw identifier');
+    assert.equal(secondary.querySelector('.kalshi-ref'), null);
+    assert.ok(!secondary.textContent.includes(raw), sample.ticker + ' raw identifier');
     assert.equal(row.querySelector('.position-contract'), null);
     assert.ok(!summary.textContent.includes(raw), 'the ticker is never the headline');
     assert.ok(!summary.getAttribute('aria-label').includes(raw));
@@ -1870,7 +1873,7 @@ test('Overview rowgroups remove repeated catalog labels without merging nonadjac
   assert.deepEqual(table.querySelectorAll('.position-family th').map(th => th.getAttribute('colspan')), ['6', '6', '6', '6']);
   assert.deepEqual(table.querySelectorAll('.open-position .position-details').map(detail => detail.dataset.position), ['open-1', 'open-2', 'open-3', 'open-4', 'open-5']);
   assert.deepEqual(bodies.map(body => body.querySelectorAll('.open-position').length), [2, 1, 1, 1]);
-  assert.equal(table.querySelectorAll('.open-position').at(-1).querySelector('.kalshi-ref .tick').textContent, 'UNKNOWN-A');
+  assert.ok(!table.querySelectorAll('.open-position').at(-1).textContent.includes('UNKNOWN-A'));
   assert.equal(table.querySelectorAll('.open-position').at(-1).querySelector('.position-market').textContent, 'Kalshi contract');
   assert.equal(table.querySelectorAll('.position-pnl').at(-1).textContent, '$0.00');
   assert.equal(JSON.stringify({rows, catalog}), before); assert.equal(postRequests(f).length, 0);
@@ -1902,7 +1905,8 @@ test('Overview attribution groups require adjacent known deployments and keep ti
   const expected = [[1, 2], [3], [4], [5], [6], [7], [8], [9], [10], [11], [12], [13], [14, 15], [16]];
   assert.deepEqual(groups.map(group => group.querySelectorAll('.open-position .position-details')
     .map(detail => Number(detail.dataset.position.slice('open-'.length)))), expected);
-  assert.deepEqual(table.querySelectorAll('.kalshi-ref .tick').map(el => el.textContent), rows.map(row => row.ticker));
+  assert.equal(table.querySelectorAll('.kalshi-ref').length, 0);
+  for (const row of rows) assert.ok(!table.textContent.includes(row.ticker), row.ticker);
   groups.forEach((group, index) => {
     const source = rows.find(row => row.id === expected[index][0]);
     const header = group.querySelector('th[scope="rowgroup"]');
@@ -1939,7 +1943,7 @@ test('Overview separates open cost and unrealized marks from collapsed realized 
     assert.equal(cells.length, 6);
     assert.equal(cells[0].querySelector('.position-title').textContent, open[index].title);
     assert.equal(cells[0].querySelector('.position-market').textContent, 'Kalshi contract');  // no market listed here: never the ticker
-    assert.equal(cells[0].querySelector('.kalshi-ref .tick').textContent, open[index].ticker);
+    assert.ok(!cells[0].textContent.includes(open[index].ticker), 'never the ticker');
     assert.equal(cells[1].querySelector('.position-side').textContent, open[index].side.toUpperCase());
     assert.equal(cells[1].querySelector('.position-quantity').textContent, `Quantity ${open[index].qty}`);
     assert.equal(history.contains(row), false);
@@ -1971,14 +1975,14 @@ test('Overview separates open cost and unrealized marks from collapsed realized 
   const closedRow = history.querySelector('.settled-position'), cells = closedRow.querySelectorAll('td');
   assert.equal(cells.length, 5);
   assert.equal(cells[0].querySelector('.position-title').textContent, settled.title);
-  assert.equal(cells[0].querySelector('.kalshi-ref .tick').textContent, settled.ticker);
+  assert.ok(!cells[0].textContent.includes(settled.ticker), 'never the ticker');
   assert.equal(cells[1].querySelector('.position-side').textContent, settled.side.toUpperCase());
   assert.equal(cells[1].querySelector('.position-quantity').textContent, `Quantity ${settled.qty}`);
   assert.deepEqual(history.querySelectorAll('thead th').map(th => th.textContent), ['Market / contract', 'Position', 'Expiry', 'Entry', 'Realized P&amp;L']);
   assert.equal(closedRow.querySelector('.position-cost'), null);
   const closedDetail = closedRow.querySelector('.position-details');
   assert.equal(closedDetail.tag, 'details'); assert.equal(closedDetail.open, false); assert.equal(closedDetail.dataset.position, 'closed-4');
-  assert.ok(closedDetail.querySelector('.sub-fig').textContent.includes('Kalshi contract ' + settled.ticker + '\u00a0· ' + settled.title));
+  assert.ok(closedDetail.querySelector('.sub-fig').textContent.startsWith(settled.title), closedDetail.querySelector('.sub-fig').textContent);
   assert.match(closedDetail.querySelector('.position-opened').textContent, /^Closed /);
   assert.equal(closedDetail.querySelector('.position-absolute').textContent,
     'Expires ' + new Date(settled.market_close_time).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'long', hourCycle: 'h23'}));
@@ -5519,8 +5523,10 @@ test('Meridian money pages: open positions name their market, settle with date a
   f.S.me.markets = markets;
   await f.viewDeploy(); await flush(); await flush();
   const html = f.root.querySelector('#openpos').innerHTML;
-  // The market's plain name leads, its own strike filled in; the ticker sits on a small line, to find it on Kalshi.
-  assert.match(html, /<a href="\/explore\?m=KXBTCD-26OCT2617-T68499\.99">Bitcoin \$68,500 or above at 5pm ET<\/a><div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T68499\.99<\/span>/);
+  // The market's plain name leads, its own strike filled in; the ticker is nowhere (it sat on a small line under the
+  // name, "Kalshi contract KX…", until the keyboard walk of 2026-11-01).
+  assert.match(html, /<a href="\/explore\?m=KXBTCD-26OCT2617-T68499\.99">Bitcoin \$68,500 or above at 5pm ET<\/a><\/td>/);
+  assert.doesNotMatch(html.replace(/<[^>]*>/g, ' '), /KX[A-Z0-9]{3,}/);
   assert.match(html, /<a href="\/explore\?m=KXOTHER-1">Kalshi contract<\/a>/);
   assert.doesNotMatch(html, />KX[A-Z]+-[^<]*<\/a>/);
   assert.match(html, /data-lab="Settles">Jan 1[56], \d\d:\d\d [^<\s]+<\/td>/);
@@ -6182,7 +6188,9 @@ test('a market page says what its price is, how it settles and when, and the rea
   await f.ready;
   const html = f.root.innerHTML;
   // The market's readable name and status in words, not "KXBTCD · active".
-  assert.match(html, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/); assert.doesNotMatch(html, /· active ·/);
+  assert.match(html, /Bitcoin \$113,500 or above at 5pm ET · <span data-close="[^"]+" data-form="status" data-skew="\d+">Open on Kalshi<\/span><\/p>/);
+  // Never the contract's code (it read "· Kalshi contract KXBTCD-26OCT2617-T113499.99" there): View on Kalshi opens it there.
+  assert.doesNotMatch(f.root.querySelector('.board-title').textContent, /KXBTCD/); assert.doesNotMatch(html, /· active ·/);
   // The price: a chance, the book it comes from, and when it was read.
   // Each piece holds together ("bid 58¢" ended a 390px line and "/ ask 61¢" began the next), breaking only at "·".
   assert.match(html, new RegExp('≈\u00a056% chance of Yes\u00a0· bid\u00a055¢\u00a0/ ask\u00a057¢\u00a0· as\u00a0of\u00a0<time datetime="[^"]+" data-day="kz">[^<]*\u00a0' + readerZone + '</time>'));
@@ -6222,7 +6230,7 @@ test('a settled market shows its result in place of a live price', async () => {
   const f = OPEN_MARKET({...MARKET_PAGE, status: 'finalized', result: 'no'});
   await f.ready;
   assert.match(f.root.innerHTML, /Result<\/dt><dd><span class="fig ">No<\/span><\/dd><dd class="sub-fig">each No contract paid \$1/);
-  assert.match(f.root.innerHTML, /Settled\u00a0· <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTCD-26OCT2617-T113499\.99/); assert.doesNotMatch(f.root.innerHTML, /chance of Yes/);
+  assert.match(f.root.querySelector('.deck').innerHTML, /Settled$/); assert.doesNotMatch(f.root.innerHTML, /chance of Yes/);
 });
 
 // Walk 2026-10-31: a voided market, or one Kalshi lists as settled with no Yes or No, read "Settled" over a live-looking
@@ -6231,7 +6239,7 @@ test('a voided market, or one settled with no result, says so in place of a live
   const v = OPEN_MARKET({...MARKET_PAGE, status: 'finalized', result: 'void', close_time: '2026-10-20T21:00:00Z', settles_at: '2026-10-20T21:05:00Z'});
   await v.ready;
   assert.match(v.root.innerHTML, /Result<\/dt><dd><span class="fig ">Voided<\/span><\/dd><dd class="sub-fig">Kalshi voided this market: no Yes or No result/);
-  assert.match(v.root.querySelector('.deck').innerHTML, /Voided\u00a0· <span class="kalshi-ref">/);
+  assert.match(v.root.querySelector('.deck').innerHTML, /Voided$/);
   assert.match(v.root.innerHTML, /<h2>How it settles<\/h2><p>Voided, no result<\/p>/);
   assert.doesNotMatch(v.root.innerHTML, /chance of Yes|Result expected|Bitcoin vs the/);
   const n = OPEN_MARKET({...MARKET_PAGE, status: 'finalized', result: '', close_time: '2026-10-20T21:00:00Z', settles_at: '2026-10-20T21:05:00Z'});
@@ -6251,7 +6259,10 @@ test('a market page says a price is the last trade, a missing count is —, a lo
   assert.match(f.root.innerHTML, /≈\u00a062% chance of Yes, from the last trade\u00a0· no bid or ask/);
   assert.match(f.root.innerHTML, /24h volume<\/dt><dd><span class="fig ">—<\/span>/);
   assert.match(f.root.innerHTML, /<div class="m fig-long"><dt class="lab">Open interest<\/dt><dd><span class="fig ">98,765,432,100</);
-  const deck = f.root.querySelector('.deck').innerHTML;
+  // With no status and no market of Tau's to name, the line under the heading has nothing to say, so there is none (the
+  // contract's code filled it until the walk of 2026-11-01).
+  const deck = (f.root.querySelector('.deck') || {innerHTML: ''}).innerHTML;
+  assert.doesNotMatch(deck, /KX/);
   assert.doesNotMatch(deck, /\bMarket\b/); assert.doesNotMatch(deck, /^\u00a0·/);
   const quoted = OPEN_MARKET({...MARKET_PAGE});
   await quoted.ready;
@@ -7040,6 +7051,7 @@ staleTabCases({name: 'Meridian', frontend, theme: 'meridian', pagesKey: 'merPage
 tabTrustCases({name: 'Meridian', frontend, theme: 'meridian', detailStrategy, fundsData: () => funds(), storageFor: m => m});
 deployErrorCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, postRequests});
 liveHonestCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData});
+noTickerCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData, fundsData: funds, billingPage, cardedBilling});
 freshWalkCases({name: 'Meridian', frontend, dashboard: dashboardData});
 statusWalkCases({name: 'Meridian', frontend});
 newcomerMoneyCases({name: 'Meridian', frontend, dashboard: dashboardData});
