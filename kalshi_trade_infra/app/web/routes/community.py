@@ -242,6 +242,7 @@ def _email_community_post_async(author_uid: int, author: str, preview: str, pid:
     Cooldown + opt-out are enforced per recipient; SES sandbox silently no-ops unverified sends."""
     skip = set(skip)
     def run():
+        conn = None
         try:
             conn = get_db_conn()
             cur = conn.cursor()
@@ -252,6 +253,14 @@ def _email_community_post_async(author_uid: int, author: str, preview: str, pid:
             repo.mark_community_emailed(cur, [r["id"] for r in recipients])  # cooldown applies even to sandbox-skipped
         except Exception as e:
             print("[community] post email dispatch failed: %r" % e, flush=True)
+        finally:
+            # The connection was never closed, on success or failure: it lived until garbage collection while the
+            # sends to every opted-in user ran, one more MySQL connection per post held for as long.
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
     threading.Thread(target=run, daemon=True).start()
 
 

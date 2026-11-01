@@ -536,3 +536,13 @@ def test_concurrent_cold_loads_of_one_window_load_it_once(monkeypatch):
     # Another window is its own load.
     backtest.load_dataset("btc15m", loader, history_days=7)
     assert loads == ["btc15m", "btc15m"]
+
+
+def test_a_lapsed_dataset_window_is_let_go_when_a_new_one_is_kept(monkeypatch):
+    """Load pass 2026-11-01: a lapsed window was never served again but stayed in the cache, so each market and
+    window a process ever opened held its frames until restart (the web process is capped at 1G)."""
+    import time
+    monkeypatch.setattr(backtest, "_cache", {"old:30": (time.time() - backtest.DATASET_TTL_SECONDS - 1, object())})
+    ds = _dataset()
+    assert backtest.load_dataset("btc15m", lambda market, days: ds) is ds
+    assert "old:30" not in backtest._cache and len(backtest._cache) == 1

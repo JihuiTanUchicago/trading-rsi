@@ -302,6 +302,7 @@ TRACK_RECORD_TTL = 60.0  # seconds; the record moves only when a trade closes
 # through idx_pos_user, and a new user's first trade showed up only after the cached empty record
 # expired (up to a minute after the board above it showed the trade).
 TRACK_RECORD_CACHE_MIN_TRADES = 200
+TRACK_RECORD_KEEP_MAX = 1000  # busy books' records kept at once; cleared whole past this
 
 
 # {user id: the book's shape at the dashboard's last read} (_book_shape): one closed-trade count per
@@ -326,7 +327,15 @@ def get_track_record(ctx: Ctx):
         return hit[1]
     val = book_memo.track_record(ctx.cur, ctx.uid)  # the trades and their buckets kept until the book changes
     n = sum(int(m.get("trades") or 0) for m in (val.get("modes") or {}).values())
-    _TRACK_RECORD[ctx.uid] = (time.time(), val, n, shape)
+    # Only a record the check above can serve is kept: a small book is read fresh every time, yet its record
+    # was kept too and never let go (one per user who ever opened the dashboard, a busy book's ~300KB, in a
+    # process capped at 1G). Cleared whole past TRACK_RECORD_KEEP_MAX, as the other per-user caches are.
+    if n >= TRACK_RECORD_CACHE_MIN_TRADES:
+        if len(_TRACK_RECORD) >= TRACK_RECORD_KEEP_MAX and ctx.uid not in _TRACK_RECORD:
+            _TRACK_RECORD.clear()
+        _TRACK_RECORD[ctx.uid] = (time.time(), val, n, shape)
+    else:
+        _TRACK_RECORD.pop(ctx.uid, None)
     return val
 
 

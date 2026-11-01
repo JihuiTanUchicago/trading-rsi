@@ -38,20 +38,47 @@ _ROADS: Dict[Tuple, Tuple[float, Dict]] = {}
 # while ONE background thread recomputes it on its own connection after the TTL.
 _SHARED: Dict[str, Dict[str, Any]] = {}
 _SHARED_LOCK = threading.Lock()
+# Entries kept at once. The research scoreboard keeps one per user and ?days= (1-60), ~120KB for a busy
+# account, and none was ever let go. Past this the least recently worked out idle entries go (a quarter of
+# them); the global reads are refreshed every minute or two, so they are the newest and stay.
+SHARED_MAX = 1024
+
+
+def _trim_shared() -> None:
+    """Under _SHARED_LOCK: drop the oldest quarter of the idle entries once SHARED_MAX are kept. An entry being
+    worked out (no value yet, or a refresh under way) is never dropped."""
+    if len(_SHARED) < SHARED_MAX:
+        return
+    idle = sorted((ent["at"], k) for k, ent in _SHARED.items() if "val" in ent and not ent.get("busy"))
+    for _, k in idle[:max(1, SHARED_MAX // 4)]:
+        _SHARED.pop(k, None)
 
 
 def _shared(key: str, ttl: float, fn: Callable[[Any], Any], cur) -> Any:
     now = time.time()
     with _SHARED_LOCK:
+        if key not in _SHARED:
+            _trim_shared()
         ent = _SHARED.setdefault(key, {"at": 0.0, "busy": False})
         cold = "val" not in ent
         stale = not cold and now - ent["at"] >= ttl and not ent["busy"]
         if stale:
             ent["busy"] = True
+        if cold:
+            first = ent.setdefault("first", threading.Lock())
     if cold:
-        val = fn(cur)
-        with _SHARED_LOCK:
-            ent.update(val=val, at=time.time())
+        # One caller works a cold value out; the others asking for it meanwhile wait for that answer instead of
+        # each running the same read. Every page load right after a deploy asked history_freshness (12-14s on prod)
+        # cold at once, and a Research page's loop board (4.4s cold) was worked out by its shell and its own read
+        # side by side. Only this key's callers wait (never the shared lock). If the read fails, the next waiter
+        # tries it in turn, so a failure is never served as a value.
+        with first:
+            with _SHARED_LOCK:
+                if "val" in ent:
+                    return ent["val"]
+            val = fn(cur)
+            with _SHARED_LOCK:
+                ent.update(val=val, at=time.time())
         return val
     if stale:
         threading.Thread(target=_refresh_shared, args=(ent, fn), daemon=True).start()
