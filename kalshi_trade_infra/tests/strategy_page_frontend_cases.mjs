@@ -1177,14 +1177,16 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
       const f = await open({status: 'passed', experiment: null, out_of_sample: null, recent_trades: [],
         dataset: {start: '2026-09-09T02:30Z', end: '2026-11-01T03:10Z', out_of_sample_from: '2026-10-15T01:00Z'}});
       const dl = f.root.querySelector('.rp-grid').innerHTML;
-      assert.match(dl, /<dt>History window<\/dt><dd><time datetime="2026-09-09T02:30:00Z" title="[^"]+">2026-09-08<\/time> → <time datetime="2026-11-01T03:10:00Z" title="[^"]+">2026-10-31<\/time><\/dd>/);
-      assert.match(dl, /<dt>Split date<\/dt><dd><time datetime="2026-10-15T01:00:00Z" title="[^"]+">2026-10-14<\/time><\/dd>/);
-      assert.doesNotMatch(dl, />2026-09-09<|>2026-11-01<|>2026-10-15</);
-      // A day with no time is a day already, said as written; none sent is a dash.
+      // Each day as the page writes its others ("Filed Oct 25, 2026"), not "2026-09-08"; the hover keeps the exact time.
+      assert.match(dl, /<dt>History window<\/dt><dd><time datetime="2026-09-09T02:30:00Z" title="Sep 8, 2[01]:30 CDT">Sep 8, 2026<\/time> → <time datetime="2026-11-01T03:10:00Z" title="Oct 31, 2[12]:10 CDT">Oct 31, 2026<\/time><\/dd>/);
+      assert.match(dl, /<dt>Split date<\/dt><dd><time datetime="2026-10-15T01:00:00Z" title="[^"]+">Oct 14, 2026<\/time><\/dd>/);
+      assert.doesNotMatch(dl, /\d{4}-\d\d-\d\d</);
+      assert.doesNotMatch(dl, />Sep 9, 2026<|>Nov 1, 2026<|>Oct 15, 2026</);
+      // A day with no time is a day already, in the page's words; none sent is a dash.
       const g = await open({status: 'passed', experiment: null, out_of_sample: null, recent_trades: [],
         dataset: {start: '2026-09-09', end: null, out_of_sample_from: ''}});
       const dl2 = g.root.querySelector('.rp-grid').innerHTML;
-      assert.match(dl2, /<dt>History window<\/dt><dd>2026-09-09 → —<\/dd>/);
+      assert.match(dl2, /<dt>History window<\/dt><dd>Sep 9, 2026 → —<\/dd>/);
       assert.match(dl2, /<dt>Split date<\/dt><dd>—<\/dd>/);
       for (const x of [f, g]) if (x.clearTimers) x.clearTimers();
     } finally {

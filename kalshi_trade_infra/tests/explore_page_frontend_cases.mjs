@@ -555,7 +555,7 @@ export function explorePageCases({name, frontend}) {
     assert.equal(calls, 1);
   });
 
-  test(`${name}: Research opened from a market page has that market picked and the options open`, async () => {
+  test(`${name}: Research opened from a market page has that market picked, named on the folded options' line`, async () => {
     const f = frontend({fetchImpl: (path) => {
       if (path.startsWith('/api/runs')) return response({runs: [], counts: {}, policy: null, totals: {tried: 0, passed: 0}, v: 'v1'});
       if (path === '/api/models') return response({models: [], default: ''});
@@ -568,7 +568,9 @@ export function explorePageCases({name, frontend}) {
     const radios = f.root.querySelectorAll('input[name=market]');
     assert.equal(radios.find((r) => r.value === 'btc_daily').checked, true);
     assert.equal(radios.find((r) => r.value === 'nba_game').checked, false);
-    assert.equal(f.root.querySelector('#ropts').open, true);
+    // Folded, so Start stays near the idea: the market's open group of rows pushed it below a desktop's first screen.
+    assert.equal(f.root.querySelector('#ropts').open, false);
+    assert.equal(radios.find((r) => r.value === 'btc_daily').closest('details.mkt-group').open, true);
     // A market the picker doesn't list changes nothing.
     const g = frontend({fetchImpl: (path) => (path.startsWith('/api/runs') ? response({runs: [], counts: {}, v: 'v1'}) : response({markets: [], models: []}))});
     g.S.me.markets = MARKETS; g.S.me.user.autopilot = true;

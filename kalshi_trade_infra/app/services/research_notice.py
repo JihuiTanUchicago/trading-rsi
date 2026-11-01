@@ -63,10 +63,10 @@ def passed_words(tried: int, passed: int) -> str:
     return "%s of %s idea%s passed." % (_count(passed), _count(tried), "" if tried == 1 else "s")
 
 
-def body(run: Dict, passed: Optional[int] = None) -> Optional[str]:
+def body(run: Dict) -> Optional[str]:
     """The notice for a finished run row (finished_run's columns), or None when it gets none: not research,
-    started by the autopilot, still at work, or cancelled. `passed` overrides the row's count (a failed run's
-    row is stored with 0 passed though ideas passed before the error)."""
+    started by the autopilot, still at work, or cancelled. Its count is the row's, the one the Research list and
+    the session page show (a run that ended on an error stores the ideas that passed before it)."""
     if run.get("kind") != "research" or run.get("by_autopilot"):
         return None
     why = stop_reason(run)
@@ -74,16 +74,16 @@ def body(run: Dict, passed: Optional[int] = None) -> Optional[str]:
         return None
     m = MARKETS.get(run.get("market") or "")
     subject = "Your research session on %s" % m.customer_label if m else "Your research session"
-    n = int(run.get("strategies_passed") or 0) if passed is None else int(passed)
-    return ENDED[why].format(s=subject) + " " + passed_words(int(run.get("hypotheses_tried") or 0), n)
+    return ENDED[why].format(s=subject) + " " + passed_words(int(run.get("hypotheses_tried") or 0),
+                                                             int(run.get("strategies_passed") or 0))
 
 
-def ring(cur, run_id: int, passed: Optional[int] = None) -> bool:
+def ring(cur, run_id: int) -> bool:
     """Write the notice for a run this caller just finished. True when a line was added. Never raises: the
     run is already recorded as finished, and a bell hiccup must not undo or fail that."""
     try:
         run = repo.finished_run(cur, run_id)
-        text = body(run, passed) if run else None
+        text = body(run) if run else None
         if not text:
             return False
         return repo.add_notification_once(cur, run["user_id"], KIND, text, link(run_id)) is not None

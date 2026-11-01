@@ -160,3 +160,48 @@ def test_the_bell_lists_it_and_the_once_check_reads_the_users_kind_index(conn):
                 (uid, "research_done", "/research/%d" % rid))
     plan = cur.fetchall()
     assert plan[0]["key"] in ("idx_notif_user_kind", "idx_notif_user"), plan
+
+
+def test_a_session_that_errors_after_a_pass_says_the_same_count_on_the_list_the_page_and_the_bell(conn, monkeypatch):
+    """agent.run_research's own error path against MySQL: a run until stopped gates a first round that saves a
+    passed strategy (the checkpoint counts it, as the gate's transaction does), then its next round ends on an
+    error. The model, the market data, the gate and the bill are faked (no model, Kalshi or billing call); the
+    finish, the row the list and the session page read, and the bell's line are the real ones. The row said
+    0 passed while the strategy existed, and the bell (handed the checkpoint's count) said 1."""
+    from app import repository as repo
+    from app.research import agent
+    from tests.test_app_backtest import _dataset
+
+    cur = conn.cursor()
+    uid = _user(cur)
+    rid = _running(cur, uid, forever=True)
+    calls = []
+
+    def explore(cur, run, ds, partition, memory, model, usage, log, checkpoint, budget, tried, *a, mark_gated, **k):
+        calls.append(1)
+        if len(calls) > 1:
+            raise agent.LLMError("The model's reply could not be read.")
+        tried += [{"title": "H0"}, {"title": "H1"}]
+        repo.insert_strategy(cur, uid, rid, None, "btc15m", "momentum", "Late takers overpay", "Because.",
+                             {"side": "yes"}, "passed", {"in_sample": {}})
+        mark_gated(cur, 1)
+        return 2, 1
+
+    monkeypatch.setattr(agent, "_explore_and_gate", explore)
+    monkeypatch.setattr(agent.partitions, "ensure_partition", lambda cur, market: {"id": 1})
+    monkeypatch.setattr(agent, "_plan_lookback", lambda run, market, *a: agent.MARKETS[market].history_days)
+    monkeypatch.setattr(agent, "_rsi_choose", lambda *a, **k: "")
+    monkeypatch.setattr(agent, "_rsi_memory", lambda *a, **k: "")
+    monkeypatch.setattr(agent, "_bill", lambda *a, **k: None)
+    monkeypatch.setattr(agent.repo, "credit_balance", lambda *a, **k: 100.0)
+    monkeypatch.setattr(agent, "DREAM_EVERY_CHUNKS", 99)
+    run = {**repo.get_run(cur, uid, rid), "user_id": uid, "worker_id": "w1"}
+    agent.run_research(conn, run, model=lambda system, messages, on_delta=None: ("", {}),
+                       dataset_fn=lambda m, h=None: _dataset(n_contracts=60))
+    assert len(calls) == 2
+    row = repo.get_run(cur, uid, rid)  # the session page's row
+    assert (row["status"], row["hypotheses_tried"], row["strategies_passed"]) == ("failed", 2, 1)
+    listed = [r for r in repo.list_runs(cur, uid) if r["id"] == rid]  # the Research list's row
+    assert [(r["status"], r["strategies_passed"]) for r in listed] == [("failed", 1)]
+    assert [n["body"] for n in _notices(cur, uid)] == [
+        "Your research session on Bitcoin up or down in 15 minutes stopped on an error. 1 of 2 ideas passed."]

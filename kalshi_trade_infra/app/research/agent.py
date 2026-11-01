@@ -3177,11 +3177,12 @@ def run_research(
         msg = (public_message(e) if isinstance(e, LLMError) else "The session hit an unexpected error and stopped.")
         cur = _reconnect(conn, cur)  # the error may have been the drop itself — heal it so we can record the outcome
         log("step" if no_data else "error", msg)
+        # The ideas that passed before the error are saved, so the row counts them (the checkpoint's count, as
+        # the live progress and the reaper's stop do): the list, the session page and the bell read this row.
         if repo.finish_run(cur, run_id, "stopped" if no_data else "failed", msg[:2000],
-                           explored(), 0, usage.input_tokens, usage.output_tokens):
-            # The row keeps 0 passed for a run that ended on an error; the ideas that passed before it are saved.
-            research_notice.ring(cur, run_id, ckpt["total_passed"])
-        print(research_outcome_line(run_id, user_id, market, "stopped" if no_data else "failed", explored(), 0,
+                           explored(), ckpt["total_passed"], usage.input_tokens, usage.output_tokens):
+            research_notice.ring(cur, run_id)
+        print(research_outcome_line(run_id, user_id, market, "stopped" if no_data else "failed", explored(), ckpt["total_passed"],
                                     usage.input_tokens, usage.output_tokens, choice.model_id, verdicts,
                                     type(e).__name__, timing=timing()), flush=True)
         _bill(conn, user_id, usage, run_id, choice.model_id)  # charge for the work done regardless of the failure cause

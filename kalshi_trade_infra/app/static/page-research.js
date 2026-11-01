@@ -114,7 +114,10 @@ window.TauPage('research', (T) => {
       ? `<p class="loop-trend">${tr.better ? 'Getting better.' : 'Not better yet.'} The newer ${num(tr.after.runs)} session${tr.after.runs === 1 ? '' : 's'} took ${loopRate(tr.after.gate_reach_rate)} of ${num(tr.after.explored)} ideas to the statistical gate, against ${loopRate(tr.before.gate_reach_rate)} of ${num(tr.before.explored)} before.</p>`
       : `<p class="loop-trend">Each session’s ideas are counted from first draft to final verdict. A before/after trend appears once there are 16 ideas to compare.</p>`;
     const maxIdeas = Math.max(1, ...(b.days || []).map((d) => d.explored));
-    const days = (b.days || []).length > 1 ? `<div class="loop-days" role="img" aria-label="Ideas per day and how many reached the gate">${b.days.slice(-14).map((d) => `<span class="loop-day" title="${esc(loopDay(d.day))}: ${num(d.explored)} ideas, ${num(d.gated)} reached the gate"><i class="all" style="height:${Math.max(4, Math.round(40 * d.explored / maxIdeas))}px"></i><i class="hit" style="height:${d.gated ? Math.max(3, Math.round(40 * d.gated / maxIdeas)) : 0}px"></i></span>`).join('')}</div><p class="loop-legend"><i class="all"></i>ideas per day <i class="hit"></i>reached the gate</p>` : '';
+    // The bars are one image, so a screen reader heard only its name and never a bar's hover: its name says each day's
+    // figures too, in the hover's words.
+    const dayWords = (d) => `${loopDay(d.day)}: ${num(d.explored)} idea${+d.explored === 1 ? '' : 's'}, ${num(d.gated)} reached the gate`;
+    const days = (b.days || []).length > 1 ? `<div class="loop-days" role="img" aria-label="${esc(`Ideas per day and how many reached the gate. ${b.days.slice(-14).map(dayWords).join('; ')}.`)}">${b.days.slice(-14).map((d) => `<span class="loop-day" title="${esc(dayWords(d))}"><i class="all" style="height:${Math.max(4, Math.round(40 * d.explored / maxIdeas))}px"></i><i class="hit" style="height:${d.gated ? Math.max(3, Math.round(40 * d.gated / maxIdeas)) : 0}px"></i></span>`).join('')}</div><p class="loop-legend"><i class="all"></i>ideas per day <i class="hit"></i>reached the gate</p>` : '';
     const pt = b.paper && b.paper.total, byPb = (b.paper && b.paper.by_playbook) || {};
     // Live trading closed (liveOpen), a strategy that clears every check waits on paper, as its bell notice says: "ready for live" read as if it could go.
     const paperP = pt && pt.strategies ? `<p class="loop-trend">On paper at the market’s real prices: ${num(pt.strategies)} passed strateg${pt.strategies === 1 ? 'y' : 'ies'}, ${num(pt.trading)} trading, ${num(pt.round_trips)} closed trade${pt.round_trips === 1 ? '' : 's'}, net ${usd(pt.net_pnl, true)}${pt.realization == null ? '' : pt.realization < 0 ? ', losing money where the backtest expected a profit' : `, earning ${Math.round(pt.realization * 100)}% of what the backtest expected`}${pt.live_ready ? `${SEP}${num(pt.live_ready)} ${liveOpen() ? 'ready for live' : 'cleared every paper-to-live check'}` : ''}.</p>` : '';
@@ -380,10 +383,11 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       pickMkt.checked = true;
       const grp = pickMkt.closest('details'); if (grp) grp.open = true;
     }
-    // On a phone a picked market leaves Options folded: their line names it (syncOpts), and unfolded its group's dozen
-    // rows pushed Start far below the idea (walk 2026-11-01, from an Explore market page at 390px). Opened, the group
-    // shows it picked. A market it can't offer still unfolds them, for the note on what happens instead.
-    if ((pickMkt && !phone()) || notOpen) { const opts = form.querySelector('#ropts'); if (opts) opts.open = true; }
+    // A picked market folds Options at every width: their line names it (syncOpts), and unfolded its group's dozen rows
+    // pushed Start far below the idea (walk 2026-11-01, from an Explore market page: about 2,000px at 390, 1,372px in
+    // Tau's and 1,604px in Meridian's 1366x900 view). Opened, the group shows it picked. A market it can't offer still
+    // unfolds them, for the note on what happens instead.
+    { const opts = form.querySelector('#ropts'); if (opts && pickMkt) opts.open = false; else if (opts && notOpen) opts.open = true; }
     // Model, depth and market fold behind "Options" on a phone (closed while at their defaults), so
     // Start session sits right under the idea. The summary line says what will run.
     const optsSum = form.querySelector('#ropts-sum');
@@ -713,7 +717,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       // Led by why it stopped, as its page's status says ("Interrupted"): the card said only "Tested 3 ideas" (walk 2026-10-31).
       : r.status === 'stopped' ? `${RUN_DONE[r.stop_reason] || 'Stopped'}${SEP}${ok ? `${explored}${SEP}${unclear(`<span class="gain">${num(ok)} passed</span>`)}` : unclear(explored)}`
       : r.status === 'paused' ? 'Paused'  // fell through to a red "Failed" while it waited on Resume
-      : r.status === 'cancelled' ? (why || 'Cancelled') : `<span class="loss">${why || 'Failed'}</span>`;
+      : r.status === 'cancelled' ? (why || 'Cancelled')
+      // One that passed ideas before its error says so, as its page and the bell do: the card said only the error.
+      : `<span class="loss">${why || 'Failed'}</span>${ok || fell ? SEP + (ok ? `${explored}${SEP}${unclear(`<span class="gain">${num(ok)} passed</span>`)}` : unclear(explored)) : ''}`;
     // A long idea is cut at a word's end (clipWords), short enough for the card's three lines at its narrowest
     // (about 240px a line): the line clamp alone cut it mid-word ("when the spot pri…"). Hover shows it whole.
     const title = sessionTitle(r);
@@ -742,7 +748,8 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       : r.status === 'queued' ? 'Queued'
       : stoppedEmpty(r) ? stoppedEmpty(r)
       : finishedEmpty(r) ? `<span class="run-denominator">No ideas tested</span>${why ? `<span class="run-why">${why}</span>` : ''}`
-      : r.status === 'succeeded' || r.status === 'stopped' ? `<span class="${ok ? 'gain' : ''}"><span class="run-ratio"><b class="run-passed">${num(ok)}</b><span aria-hidden="true">/</span><span class="vh"> of </span><b class="run-tested">${num(r.hypotheses_tried)}</b></span> <span class="run-denominator">passed</span></span>${fell ? `<span class="run-denominator run-fell">+${num(fell)} passed, not cleared</span>` : ''}${r.status === 'succeeded' && why ? `<span class="run-why">${why}</span>` : r.status === 'stopped' ? `<span class="run-why">${RUN_DONE[r.stop_reason] || 'Stopped'}</span>` : ''}`
+      // One that passed ideas before its error says how many, as its page and the bell do, its error under them.
+      : r.status === 'succeeded' || r.status === 'stopped' || (r.status === 'failed' && (ok || fell)) ? `<span class="${ok ? 'gain' : ''}"><span class="run-ratio"><b class="run-passed">${num(ok)}</b><span aria-hidden="true">/</span><span class="vh"> of </span><b class="run-tested">${num(r.hypotheses_tried)}</b></span> <span class="run-denominator">passed</span></span>${fell ? `<span class="run-denominator run-fell">+${num(fell)} passed, not cleared</span>` : ''}${r.status === 'succeeded' && why ? `<span class="run-why">${why}</span>` : r.status === 'stopped' ? `<span class="run-why">${RUN_DONE[r.stop_reason] || 'Stopped'}</span>` : r.status === 'failed' ? `<span class="run-why loss">${why || 'Failed'}</span>` : ''}`
       : r.status === 'paused' ? 'Paused'
       : r.status === 'cancelled' ? (why || 'Cancelled') : `<span class="loss">${why || 'Failed'}</span>`;
     // The example's note sits under its title: in the narrow Market column it was cut to "An example Tau ran f…".
