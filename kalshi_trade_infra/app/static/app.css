@@ -1651,7 +1651,8 @@ a.snap:hover { border-color: var(--ink-3); }
 .mention-opt { display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer; padding: 7px 9px; border-radius: 3px; font: inherit; color: var(--ink-2); }
 .mention-opt b { color: var(--ink); font-weight: 600; }
 .mention-opt span { color: var(--ink-3); font-size: .9em; margin-left: 4px; }
-.mention-opt.on, .mention-opt:hover { background: var(--stock-sunk); }
+/* The highlighted suggestion is the one marked aria-selected (the box's active descendant): what shows is what is read. */
+.mention-opt.on, .mention-opt[aria-selected="true"], .mention-opt:hover { background: var(--stock-sunk); }
 .log > li.rsi-event { background: var(--signal-wash); border-left: 2px solid var(--signal); padding-left: 8px; }
 .rsi-badge { display: inline-block; font-family: var(--f-nar); font-size: 10px; font-weight: 700; letter-spacing: .1em; color: #FDF2F3; background: var(--signal); padding: 1px 5px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
 .rsi-card { border: 1px solid var(--rule); border-left: 3px solid var(--signal); background: var(--stock-raised); padding: 12px 14px; margin-bottom: 16px; border-radius: 3px; }
@@ -2243,13 +2244,16 @@ body.landing-body .apf { display: none; }
 #dep-ap .research-ap { margin: 4px 0 14px; }
 #main > .research-ap:first-child, #main > .research-ap-on:first-child, #main > .dispatch:first-child { margin-top: 18px; }  /* off the page deck */
 /* Phones, once there are sessions: the engine summary and your sessions come before the long new-session
-   form, which used to push them two screens down. */
+   form, which used to push them two screens down. page-research.js (researchFlow) moves the two to the top of
+   #main's markup in this same order, so Tab and a screen reader read them first too; keep the two in step. */
 @media (max-width: 760px) {
   #main.runs-first { display: flex; flex-direction: column; }
   #main.runs-first > .rengine { order: -2; margin-top: 18px; }
   #main.runs-first > .sect { order: -1; }
   #main.runs-first > .research-ap, #main.runs-first > .research-ap-on, #main.runs-first > .dispatch { margin-top: 28px; }
   #main.runs-first > .research-ap + .dispatch, #main.runs-first > .research-ap-on + .dispatch { margin-top: 0; }
+  /* The figure drew no top rule here while it came right after the engine summary in the markup; it still doesn't. */
+  #main.runs-first > .rengine:has(.rsidisc.loop) ~ .pipefig { border-top: 0; }
 }
 
 /* Strategy sidebar holdings: one block per position, figures wrap instead of clipping. */

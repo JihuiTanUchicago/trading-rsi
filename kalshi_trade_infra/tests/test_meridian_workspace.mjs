@@ -82,7 +82,7 @@ import {staleMoneyCases} from './stale_money_frontend_cases.mjs';
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
 // What the checks read from the bundle and its page files (bundle_source.mjs).
-const EXPOSE = ['S', 'api', 'PAGES', 'viewDevLog', 'deploymentMonitor', 'armed', 'apMoveText', 'apPillLabel', 'apIdleLine', 'sinceStrip', 'renderAutopilot', 'refreshAutopilot', 'apLoadChat', 'render', 'viewExample', 'viewSettings', 'viewBilling', 'viewSystem', 'viewAdmin', 'routes', 'equityChart', 'runControls', 'runFeed', 'clearTimers', 'runRow', 'feedMd', 'viewStrategy', 'viewStrategies', 'strategySlip', 'tabEdges', 'viewRun', 'viewResearch', 'viewFunds', 'viewDashboard', 'viewDeploy', 'viewCommunity', 'viewExplore', 'postSnapshot', 'replaceDeploymentContent', 'marketPicker', 'wireMarketPicker', 'hotOpen', 'renderHotRail', 'trackRecordPanel', 'paintDashAp', 'mountTrackRecord', 'apUpdate', 'paymentGate', 'viewMarketDetail', 'rpUnderwater'];
+const EXPOSE = ['S', 'api', 'attachMention', 'PAGES', 'viewDevLog', 'deploymentMonitor', 'armed', 'apMoveText', 'apPillLabel', 'apIdleLine', 'sinceStrip', 'renderAutopilot', 'refreshAutopilot', 'apLoadChat', 'render', 'viewExample', 'viewSettings', 'viewBilling', 'viewSystem', 'viewAdmin', 'routes', 'equityChart', 'runControls', 'runFeed', 'clearTimers', 'runRow', 'feedMd', 'viewStrategy', 'viewStrategies', 'strategySlip', 'tabEdges', 'viewRun', 'viewResearch', 'viewFunds', 'viewDashboard', 'viewDeploy', 'viewCommunity', 'viewExplore', 'postSnapshot', 'replaceDeploymentContent', 'marketPicker', 'wireMarketPicker', 'hotOpen', 'renderHotRail', 'trackRecordPanel', 'paintDashAp', 'mountTrackRecord', 'apUpdate', 'paymentGate', 'viewMarketDetail', 'rpUnderwater'];
 const source = bundleSource('app.meridian.js', {expose: EXPOSE});
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {
@@ -1082,6 +1082,49 @@ test('Overview "paused, needs you" jumps to the first paused deployment', async 
   assert.match(f.root.querySelector('.statusline').innerHTML, /<a class="needs-link" href="#dash-paused"><em>2 paused, needs you<\/em><\/a>/);
   const anchored = f.root.querySelectorAll('#dash-deps article#dash-paused');
   assert.equal(anchored.length, 1); assert.equal(anchored[0].querySelector('header h3 a').getAttribute('href'), '/strategies/42');
+});
+
+// Keyboard walk 2026-10-31: the Overview's status line ("1 paused, needs you", a link) shows above the h1 and comes before
+// it in the markup, so Skip to content, landing on the h1, put the link behind the reader and the next Tab went past it.
+// Skip lands on the line when it holds a link; with no link there it lands on the h1, and a page change always does.
+test('Skip to content on the Overview lands on the status line when it holds "paused, needs you", so Tab reaches that link next', async () => {
+  for (const paused of [1, 2, 0]) {
+    let n = paused;
+    const deployments = () => [{...dashboardDeployment('paper'), id: 91, strategy_id: 41}]
+      .concat([92, 93].slice(0, n).map((id) => ({...dashboardDeployment('paper', 'paused'), id, strategy_id: id - 50})));
+    const f = frontend({fetchImpl: path => path.startsWith('/api/dashboard') ? response(dashboardData({deployments: deployments()})) : response({})});
+    f.location.pathname = '/';
+    await f.viewDashboard(); await flush();
+    const ready = (el) => { if (el) { el.scrollIntoView = () => { el.scrolled = true; }; el.hasAttribute = (k) => el.getAttribute(k) != null; } return el; };
+    const line = ready(f.root.querySelector('#boardbody .dashboard-status')), h1 = ready(f.root.querySelector('main h1'));
+    const skip = f.document.createElement('a'); skip.className = 'skip'; skip.setAttribute('href', '#main'); f.document.body.appendChild(skip);
+    let prevented = false;
+    for (const [type, listener] of f.documentListeners) if (type === 'click') listener({target: skip, preventDefault: () => { prevented = true; }});
+    assert.equal(prevented, true);
+    if (!paused) {
+      assert.ok(line === null, 'no status line');
+      assert.ok(f.document.activeElement === h1, 'no link above the heading: Skip lands on the h1, as before');
+      f.clearTimers(); continue;
+    }
+    // The line is above the h1 in the markup, and holds the link: Skip lands there, so the next Tab is the link.
+    const board = f.root.querySelector('#boardbody'), all = board.querySelectorAll('div, h1, a');
+    assert.ok(all.indexOf(line) < all.indexOf(h1));
+    assert.ok(line.querySelector('a.needs-link'));
+    assert.ok(f.document.activeElement === line, 'Skip lands on the status line');
+    assert.equal(line.getAttribute('tabindex'), '-1');
+    assert.equal(line.scrolled, true);
+    assert.equal(h1.focused, undefined);
+    if (paused === 2) {
+      // A poll that redraws the line while it holds focus leaves focus on the new line.
+      n = 1;
+      f.intervals.forEach((tick) => tick()); await flush(); await flush();
+      const fresh = f.root.querySelector('#boardbody .dashboard-status');
+      assert.ok(fresh !== line, 'the poll drew a new line');
+      assert.match(fresh.innerHTML, /1 paused, needs you/);
+      assert.ok(f.document.activeElement === fresh, 'focus is on the new line');
+    }
+    f.clearTimers();
+  }
 });
 
 test('Overview autopilot card says what switching it on costs, and a running first review reads as one', async () => {
@@ -2467,6 +2510,25 @@ for (const [label, view, selector, endpoint] of [
     assert.equal(postRequests(f).length, 0);
   });
 }
+
+// Keyboard walk 2026-10-31: New session shows at the top right, beside the h1, but Tab reached it only after the session
+// at work and the research card. It comes right after the h1 in the markup (CSS keeps its form under them on screen).
+test('Research: New session comes right after the h1 in the markup, so Tab reaches it first', async () => {
+  for (const search of ['', '?new=1']) {
+    const f = researchFrontend([], {search}); await f.viewResearch(); await flush();
+    const page = f.root.querySelector('.research-page');
+    const kids = page.children.map((n) => n.id || [...n.classes][0] || n.tag);
+    assert.deepEqual(kids.slice(0, 2), ['page', 'research-create'], search);
+    assert.equal(page.children[0].tag, 'h1');
+    // The rest keep their order: lede, the session at work and its card, then the history.
+    assert.deepEqual(kids.filter((k) => ['research-lede', 'research-work', 'research-history'].includes(k) || k === 'lede'), ['lede', 'research-work', 'research-history']);
+    const create = f.root.querySelector('#research-create');
+    assert.equal(create.querySelector('summary').textContent, 'New session');
+    assert.ok(create.querySelector('#dispatch'));
+    assert.equal(create.open, search === '?new=1');
+    f.clearTimers();
+  }
+});
 
 test('Research setup is a native closed disclosure unless requested and retains a draft during polling', async () => {
   for (const [search, initiallyOpen] of [['', false], ['?new=1', true]]) {
@@ -4531,7 +4593,10 @@ test('a brand-new user sees "See an example session first" on the dashboard and 
   assert.match(top, /<a class="btn ex-cta" href="\/research\/3" data-example>See an example session first<\/a>/);
   assert.match(top, /It cost you nothing/);
   const html = f.root.innerHTML;
-  assert.ok(html.indexOf('id="rexample"') < html.indexOf('id="dispatch"'));
+  // The form is folded in New session, which leads the markup (Tab reaches its button first) but shows under the session
+  // at work (CSS order): the example line still comes before everything the page shows under it.
+  assert.ok(html.indexOf('id="rexample"') < html.indexOf('class="research-work"'));
+  assert.ok(f.root.querySelector('#research-create').contains(f.root.querySelector('#dispatch')));
   assert.equal((f.root.querySelector('#dispatch').innerHTML.match(/class="btn primary/g) || []).length, 1);
   assert.doesNotMatch(top, /btn primary/);
   // The form's own demo link would open the same session twice over: it waits until the line goes.
@@ -6417,7 +6482,8 @@ test('Meridian: a brand-new account\'s empty Strategies, Deploy and Research say
   f = frontend({fetchImpl: path => path === '/api/runs' ? response({runs: [], counts: {research_running: 0, research_queued: 0}, policy: null}) : response({models: [], default: '', markets: []})});
   f.location.pathname = '/research';
   await f.viewResearch(); await flush(); await flush(); f.clearTimers();
-  assert.match(f.root.querySelector('.research-page').innerHTML, /<h1 class="page">Research<\/h1><p class="lede research-lede">Describe an idea and a session turns it into strategies, then tests each on data it never saw\. The ones that pass can trade on paper\.<\/p>/);
+  // New session (its button at the top right) comes right after the h1 in the markup; the lede follows it.
+  assert.match(f.root.querySelector('.research-page').innerHTML, /<h1 class="page">Research<\/h1><details class="research-create" id="research-create">[\s\S]*?<\/details><p class="lede research-lede">Describe an idea and a session turns it into strategies, then tests each on data it never saw\. The ones that pass can trade on paper\.<\/p>/);
 });
 
 test('Meridian: Strategies says under its name what the page is for, in Tau\'s words, and Research results stays beside the name', async () => {

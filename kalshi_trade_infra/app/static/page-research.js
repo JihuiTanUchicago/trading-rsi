@@ -254,6 +254,27 @@ window.TauPage('research', (T) => {
     ta.addEventListener('input', save);
     return { save, drop: () => { try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* nothing kept */ } } };
   }
+  // Tau on a phone, once there are sessions (#main.runs-first): the engine summary and your sessions show above the
+  // form (app.css orders them there at 760px and narrower). Tab and a screen reader went through the whole form first,
+  // then up to them (walk 2026-10-31). They are moved there in the markup too, and back under the form wider, so the
+  // order read is the order shown at each width. Only those two move, never the form (a box being typed in keeps its
+  // focus), and a control inside one that moves keeps focus. reading-flow can't do it: on #main (tabindex="-1")
+  // Chrome skips everything inside it on Tab.
+  let flowWired = false;
+  function researchFlow() {
+    const m = root.querySelector('#main');
+    if (!m || !tau) return;
+    const kids = [...m.children], at = (n) => kids.indexOf(n);
+    const eng = kids.find((n) => n.id === 'rengine'), sect = kids.find((n) => n.classList.contains('sect'));
+    const pfig = kids.find((n) => n.classList.contains('pipefig')), lead = kids.find((n) => n !== eng && n !== sect);
+    if (!eng || !sect || !pfig || !lead || !kids.some((n) => n.id === 'dispatch')) return;
+    const up = m.classList.contains('runs-first') && phone();
+    if (up ? at(eng) === 0 && at(sect) === 1 : at(eng) + 1 === at(pfig) && at(pfig) + 1 === at(sect)) return;
+    const a = document.activeElement, held = a && a !== m && (eng.contains(a) || sect.contains(a)) ? a : null;
+    if (up) { m.insertBefore(eng, lead); m.insertBefore(sect, lead); }
+    else { m.insertBefore(eng, pfig); m.insertBefore(sect, pfig.nextSibling || null); }
+    if (held && held.focus && document.activeElement !== held) held.focus({ preventScroll: true });
+  }
   async function viewResearch() {
     const me = S.me;
     const DEMO_PROMPT = "Generate a Todd's random walk strategy that walks +0.01 and -0.01 with 50% equal chances";
@@ -308,7 +329,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       </form>`;
     const apLines = `${S.me.user && !S.me.user.autopilot ? `<p class="research-ap">Rather not write ideas yourself? <button type="button" data-research-ap>Turn on autopilot</button> and it picks ideas and researches them on its own, on paper.</p>` : ''}${S.me.user ? `<p class="research-ap-on" data-ap-next${S.me.user.autopilot ? '' : ' hidden'}>Autopilot is on: the sessions it starts are listed below with an Autopilot tag. You can still start a session of your own.</p>` : ''}`;
     // Tau's page opens on the form, its figures and the sessions under it; Meridian's on the session at work, the
-    // form folded under New session (open from ?new=1) and a table of the rest.
+    // form folded under New session (open from ?new=1) and a table of the rest. New session shows at the top right,
+    // beside the h1, so it comes right after the h1 in the markup and Tab reaches it first: it came after the session
+    // at work and the research card (walk 2026-10-31). Its form still shows under them (app.meridian.css orders it).
     if (tau) {
       shell('/research', boardTitle('Research', 'A self-improving research engine for Kalshi markets \u2014 describe an idea, it writes strategies and tests each on data it never saw.'), `
       ${apLines}
@@ -324,7 +347,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         <div id="flash"></div><div class="runs" id="runs">${loading(70)}${loading(70)}</div><div id="runs-older"></div></section>`);
     } else {
       shell('/research', '', `
-      <div class="research-page"><h1 class="page">Research</h1><p class="lede research-lede">Describe an idea and a session turns it into strategies, then tests each on data it never saw. The ones that pass can trade on paper.</p>${apLines}<div id="rexample"></div><div class="research-work"><div id="active-research"></div><div id="rsimo"></div></div><details class="research-create" id="research-create"${new URLSearchParams(location.search).get('new') === '1' ? ' open' : ''}><summary class="btn primary">New session</summary><div class="research-compose">${dispatchHtml}${pipelineFigure()}</div></details><section class="research-history sect"><div class="sect-head research-archive-heading"><h2>Recent sessions <span id="rcount"></span></h2><div class="rengine" id="rengine"><section class="research-total" aria-label="All sessions, including active"><h3>All sessions</h3><dl class="figures measure" id="rfigs"></dl><dl class="figures measure research-status" id="research-status"></dl><p class="stale-note" id="runs-stale" role="status"></p></section></div></div>
+      <div class="research-page"><h1 class="page">Research</h1><details class="research-create" id="research-create"${new URLSearchParams(location.search).get('new') === '1' ? ' open' : ''}><summary class="btn primary">New session</summary><div class="research-compose">${dispatchHtml}${pipelineFigure()}</div></details><p class="lede research-lede">Describe an idea and a session turns it into strategies, then tests each on data it never saw. The ones that pass can trade on paper.</p>${apLines}<div id="rexample"></div><div class="research-work"><div id="active-research"></div><div id="rsimo"></div></div><section class="research-history sect"><div class="sect-head research-archive-heading"><h2>Recent sessions <span id="rcount"></span></h2><div class="rengine" id="rengine"><section class="research-total" aria-label="All sessions, including active"><h3>All sessions</h3><dl class="figures measure" id="rfigs"></dl><dl class="figures measure research-status" id="research-status"></dl><p class="stale-note" id="runs-stale" role="status"></p></section></div></div>
         <div class="run-columns" aria-hidden="true"><span>Idea / session</span><span>Market</span><span>Created</span><span>Outcome</span></div><div id="flash"></div><div class="runs" id="runs">${loading(70)}${loading(70)}</div><div id="runs-older"></div></section></div>`);
     }
     const form = root.querySelector('#dispatch');
@@ -521,6 +544,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       if (tau) {
         // Phones: progress before the form, unless they came here to start one ("Try another idea", ?new=1).
         const mainEl = root.querySelector('#main'); if (mainEl) mainEl.classList.toggle('runs-first', own > 0 && !/[?&]new=1\b/.test(location.search));
+        researchFlow();  // and in the markup, so Tab and a screen reader take them in that order
+        const mq = !flowWired && window.matchMedia && window.matchMedia('(max-width: 760px)');
+        if (mq && mq.addEventListener) { flowWired = true; mq.addEventListener('change', researchFlow); }
         paint(root.querySelector('#rcount'), [own ? `${num(own)}${ofAll} session${own > 1 || ofAll ? 's' : ''}` : '', examples ? `${examples} example` : ''].filter(Boolean).join(SEP));
       } else {
         // The heading counts what it lists: "Recent sessions 1" sat over two rows, the example one of them. The user's

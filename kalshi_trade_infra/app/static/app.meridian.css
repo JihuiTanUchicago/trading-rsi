@@ -1559,7 +1559,8 @@ body.landing-body { background: #FBFBFA; }
 .mention-opt { display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer; padding: 7px 9px; border-radius: 3px; font: inherit; color: var(--ink-2); }
 .mention-opt b { color: var(--ink); font-weight: 600; }
 .mention-opt span { color: var(--ink-3); font-size: .9em; margin-left: 4px; }
-.mention-opt.on, .mention-opt:hover { background: var(--stock-sunk); }
+/* The highlighted suggestion is the one marked aria-selected (the box's active descendant): what shows is what is read. */
+.mention-opt.on, .mention-opt[aria-selected="true"], .mention-opt:hover { background: var(--stock-sunk); }
 .log > li.rsi-event { background: var(--signal-wash); border-left: 2px solid var(--signal); padding-left: 8px; }
 .rsi-badge { display: inline-block; font-family: var(--f-nar); font-size: 10px; font-weight: 700; letter-spacing: .1em; color: #FDF2F3; background: var(--signal); padding: 1px 5px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
 .rsi-card { border: 1px solid var(--rule); border-left: 3px solid var(--signal); background: var(--stock-raised); padding: 12px 14px; margin-bottom: 16px; border-radius: 3px; }
@@ -2430,6 +2431,10 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
 .research-page { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 24px; min-width: 0; padding-top: 16px; container: research-work / inline-size; }
 .research-page > h1 { grid-column: 1; margin-bottom: 12px; }
 .research-page > .research-work, .research-page > .research-create, .research-page > .research-history { grid-column: 1 / -1; }
+/* New session comes right after the h1 in the markup (Tab reaches the button at the top right first); its form, once
+   opened, still shows under the session at work and the research card, over the history. */
+.research-page > .research-create { order: 1; }
+.research-page > .research-history { order: 2; }
 .research-work { display: block; min-width: 0; margin-bottom: 12px; }
 .research-work .rengine { min-width: 0; margin: 12px 0 0; }
 #active-research { min-width: 0; }

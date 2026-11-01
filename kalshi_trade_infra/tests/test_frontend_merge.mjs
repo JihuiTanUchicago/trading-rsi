@@ -81,7 +81,7 @@ import {staleMoneyCases} from './stale_money_frontend_cases.mjs';
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
 // What the checks read from the bundle and its page files (bundle_source.mjs).
-const EXPOSE = ['S', 'api', 'PAGES', 'viewDevLog', 'armed', 'apMoveText', 'apPillLabel', 'apIdleLine', 'sinceStrip', 'renderAutopilot', 'refreshAutopilot', 'apLoadChat', 'routes', 'viewExample', 'equityChart', 'runControls', 'runFeed', 'clearTimers', 'runRow', 'feedMd', 'viewStrategy', 'viewStrategies', 'strategySlip', 'postSnapshot', 'viewCommunity', 'viewRun', 'viewFunds', 'viewBilling', 'viewDashboard', 'viewDeploy', 'viewResearch', 'viewExplore', 'marketPicker', 'wireMarketPicker', 'paintDashAp', 'apUpdate', 'apYield', 'tabEdges', 'trCurve', 'trackRecordPanel', 'mountTrackRecord', 'viewMarketDetail', 'viewSystem', 'viewAdmin', 'viewSettings', 'render', 'paymentGate', 'hotRowHtml', 'rpUnderwater', 'hotOpen', 'renderHotRail'];
+const EXPOSE = ['S', 'api', 'attachMention', 'PAGES', 'viewDevLog', 'armed', 'apMoveText', 'apPillLabel', 'apIdleLine', 'sinceStrip', 'renderAutopilot', 'refreshAutopilot', 'apLoadChat', 'routes', 'viewExample', 'equityChart', 'runControls', 'runFeed', 'clearTimers', 'runRow', 'feedMd', 'viewStrategy', 'viewStrategies', 'strategySlip', 'postSnapshot', 'viewCommunity', 'viewRun', 'viewFunds', 'viewBilling', 'viewDashboard', 'viewDeploy', 'viewResearch', 'viewExplore', 'marketPicker', 'wireMarketPicker', 'paintDashAp', 'apUpdate', 'apYield', 'tabEdges', 'trCurve', 'trackRecordPanel', 'mountTrackRecord', 'viewMarketDetail', 'viewSystem', 'viewAdmin', 'viewSettings', 'render', 'paymentGate', 'hotRowHtml', 'rpUnderwater', 'hotOpen', 'renderHotRail'];
 const source = bundleSource('app.js', {expose: EXPOSE});
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {
@@ -3627,6 +3627,64 @@ test('on a phone, sessions come before the form, except when they came to start 
     f.location.pathname = '/research'; f.location.search = search;
     await f.viewResearch(); await flush(); await flush();
     assert.equal(f.root.querySelector('#main').classList.contains('runs-first'), first, search);
+  }
+});
+
+// Keyboard walk 2026-10-31: on a phone the engine summary and the sessions showed above the form (CSS order), but Tab and
+// a screen reader went through the whole form first, then back up. They come first in the markup too; wider (and with
+// ?new=1) they sit under the form again. The form itself never moves, and what it sends is unchanged.
+test('on a phone the engine summary and sessions come first in the markup too, so Tab reads them in the order shown; wider they go back under the form', async () => {
+  const run = {id: 5, status: 'succeeded', prompt: 'Mine', market: 'btc15m', created_at: '2026-10-17T10:00:00Z', hypotheses_tried: 2, strategies_passed: 1};
+  const insert = Element.prototype.insertBefore;
+  // The fake DOM's insertBefore adds a second copy; the real one moves the node. Moved here as the DOM does, put back after.
+  Element.prototype.insertBefore = function (child, ref) {
+    const was = child.parent ? child.parent.children.indexOf(child) : -1;
+    if (was >= 0) child.parent.children.splice(was, 1);
+    return insert.call(this, child, ref);
+  };
+  try {
+    for (const search of ['', '?new=1']) {
+      let narrow = true;
+      const heard = [];
+      const f = frontend({matchMedia: (q) => ({get matches() { return narrow && /max-width: 760px/.test(q); }, addEventListener: (type, cb) => heard.push([type, cb])}), fetchImpl: path => {
+        if (path === '/api/models') return response({models: [], default: ''});
+        if (path === '/api/research/context') return response({markets: []});
+        if (path === '/api/research/estimate') return response({yours: null, sessions: 0, typical: {}});
+        if (path.startsWith('/api/runs')) return response({runs: [run], counts: {research_running: 0, research_queued: 0}, policy: null});
+        if (path.startsWith('/api/research/scoreboard')) return response({total: {runs: 1}});
+        if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+        return response({});
+      }});
+      f.location.pathname = '/research'; f.location.search = search;
+      await f.viewResearch(); await flush(); await flush();
+      const main = f.root.querySelector('#main');
+      const order = () => main.children.map((n) => n.id || [...n.classes][0]);
+      const wide = ['research-ap', 'research-ap-on', 'rexample', 'dispatch', 'rengine', 'pipefig', 'sect'];
+      const drawn = order();
+      if (search) {
+        assert.equal(main.classList.contains('runs-first'), false);
+        assert.deepEqual(drawn.slice(drawn.indexOf('dispatch')), ['dispatch', 'rengine', 'pipefig', 'sect']);  // came to start one: the form leads
+        continue;
+      }
+      // Narrow, with a session: the summary and the sessions lead the markup, the rest in the order drawn.
+      assert.equal(main.classList.contains('runs-first'), true);
+      assert.deepEqual(drawn.slice(0, 2), ['rengine', 'sect']);
+      assert.deepEqual(drawn.slice(2), wide.filter((k) => drawn.includes(k) && k !== 'rengine' && k !== 'sect'));
+      assert.equal(drawn.length, new Set(drawn).size, 'each section once');
+      // Widened past 760px: back under the form, as drawn wide.
+      const flips = heard.filter(([type]) => type === 'change'), flip = [null, () => flips.forEach(([, cb]) => cb())];
+      assert.ok(flips.length, 'the page listens for the width crossing 760px');
+      narrow = false; flip[1]();
+      assert.deepEqual(order().slice(order().indexOf('dispatch')), ['dispatch', 'rengine', 'pipefig', 'sect']);
+      // Narrow again, they lead again; a second call at the same width moves nothing.
+      narrow = true; flip[1]();
+      assert.deepEqual(order(), drawn);
+      flip[1]();
+      assert.deepEqual(order(), drawn);
+      f.clearTimers();
+    }
+  } finally {
+    Element.prototype.insertBefore = insert;
   }
 });
 

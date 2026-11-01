@@ -78,21 +78,44 @@
   // ---------- formatting (its pure helpers are in core.js) ----------
   // Slack-style @-autocomplete on a textarea/input: type @ + letters -> a candidate list,
   // click or Enter to insert @handle. A popover is positioned under the field (fixed).
+  // The list was invisible to a screen reader while Enter picked from it (walk 2026-10-31): the field is a combobox
+  // over a listbox, and the highlighted suggestion is its active descendant, so arrowing reads each one. How many there
+  // are is said once as the list opens, and again only if that number changes (not on every key). Escape closes the
+  // list and leaves focus in the box. What a pick inserts, and what a post or reply sends, are unchanged.
+  let mentionSeq = 0;
   function attachMention(el) {
     if (!el || el._mention) return; el._mention = true;
-    let box = null, items = [], active = -1, token = null;
-    const close = () => { if (box) box.remove(); box = null; items = []; active = -1; token = null; };
+    const listId = 'mention-list-' + (++mentionSeq);
+    let box = null, items = [], active = -1, token = null, said = 0;
+    el.setAttribute('role', 'combobox');
+    el.setAttribute('aria-autocomplete', 'list');
+    el.setAttribute('aria-expanded', 'false');
+    const close = () => {
+      if (box) box.remove(); box = null; items = []; active = -1; token = null; said = 0;
+      el.setAttribute('aria-expanded', 'false'); el.removeAttribute('aria-controls'); el.removeAttribute('aria-activedescendant');
+    };
     const tokenAtCaret = () => {
       const text = el.value.slice(0, el.selectionStart);
       const m = /@([a-z0-9_]*)$/i.exec(text);
       return m ? { q: m[1], start: el.selectionStart - m[1].length - 1, end: el.selectionStart } : null;
     };
     const render = () => {
-      if (!box) { box = document.createElement('div'); box.className = 'mention-pop'; document.body.appendChild(box); }
+      if (!box) {
+        box = document.createElement('div'); box.className = 'mention-pop'; box.id = listId;
+        box.setAttribute('role', 'listbox'); box.setAttribute('aria-label', 'People to mention');
+        document.body.appendChild(box);
+      }
       const r = el.getBoundingClientRect();
       box.style.cssText = `position:fixed;left:${Math.round(r.left)}px;top:${Math.round(r.bottom + 2)}px;width:${Math.round(Math.min(300, Math.max(180, r.width)))}px;z-index:50;`;
-      box.innerHTML = items.map((u, i) => `<button type="button" class="mention-opt ${i === active ? 'on' : ''}" data-u="${esc(u.username)}"><b>@${esc(u.username)}</b>${u.name ? ` <span>${esc(u.name)}</span>` : ''}</button>`).join('');
+      // Options are never Tab stops: focus stays in the box and the arrows move the highlight.
+      box.innerHTML = items.map((u, i) => `<button type="button" class="mention-opt ${i === active ? 'on' : ''}" id="${listId}-${i}" role="option" aria-selected="${i === active}" tabindex="-1" data-u="${esc(u.username)}"><b>@${esc(u.username)}</b>${u.name ? ` <span>${esc(u.name)}</span>` : ''}</button>`).join('');
       box.querySelectorAll('.mention-opt').forEach((b) => { b.onmousedown = (e) => { e.preventDefault(); pick(b.dataset.u); }; });
+      el.setAttribute('aria-controls', listId); el.setAttribute('aria-expanded', 'true');
+      if (active >= 0) el.setAttribute('aria-activedescendant', `${listId}-${active}`); else el.removeAttribute('aria-activedescendant');
+      if (said !== items.length) {
+        said = items.length;
+        announce(`${items.length} ${items.length === 1 ? 'person' : 'people'} to mention. Up and down arrows to choose, Enter to pick.`);
+      }
     };
     const pick = (uname) => {
       if (!token) return;
@@ -115,7 +138,7 @@
       if (e.key === 'ArrowDown') { active = (active + 1) % items.length; render(); e.preventDefault(); }
       else if (e.key === 'ArrowUp') { active = (active - 1 + items.length) % items.length; render(); e.preventDefault(); }
       else if (e.key === 'Enter' && active >= 0) { pick(items[active].username); e.preventDefault(); }
-      else if (e.key === 'Escape') close();
+      else if (e.key === 'Escape') { close(); e.preventDefault(); if (e.stopPropagation) e.stopPropagation(); }
     });
     el.addEventListener('blur', () => setTimeout(close, 150));
   }
@@ -489,9 +512,9 @@
   document.addEventListener('click', (e) => {
     // In-page "#id" links scroll to their target: letting the hash navigate fires popstate, whose
     // re-render dropped the reader back at the top of the page.
-    // Skip to content goes to where the page's content starts, its heading (pageStart).
+    // Skip to content goes to where the page's content starts (skipStart): its heading, or the dashboard's status line above it.
     const h = e.target.closest('a[href^="#"]');
-    const to = h && (h.classList.contains('skip') ? pageStart() : h.getAttribute('href').length > 1 && document.getElementById(h.getAttribute('href').slice(1)));
+    const to = h && (h.classList.contains('skip') ? skipStart() : h.getAttribute('href').length > 1 && document.getElementById(h.getAttribute('href').slice(1)));
     if (to) {
       // A link to a fold (Funds' Connect Kalshi) opens it as well.
       if (to.tagName === 'DETAILS') to.open = true;
@@ -667,6 +690,16 @@
     if (!h) return document.getElementById('main');
     if (h.getAttribute('tabindex') == null) h.setAttribute('tabindex', '-1');
     return h;
+  }
+  // Where Skip to content lands. The dashboard's status line ("1 paused, needs you", a link to the paused strategy) shows
+  // above the h1, and is before it in the markup: landing on the h1 put the link behind the reader, so the next Tab went
+  // on past it (walk 2026-10-31). Skip lands on the line when it holds a link, so Tab goes to it next. Nothing moves on
+  // screen ([tabindex="-1"] draws no ring), and a page change still starts at the h1 (pageStart).
+  function skipStart() {
+    const h = pageStart(), line = root.querySelector('#boardbody .dashboard-status');
+    if (!line || !line.querySelector('a[href]') || !h || h === document.getElementById('main')) return h;
+    if (line.getAttribute('tabindex') == null) line.setAttribute('tabindex', '-1');
+    return line;
   }
   // A page or section that didn't load (a loadFail with Try again) tries again by itself, on a back-off: 5s, then
   // 10s, 20s, 40s, 80s and every two minutes, only while the tab shows and the phone has a network, so a tab back from
@@ -1491,10 +1524,12 @@
   function paint(el, html) {
     if (!el || painted.get(el) === html) return;
     painted.set(el, html);
-    // A poll that redraws the page's heading while it holds focus (pageStart) leaves focus on the new one.
-    const a = document.activeElement, top = !!(a && a.tagName === 'H1' && el.contains && el.contains(a));
+    // A poll that redraws the page's heading while it holds focus (pageStart) leaves focus on the new one, and so on
+    // the dashboard's status line that Skip to content landed on (skipStart).
+    const a = document.activeElement, line = !!(a && a.classList && a.classList.contains('dashboard-status'));
+    const top = !!(a && (a.tagName === 'H1' || line) && el.contains && el.contains(a));
     el.innerHTML = html;
-    if (top && !a.isConnected) { const h = pageStart(); if (h && h.focus) h.focus({ preventScroll: true }); }
+    if (top && !a.isConnected) { const h = line ? skipStart() : pageStart(); if (h && h.focus) h.focus({ preventScroll: true }); }
   }
   // The Deploy board's 10s poll rewrites its figures, rows and open positions whenever a mark moved, and keyboard
   // focus on a row's Pause, its strategy link, a contract link or a term's info button fell to the page's body each
