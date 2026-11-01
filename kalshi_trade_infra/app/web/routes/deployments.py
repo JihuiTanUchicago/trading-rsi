@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 from app import repository as repo
-from app.research import agent
+from app.research import agent, gatekeeper
 from app.services import book_memo, page_poll, paper_checks
 from app.trading import engine
 from app.trading import spec as specmod
@@ -174,6 +174,25 @@ def _paper_pace(deps: List[Dict], strategy_id: int, trades: int, events: int, sp
             "trades_per_day": round(rate["per_day"], 1) if rate else None, "rate_from": rate["source"] if rate else None}
 
 
+def _forward_eta(deps: List[Dict], strategy_id: int, trades: int, events: int, sample: int) -> Optional[float]:
+    """Days until a strategy in its paper forward test could hold the record its one judgment counts (its
+    experiment's `sample` realistic trips from gatekeeper.PAPER_MIN_EVENTS separate events), at the pace it trades
+    (rsi.paper_trade_rate, the pace _paper_pace counts on, from its oldest running paper deployment). None while
+    none runs or with no pace. Display only: the judgment itself is the forward gate's, and it may not pass."""
+    from app.research import rsi
+    running = [d for d in deps if int(d["strategy_id"]) == int(strategy_id) and d["mode"] == "paper"
+               and d["status"] == "running" and isinstance(d.get("created_at"), datetime)]
+    if not running:
+        return None
+    rate = rsi.paper_trade_rate(min(running, key=lambda d: d["created_at"]), trades)
+    if rate is None:
+        return None
+    days = max(0, int(sample) - int(trades)) / rate["per_day"]
+    if trades >= 3 and rate["hours"] > 0 and events:
+        days = max(days, max(0, gatekeeper.PAPER_MIN_EVENTS - int(events)) / (events / rate["hours"] * 24.0))
+    return round(days, 1)
+
+
 def _paper_record(trips: List[Dict]) -> Dict:
     """Trades, separate events and first-to-last hours of a strategy's realistic paper round trips,
     counted as agent.paper_evidence counts them, for the Deploy board's road-to-live line."""
@@ -200,7 +219,9 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
     checks still refusing it (agent.paper_evidence's keys, "candidate" for the gatekeeper); empty means
     its record clears every check, which never moves it to live money by itself. A strategy the gatekeeper
     can no longer clear (the deployment read's cleared_never: its one later judgment is in and didn't promote
-    it) carries `cleared_never` (which judgment), and the board says so instead of its way toward live.
+    it) carries `cleared_never` (which judgment), and the board says so instead of its way toward live. One still in
+    its paper forward test (the deployment read's forward_sample) carries `forward_sample`, `forward_events_needed` and
+    `forward_eta_days`: its one judgment comes first, and the board says how far its record is from it.
     Display only, cached per user for ROAD_TTL."""
     sids = sorted({int(d["strategy_id"]) for d in deps if d["mode"] == "paper"})
     if not sids:
@@ -217,6 +238,7 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
              else repo.paper_round_trips_by_strategy(cur, uid, sids))
     out = {}
     never = {int(d["strategy_id"]): d["cleared_never"] for d in deps if d["mode"] == "paper" and d.get("cleared_never")}
+    forward = {int(d["strategy_id"]): int(d["forward_sample"]) for d in deps if d["mode"] == "paper" and d.get("forward_sample")}
     for sid in sids:
         rec = _paper_record(trips.get(sid, []))
         road = {**rec, "trades_needed": agent.MIN_REALISTIC_PAPER_TRADES, "events_needed": agent.MIN_PAPER_EVENTS,
@@ -229,6 +251,11 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
             road["failing"] = paper_checks.failing(cur, uid, sid, (rec["trades"], rec["events"], rec["span_hours"]))
         if sid in never:
             road["cleared_never"] = never[sid]
+        elif sid in forward:
+            # Still in its paper forward test: its one judgment comes at its experiment's min_sample realistic trips
+            # from PAPER_MIN_EVENTS separate events (gatekeeper.paper_judged_prefix, counted from the same trips).
+            road.update(forward_sample=forward[sid], forward_events_needed=gatekeeper.PAPER_MIN_EVENTS,
+                        forward_eta_days=_forward_eta(deps, sid, rec["trades"], rec["events"], forward[sid]))
         out[sid] = road
     if len(_ROADS) > 5000:
         _ROADS.clear()

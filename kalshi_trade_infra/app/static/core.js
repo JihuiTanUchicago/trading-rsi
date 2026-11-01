@@ -996,12 +996,28 @@
   // A paper strategy the gatekeeper can no longer clear (the server's `cleared_never`: its one later judgment is in and
   // didn't promote it): its paper record is no step toward live. Deploy's "toward live: 4/30 trades · enough in about 58
   // days" and the autopilot's "Furthest on paper" featured one whose one paper judgment had failed (walk 2026-11-01).
-  const NEVER_CLEARED = { paper: 'its one judgment on its own paper trades didn’t clear it', holdout: 'its one-time final test didn’t clear it' };
+  // A pass the diversification check then held back (`paper_held`, `holdout_held`) says it passed: Deploy read "its one
+  // judgment ... didn’t clear it" beside the strategy page's "passed its one judgment there ... Held back" (walk
+  // 2026-11-01, road to live).
+  const NEVER_CLEARED = { paper: 'its one judgment on its own paper trades didn’t clear it', holdout: 'its one-time final test didn’t clear it',
+    paper_held: 'it passed its one judgment on its own paper trades but was held back', holdout_held: 'it passed its one-time final test but was held back' };
   const neverCleared = (why) => `It can’t be cleared to trade: ${NEVER_CLEARED[why] || NEVER_CLEARED.paper}`;
+  const forwardText = (r) => {
+    const need = +r.forward_sample, evNeed = +r.forward_events_needed || 20;
+    const parts = [[+r.trades, need, 'trades'], [+r.events, evNeed, 'separate\u00a0events']].filter(([have, n]) => have < n)
+      .map(([have, n, unit]) => `<span class="nobr"${unit === 'trades' ? '' : ` title="${ROAD_EVENTS_TIP}"`}>${num(have)}/${num(n)}\u00a0${unit}</span>`);
+    if (!parts.length) return `In its paper forward test: its ${num(need)} trades from ${num(evNeed)}+ separate events are in, so its one judgment on them is due. Only a pass clears it to trade.`;
+    const when = !r.running ? '\u00a0· paused, so not growing' : r.forward_eta_days != null ? `\u00a0· enough in ${roadDays(r.forward_eta_days)} at its pace` : '';
+    return `In its paper forward test: ${parts.join('\u00a0· ')}${when}, then one judgment on them decides whether it can be cleared to trade.`;
+  };
   const roadLine = (d, open) => {
     const r = d.road;
     if (!r) return '';
     if (r.cleared_never) return `<div class="sub-fig road-line">${neverCleared(r.cleared_never)}, so its paper record doesn’t lead to live.</div>`;
+    // Still in its paper forward test (the server's `forward_sample`): its one judgment on its own paper trades comes
+    // first, at its experiment's minimum sample from 20+ separate events, the gate's own counts. Deploy read "toward
+    // live: 22/30 trades · enough in about 2 days" for one whose judgment needed 40 and that can't go live before it.
+    if (r.forward_sample) return `<div class="sub-fig road-line">${forwardText(r)}</div>`;
     const parts = [[r.trades, r.trades_needed, 'trades'], [r.events, r.events_needed, 'separate\u00a0events'], [Math.floor(r.span_hours), r.span_needed_hours, 'hours']]
       .filter(([have, need]) => have < need).map(([have, need, unit]) => `<span class="nobr"${unit === 'separate\u00a0events' ? ` title="${ROAD_EVENTS_TIP}"` : ''}>${num(have)}/${num(need)}\u00a0${unit}</span>`);
     // Each "9/30 trades" piece stays whole (.nobr) and each "·" ends its line (a no-break space before it, a
@@ -1623,7 +1639,10 @@
   // paper trades" sat next to "Paper +$8.72 on 12 trades" with no reason given.
   const INSTANT_WHY = 'fills real execution would not get';
   const PAPER_COUNT_WHY = `instant-fill paper trades left out (${INSTANT_WHY})`;
-  const paperCount = (p) => +p.trades >= +p.trades_needed ? `${num(+p.trades)} realistic paper trades (${num(+p.trades_needed)} needed)` : `${num(+p.trades)} of ${num(+p.trades_needed)} realistic paper trades`;
+  // One still in its paper forward test (the server's `forward_sample`, its trades_needed then) counts toward its one
+  // judgment there, not toward live: "40 realistic paper trades (30 needed)" read as nearly live.
+  const paperCount = (p) => p.forward_sample ? (+p.trades >= +p.trades_needed ? `${num(+p.trades)} realistic paper trades (its paper forward test judges ${num(+p.trades_needed)})` : `${num(+p.trades)} of the ${num(+p.trades_needed)} realistic paper trades its paper forward test judges`)
+    : +p.trades >= +p.trades_needed ? `${num(+p.trades)} realistic paper trades (${num(+p.trades_needed)} needed)` : `${num(+p.trades)} of ${num(+p.trades_needed)} realistic paper trades`;
   // A backtest trade's exit, in words (backtest.py / spec.exit_signal reasons); an unknown one loses its underscores.
   const EXIT_WORD = { settled: 'settled', take_profit: 'take-profit', stop_loss: 'stop-loss', stop: 'stop', edge_gone: 'edge gone', signal: 'signal', exit: 'signal', mark: 'marked at end' };
   // A trade held to settlement that paid between nothing and $1 a contract (`exit`) was in a market Kalshi cancelled (a

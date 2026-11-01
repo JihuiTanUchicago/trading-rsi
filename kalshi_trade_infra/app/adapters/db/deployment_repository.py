@@ -51,12 +51,12 @@ def list_deployments_brief(cur, user_id: int) -> List[Dict]:
     and without the position totals (realized_pnl, closed_trades, wins, open_positions). Those totals
     read every position each deployment ever booked (20k for a busy trader), and the autopilot panel,
     which polls every 20s, needs them only for a just-paused one (deployment_closed_totals). A paper row says
-    whether the gatekeeper can no longer clear its strategy (`cleared_never`, CLEARED_NEVER_COL), for the panel's
-    "Furthest on paper"."""
+    whether the gatekeeper can no longer clear its strategy (`cleared_never`, CLEARED_NEVER_COL) or will still judge it
+    on its paper trades (`forward_sample`, FORWARD_SAMPLE_COL), for the panel's "Furthest on paper"."""
     cur.execute(
         """SELECT d.id, d.user_id, d.strategy_id, d.market, d.mode, d.status, d.status_reason, d.last_decision_ts,
                   d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json,
-                  """ + CLEARED_NEVER_COL + """
+                  """ + PAPER_STAGE_COLS + """
            FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id
            WHERE d.user_id=%s AND d.status <> 'stopped' ORDER BY d.id DESC""",
         (user_id,),
@@ -76,18 +76,38 @@ NO_RECORD_SQL = "(s.status='passed' AND " + NO_EXPERIMENT_SQL + ") AS no_gatekee
 VOID_RECORD_COL = VOID_NO_RECORD_SQL + " AS void_no_record"
 # A paper deployment's strategy the gatekeeper can no longer clear to trade: its experiment's one judgment after
 # validation (the one-time holdout, or a probation strategy's one judgment on its own paper trades, which
-# gatekeeper.judge_paper_forward never makes twice) is in, and no row promoted it to a deployment candidate (a failed
-# judgment, or a pass the diversification check held back). 'paper' or 'holdout' (which judgment), else NULL.
+# gatekeeper.judge_paper_forward never makes twice) is in, and no row promoted it to a deployment candidate.
+# 'paper' or 'holdout' (which judgment) when that judgment didn't pass; 'paper_held' or 'holdout_held' when it passed
+# (forward_validated) and the diversification check after it held it back; else NULL.
 # "Furthest on paper" and a Deploy row's "toward live ... about 58 days" featured a strategy whose one paper judgment
-# had failed (walk 2026-11-01). Its experiment as experiments_for_strategy resolves it (the stored experiment_id by
-# primary key, else the newest linked by strategy_id), its later rows by idx_res_exp. A column of the deployment reads,
-# not a read of its own, and only for a paper row. Display only: the live gate (agent._is_deployment_candidate) reads
-# the gatekeeper's record itself.
+# had failed (walk 2026-11-01). A pass held back read "its one judgment ... didn't clear it" on Deploy beside its own
+# page's "passed its one judgment there ... held back" (walk 2026-11-01, road to live). Its experiment as
+# experiments_for_strategy resolves it (the stored experiment_id by primary key, else the newest linked by strategy_id),
+# its later rows by idx_res_exp. A column of the deployment reads, not a read of its own, and only for a paper row.
+# Display only: the live gate (agent._is_deployment_candidate) reads the gatekeeper's record itself.
 CLEARED_NEVER_COL = (
     "(CASE WHEN d.mode='paper' THEN (SELECT CASE WHEN SUM(r.classification='deployment_candidate') > 0 THEN NULL "
-    "WHEN SUM(r.phase='paper') > 0 THEN 'paper' WHEN SUM(r.phase='holdout') > 0 THEN 'holdout' END "
+    "WHEN SUM(r.phase='paper' AND r.classification='forward_validated') > 0 THEN 'paper_held' "
+    "WHEN SUM(r.phase='paper') > 0 THEN 'paper' "
+    "WHEN SUM(r.phase='holdout' AND r.classification='forward_validated') > 0 THEN 'holdout_held' "
+    "WHEN SUM(r.phase='holdout') > 0 THEN 'holdout' END "
     "FROM app_experiment_results r WHERE r.phase IN ('holdout','paper','forward') AND r.experiment_id=COALESCE(s.experiment_id, "
     "(SELECT MAX(e.id) FROM app_experiments e WHERE e.user_id=s.user_id AND e.strategy_id=s.id))) END) AS cleared_never")
+# A paper deployment's strategy still in its paper forward test: the gatekeeper will judge it once on its own paper
+# trades (gatekeeper.judge_paper_forward) when its realistic record holds its experiment's min_sample trips from
+# PAPER_MIN_EVENTS separate events. The experiment's min_sample while that judgment is still to come (min_sample set,
+# no paper or holdout verdict yet, validation not statistically supported, which takes the holdout path instead, and
+# not a deployment candidate), else NULL. Deploy said "toward live: 22/30 trades · enough in about 2 days" for a
+# probation strategy whose one judgment needed 40, and that can't go live before it passes (walk 2026-11-01). The same
+# experiment CLEARED_NEVER_COL resolves; a column of the same reads. Display only: the forward gate decides alone.
+FORWARD_SAMPLE_COL = (
+    "(CASE WHEN d.mode='paper' THEN (SELECT CASE WHEN e.min_sample > 0 AND NOT EXISTS (SELECT 1 FROM app_experiment_results r "
+    "WHERE r.experiment_id=e.id AND (r.phase IN ('holdout','paper') OR r.classification='deployment_candidate' "
+    "OR (r.phase='validation' AND r.classification='statistically_supported'))) THEN e.min_sample END "
+    "FROM app_experiments e WHERE e.id=COALESCE(s.experiment_id, "
+    "(SELECT MAX(e2.id) FROM app_experiments e2 WHERE e2.user_id=s.user_id AND e2.strategy_id=s.id))) END) AS forward_sample")
+# Both, as each deployment read a paper line uses carries them.
+PAPER_STAGE_COLS = CLEARED_NEVER_COL + ", " + FORWARD_SAMPLE_COL
 
 
 def list_deployments_for_display(cur, user_id: int, strategy_id: Optional[int] = None, sim: bool = False) -> List[Dict]:
@@ -105,7 +125,8 @@ def list_deployments_for_display(cur, user_id: int, strategy_id: Optional[int] =
     `no_gatekeeper_record` (NO_RECORD_SQL, in the same statement): a "passed" strategy with no linked
     experiment either way, the kind relabel_backtest_only makes backtest-only, whose page says the same. And
     `void_no_record` (VOID_RECORD_COL, the same statement): a void strategy with no gatekeeper record either way. And
-    `cleared_never` (CLEARED_NEVER_COL, the same statement): a paper row's strategy the gatekeeper can no longer clear.
+    `cleared_never` (CLEARED_NEVER_COL, the same statement): a paper row's strategy the gatekeeper can no longer clear,
+    and `forward_sample` (FORWARD_SAMPLE_COL): its paper forward test's min_sample while its one judgment is to come.
     With `sim`, each row also carries `sim_closed`: its closed paper positions filled through the simulated venue
     (order_ref 'sim:', as realistic_paper_closed counts them), from the same rows, so a page that reads this once
     can say how many of a paper book's trades were instant fills without another read. Display only."""
@@ -116,7 +137,7 @@ def list_deployments_for_display(cur, user_id: int, strategy_id: Optional[int] =
     cur.execute(
         """SELECT d.id, d.user_id, d.strategy_id, d.market, d.mode, d.status, d.status_reason, d.last_decision_ts,
                   d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json,
-                  """ + CLEARED_NEVER_COL + """, """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status,
+                  """ + PAPER_STAGE_COLS + """, """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status,
                   COALESCE(t.realized_pnl,0) AS realized_pnl, COALESCE(t.closed_trades,0) AS closed_trades,
                   COALESCE(t.wins,0) AS wins, COALESCE(t.open_positions,0) AS open_positions,
                   COALESCE(t.contract_fills,0) AS contract_fills""" + sim_out + """
@@ -155,7 +176,7 @@ def deployment_rows_for_display(cur, user_id: int, strategy_id: Optional[int] = 
     cur.execute(
         """SELECT d.id, d.user_id, d.strategy_id, d.market, d.mode, d.status, d.status_reason, d.last_decision_ts,
                   d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json,
-                  """ + CLEARED_NEVER_COL + """, """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status
+                  """ + PAPER_STAGE_COLS + """, """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status
            FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id
            WHERE d.user_id=%s AND d.status <> 'stopped'""" + (" AND d.strategy_id=%s" if one else "") + """ ORDER BY d.id DESC""",
         (user_id, *one),

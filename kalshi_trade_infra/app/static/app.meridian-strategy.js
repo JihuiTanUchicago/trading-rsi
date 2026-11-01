@@ -11,7 +11,7 @@ window.TauPage('strategy', (T) => {
     gl, glo, gloSep, go, ICON, isPerpetual, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
-    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt
+    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt, neverCleared
   } = T;
 
   // ---------- strategy research paper (RESEARCH_PIPELINE_DESIGN.md §D) ----------
@@ -477,6 +477,35 @@ window.TauPage('strategy', (T) => {
   // the next rung needs. The live rung's needs come from Road to live (live-readiness); until that data
   // is in, or when there is none, that line is left out rather than guessed.
   const LADDER = [['paper', 'Paper', ''], ['demo', 'Demo', 'dep'], ['live', 'Live', 'live']];
+  // Its gatekeeper record after validation, as the deployment reads judge it (cleared_never, forward_sample) and Deploy's
+  // row says it: the one later judgment in without a promotion ('paper' or 'holdout', '_held' when it passed and the
+  // diversification check held it back), or, on paper, the minimum sample of the one judgment its paper trades still
+  // face (a probation strategy: no paper or holdout verdict yet and validation not supported). Its ladder said "Next
+  // rung, demo: nothing needed … before live money" for one that can never be cleared to trade, and nothing at all of
+  // the paper forward test that is the only way a probation strategy can be (walk 2026-11-01, road to live).
+  const laterJudged = (s) => {
+    const exp = s.experiment;
+    if (!exp || exp.promoted) return '';
+    const j = exp.paper ? ['paper', exp.paper] : exp.holdout ? ['holdout', exp.holdout] : null;
+    return j ? j[0] + (j[1].classification === 'forward_validated' ? '_held' : '') : '';
+  };
+  const forwardPending = (s) => {
+    const exp = s.experiment, v = exp && exp.validation;
+    if (!exp || !(+exp.min_sample > 0) || exp.paper || exp.holdout || exp.promoted || (v && v.classification === 'statistically_supported')) return 0;
+    return (s.deployments || []).some((d) => d.mode === 'paper' && d.status !== 'stopped') ? +exp.min_sample : 0;
+  };
+  // That paper forward test's next step in words, with the record's own counts once Road to live's read is in (its
+  // realistic trades and separate events, which the judgment counts too). The judgment is made once.
+  const forwardNext = (need, road) => {
+    const p = road && road.paper, evNeed = 20;
+    let have = '';
+    if (p) {
+      const left = [[+p.trades, need, 'trade'], [+p.events, evNeed, 'separate event']].filter(([h, n]) => h < n)
+        .map(([h, n, unit]) => `${num(n - h)} more ${unit}${n - h === 1 ? '' : 's'} (${num(h)} of ${num(n)})`);
+      have = left.length ? `: ${left.join(' and ')}` : '. Both are in, so that judgment is due';
+    }
+    return `Next rung: its one judgment on its own paper trades, at ${num(need)} realistic paper trades from ${num(evNeed)}+ separate events${have}. Only a pass there can clear it to trade, so live can’t come before it.`;
+  };
   function ladderLines(s, { canDeploy, demoWhy, road, apPaper }) {
     const deps = s.deployments || [];
     // A paused book is still on its rung (deploying it there again would double its positions): it says paused.
@@ -507,7 +536,10 @@ window.TauPage('strategy', (T) => {
     }
     const next = LADDER[running.length ? LADDER.indexOf(running[running.length - 1]) + 1 : 0];
     let need = '';
-    if (!next) need = liveOpen() ? 'Top rung: it trades live money.' : 'Top rung: live money, but live trading isn\u2019t open yet, so it places no orders.';
+    const judged = laterJudged(s), testing = forwardPending(s);
+    if (next && next[0] !== 'paper' && judged) need = `${neverCleared(judged)}, so it has no next rung toward live money.`;
+    else if (next && next[0] !== 'paper' && testing) need = forwardNext(testing, road);
+    else if (!next) need = liveOpen() ? 'Top rung: it trades live money.' : 'Top rung: live money, but live trading isn\u2019t open yet, so it places no orders.';
     else if (!canDeploy) need = '';
     else if (next[0] === 'paper') {
       // One the autopilot puts on paper itself says so while the switch is on (syncApCopy follows a flip).
@@ -552,6 +584,12 @@ window.TauPage('strategy', (T) => {
     const running = (s.deployments || []).some((d) => d.mode === 'paper' && d.status !== 'stopped');
     return ` Its one judgment on its own paper trades (${num(p.n_trades)}${at}) didn’t pass either, so it won’t be cleared to trade${running ? '; Deploy is where to stop its paper run' : ''}.`;
   };
+  // A Void or Rejected strategy on paper as a forward test whose one judgment is still to come: its glance spoke of the
+  // validation miss alone ("Verdict, below, has … what to try next"), never that its paper trades can still clear it.
+  const paperPending = (s) => {
+    const need = ['failed', 'rejected'].includes(s.status) ? forwardPending(s) : 0;
+    return need ? ` It’s on paper now as a forward test: one judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.` : '';
+  };
   function verdictGlance(s, missed) {
     const exp = s.experiment, h = exp && exp.holdout, v = exp && exp.validation, p = exp && exp.paper;
     const lc = (t) => String(t).charAt(0).toLowerCase() + String(t).slice(1);
@@ -561,7 +599,7 @@ window.TauPage('strategy', (T) => {
       words = `It fell short on its first test on unseen data, so it went on paper on probation, and passed its one judgment there${p && p.n_trades != null ? ` (${num(p.n_trades)} paper trades)` : ''}, but it is ${lc(missed[0].label)}, so the gatekeeper didn’t clear it to trade. Verdict, below, has what was measured.`;
     } else if (missed && ['failed', 'rejected'].includes(s.status)) {
       lead = s.status === 'failed' ? 'Void.' : 'Rejected.';
-      words = `It missed ${missed.length === 1 ? 'a check' : missed.length + ' checks'}: ${lc(missed[0].label)}${missed.length > 1 ? `, and ${missed.length - 1} more` : ''}. Verdict, below, has what was measured and what to try next.${paperMissed(s, p)}`;
+      words = `It missed ${missed.length === 1 ? 'a check' : missed.length + ' checks'}: ${lc(missed[0].label)}${missed.length > 1 ? `, and ${missed.length - 1} more` : ''}. Verdict, below, has what was measured and what to try next.${paperMissed(s, p)}${paperPending(s)}`;
     } else if (missed && s.status === 'passed' && heldBack(s)) {
       lead = 'Held back.';
       words = `It held up on data it had never seen, the one-time locked holdout included, but it is ${lc(missed[0].label)}, so the gatekeeper didn’t clear it to trade. Verdict, below, has what was measured.`;
@@ -983,7 +1021,8 @@ window.TauPage('strategy', (T) => {
         };
       }
     };
-    if (root.querySelector('#road-live-body')) roadRead();
+    // A strategy in its paper forward test reads it too, for its record's counts on the ladder (it has no Road to live).
+    if (root.querySelector('#road-live-body') || forwardPending(s)) roadRead();
     // The ladder's demo check never waits on Kalshi: one that needs the demo cash while the server's memo isn't
     // kept comes demo_health_pending. The page asks the demo cash (one ask, shared with the other pages'), then
     // reads the strategy again, once, and redraws only the ladder. Still unknown after that (or that read failed),
@@ -1144,7 +1183,7 @@ window.TauPage('strategy', (T) => {
         // The ladder is written only when its markup differs from what was last drawn there (ladderWas).
         const lb = root.querySelector('#ladder-body'), lh = ladderLines(s, { canDeploy, demoWhy, road: roadNow, apPaper });
         if (lb && lh !== ladderWas) keepFocus(lb, () => { lb.innerHTML = ladderWas = lh; });
-        if (root.querySelector('#road-live-body') && roadKey(s) !== roadDrawn) roadRead();
+        if ((root.querySelector('#road-live-body') || forwardPending(s)) && roadKey(s) !== roadDrawn) roadRead();
         roadDrawn = roadKey(s);
         if (s.holdings && s.holdings.length) closeClock();
         const moved = root.querySelector('#strat-moved');
