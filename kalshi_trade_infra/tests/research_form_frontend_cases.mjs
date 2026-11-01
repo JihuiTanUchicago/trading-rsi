@@ -129,10 +129,10 @@ export function researchFormCases({name, frontend}) {
     // The harness has no radio groups: the picked market is the checked row that isn't Agent's choice.
     const picked = (f) => f.root.querySelectorAll('input[name=market]').find((r) => r.checked && r.value) || {value: ''};
     const sum = (f) => f.root.querySelector('#ropts-sum').textContent;
-    // A market it offers: picked, Options open, no note.
+    // A market it offers: picked, named on the folded Options' line, no note.
     let f = await form({me: {markets}, search: '?new=1&market=eth15m'});
     assert.equal(picked(f).value, 'eth15m');
-    assert.equal(f.root.querySelector('#ropts').open, true);
+    assert.equal(f.root.querySelector('#ropts').open, false);
     assert.equal(f.root.querySelector('.mkt-missing'), null);
     f.clearTimers();
     // Before: Agent's choice stayed picked and nothing said the perpetual wasn't there.
@@ -151,18 +151,20 @@ export function researchFormCases({name, frontend}) {
     f.clearTimers();
   });
 
-  // Walk 2026-11-01 at 390px: Explore's "Research <market>" opened the form with Options unfolded and the market's
-  // group open, about 13 crypto rows, so Start sat far below the idea. On a phone Options stay folded; their line
-  // names the market picked, and unfolding them shows it picked in its open group. Wider, they open as before.
-  test(`${name}: on a phone a market picked from Explore stays named in folded Options, keeping Start near the idea`, async () => {
+  // Walk 2026-11-01: Explore's "Research <market>" opened the form with Options unfolded and the market's group open,
+  // about 13 crypto rows, so Start sat far below the idea (about 2,000px at 390; 1,372px in Tau's and 1,604px in
+  // Meridian's 1366x900 view). At every width Options stay folded; their line names the market picked, and unfolding
+  // them shows it picked in its open group. Without a market, a desktop's Options stay open as before.
+  const WIDTHS = [['a phone', (q) => ({matches: /max-width: 760px/.test(q), addEventListener() {}, removeEventListener() {}})],
+    ['a desktop', (q) => ({matches: /min-width/.test(q), addEventListener() {}, removeEventListener() {}})]];
+  for (const [width, phoneMq] of WIDTHS) test(`${name}: on ${width} a market picked from Explore stays named in folded Options, keeping Start near the idea`, async () => {
     const markets = ['btc15m', 'eth15m', 'sol15m', 'xrp15m', 'btc_daily', 'eth_daily', 'btc_range'].map((key) => ({key, label: key, category: 'Crypto', has_data: true}))
       .concat([{key: 'nba_game', label: 'NBA game', category: 'Sports', has_data: true}]);
-    const phoneMq = (q) => ({matches: /max-width: 760px/.test(q), addEventListener() {}, removeEventListener() {}});
     const f = await form({me: {markets}, search: '?new=1&market=eth15m', matchMedia: phoneMq});
     const picked = f.root.querySelectorAll('input[name=market]').find((r) => r.checked && r.value);
     assert.equal(picked && picked.value, 'eth15m');
     const opts = f.root.querySelector('#ropts');
-    assert.ok(!opts.open, 'Options stay folded on a phone');
+    assert.ok(!opts.open, `Options stay folded on ${width}`);
     // The harness has no radio groups, so Agent's choice stays checked beside the pick until it is let go, as a browser does.
     f.root.querySelectorAll('input[name=market]').find((r) => !r.value).checked = false;
     f.root.querySelector('#dispatch').dispatchEvent({type: 'change'});
@@ -172,13 +174,13 @@ export function researchFormCases({name, frontend}) {
     assert.equal(f.root.querySelector('#runforever').checked, true);
     assert.equal(picked.closest('details.mkt-group').open, true, 'unfolded, Options show the market picked');
     f.clearTimers();
-    // A market it can't offer still unfolds them on a phone, for the note on what happens instead.
+    // A market it can't offer still unfolds them, for the note on what happens instead.
     const g = await form({me: {markets}, search: '?new=1&market=btc_perp', matchMedia: phoneMq});
     assert.equal(g.root.querySelector('#ropts').open, true);
     g.clearTimers();
-    // Wider, nothing changes: picked, Options open.
-    const d = await form({me: {markets}, search: '?new=1&market=eth15m'});
-    assert.equal(d.root.querySelector('#ropts').open, true);
+    // No market picked: a phone folds them, a desktop leaves them open, as before.
+    const d = await form({me: {markets}, search: '?new=1', matchMedia: phoneMq});
+    assert.equal(d.root.querySelector('#ropts').hasAttribute('open'), width === 'a desktop');  // as drawn: nothing set it since
     d.clearTimers();
   });
 

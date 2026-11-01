@@ -146,6 +146,33 @@ export function countFormatCases({name, frontend, detailStrategy, strategyFronte
     assert.match(card, /class="loop-day" title="(?:Fri, Oct 30|Oct 30, 2026) \(UTC\): 4 ideas, 1 reached the gate"/);
     assert.match(card, /class="loop-day" title="(?:Sat, Oct 31|Oct 31, 2026) \(UTC\): 3 ideas, 1 reached the gate"/);
     assert.doesNotMatch(card, /title="2026-10-3/);
+    // The bars are one image (role="img"), so a screen reader never hears a bar's hover: the image's name says each day's.
+    const chart = f.root.querySelector('#rsimo .loop-days');
+    assert.equal(chart.getAttribute('role'), 'img');
+    assert.match(chart.getAttribute('aria-label'), /^Ideas per day and how many reached the gate\. (?:Fri, Oct 30|Oct 30, 2026) \(UTC\): 4 ideas, 1 reached the gate; (?:Sat, Oct 31|Oct 31, 2026) \(UTC\): 3 ideas, 1 reached the gate\.$/);
+    f.clearTimers();
+  });
+
+  test(`${name}: a day with one idea says "1 idea" on its bar and in the chart's name`, async () => {
+    const board = {total: {runs: 2, explored: 3, gated: 0, gate_reach_rate: 0, passed: 0, holdout_passed: 0, cost_usd: 1,
+      pipeline_death_share: 0}, days: [{day: '2026-10-30', explored: 1, gated: 0}, {day: '2026-10-31', explored: 2, gated: 0}],
+      trend: null, playbooks: [], scout: [], fix_list: [], data_requests: [], paper: null};
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/runs')) return response({runs: [], counts: {research_running: 0, research_queued: 0, research_paused: 0},
+        policy: null, totals: {tried: 3, passed: 0}, v: 'v1'});
+      if (path.startsWith('/api/research/scoreboard')) return response(board);
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path === '/api/research/context') return response({markets: []});
+      if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+      return response({});
+    }});
+    f.S.me.user.autopilot = false;
+    f.location.pathname = '/research';
+    await f.viewResearch(); await settle();
+    const chart = f.root.querySelector('#rsimo .loop-days');
+    assert.ok(chart, f.root.querySelector('#rsimo').innerHTML.slice(0, 300));
+    assert.match(chart.getAttribute('aria-label'), /\(UTC\): 1 idea, 0 reached the gate; /);
+    assert.match(chart.innerHTML, /title="[^"]+\(UTC\): 1 idea, 0 reached the gate"/);
     f.clearTimers();
   });
 

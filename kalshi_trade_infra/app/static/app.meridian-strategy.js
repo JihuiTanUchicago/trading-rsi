@@ -25,14 +25,17 @@ window.TauPage('strategy', (T) => {
   // backtest._iso): its first and last data point, and the point 70% of the way between them. The page said their UTC
   // days with no zone named, a day ahead of the equity chart's split label (the reader's day) on an American evening
   // (audit 2026-11-01). Each says the reader's day (localDay), the exact time and zone on hover (stampAt). A bare day
-  // with no time is a day already, said as written.
+  // with no time is a day already. Each day is written as the rest of the page writes one, "Oct 25, 2026" (Filed, the
+  // trades' times): they said "2026-10-25". DS_DAY says the day localDay found (a UTC midnight), never the reader's again.
+  const DS_DAY = { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' };
+  const dsDayWords = (day) => (/^\d{4}-\d\d-\d\d$/.test(day) ? dateFmt(new Date(day + 'T00:00:00Z'), DS_DAY) : day);
   const dsDay = (iso) => {
     const v = String(iso || '');
     if (!v) return '—';
-    if (!v.includes('T')) return esc(v.slice(0, 10));
+    if (!v.includes('T')) return esc(dsDayWords(v.slice(0, 10)));
     const at = v.replace(/T(\d\d:\d\d)Z$/, 'T$1:00Z');
     const day = localDay(at);
-    return day ? `<time datetime="${esc(at)}" title="${esc(stampAt(at))}">${esc(day)}</time>` : esc(v.slice(0, 10));
+    return day ? `<time datetime="${esc(at)}" title="${esc(stampAt(at))}">${esc(dsDayWords(day))}</time>` : esc(dsDayWords(v.slice(0, 10)));
   };
   const rpRet = (v) => (v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(2) + '%');
   // What if…'s dials say their value in words (aria-valuetext): a screen reader read the stake dial as "5", the

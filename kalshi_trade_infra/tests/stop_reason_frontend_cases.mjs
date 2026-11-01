@@ -36,7 +36,7 @@ export function stopReasonCases({name, frontend}) {
       [{stop_reason: 'complete', run_forever: 1}, /Finished/],
       [{stop_reason: 'limit'}, /Finished/],
       [{status: 'cancelled', stop_reason: 'user'}, /Stopped by you/],
-      [{status: 'failed', stop_reason: 'error', error: 'The model provider is busy.'}, /<span class="loss">Stopped on an error<\/span>/],
+      [{status: 'failed', stop_reason: 'error', error: 'The model provider is busy.', strategies_passed: 0}, /<span class="loss">Stopped on an error<\/span>/],
     ]) {
       const row = f.runRow(run(over));
       assert.match(row, said, JSON.stringify(over));
@@ -54,6 +54,20 @@ export function stopReasonCases({name, frontend}) {
     assert.match(f.runRow(run({status: 'cancelled', stop_reason: undefined})), /Cancelled/);
     // Credits are never written as money made or lost: the cost stays "Cost", not P&L.
     assert.doesNotMatch(newest, /P&amp;L|realized|\+\$4\.20/);
+  });
+
+  // A session that saved a pass and then hit an error stores how many passed (agent.run_research; it stored 0), and its
+  // row says so beside the error, as its page's Passed and the bell's "1 of 6 ideas passed" do. With none, only the error.
+  test(`${name}: a session that passed ideas before its error says how many on its row`, () => {
+    const f = frontend();
+    const row = f.runRow(run({status: 'failed', stop_reason: 'error', hypotheses_tried: 6, strategies_passed: 1, error: 'The session hit an unexpected error and stopped.'}));
+    assert.match(row, /Stopped on an error/);
+    assert.match(row, /Tested 6 ideas\s·\s<span class="gain">1 passed<\/span>|<b class="run-passed">1<\/b>[\s\S]*<b class="run-tested">6<\/b>/);
+    const none = f.runRow(run({status: 'failed', stop_reason: 'error', hypotheses_tried: 6, strategies_passed: 0}));
+    assert.doesNotMatch(none, /passed|Tested 6/);
+    // A pass a later check left uncleared is said apart, as on any row.
+    const fell = f.runRow(run({status: 'failed', stop_reason: 'error', hypotheses_tried: 6, strategies_passed: 2, not_cleared: 1}));
+    assert.match(fell, /\+1 passed, not cleared/);
   });
 
   test(`${name}: the research list offers Add credits only on the newest session, and not while one runs`, async () => {

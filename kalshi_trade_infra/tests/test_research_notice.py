@@ -23,8 +23,8 @@ def test_each_way_a_session_ends_reads_in_plain_words():
         on + " finished: it ran out of new ideas to try. None of the 40 ideas it tested passed.")
     assert body(_run(run_forever=1, out_of_credits=1, hypotheses_tried=1200, strategies_passed=3)) == (
         on + " stopped because your credits ran out. 3 of 1,200 ideas passed.")
-    assert body(_run(status="failed", error="ThrottlingException: Rate exceeded (us.anthropic.claude-opus-4-6-v1)"),
-                passed=1) == on + " stopped on an error. 1 of 10 ideas passed."
+    assert body(_run(status="failed", error="ThrottlingException: Rate exceeded (us.anthropic.claude-opus-4-6-v1)",
+                     strategies_passed=1)) == on + " stopped on an error. 1 of 10 ideas passed."
     assert body(_run(status="stopped", error="Tested 3 ideas, then the session was interrupted and stopped — start a new one.",
                      hypotheses_tried=3, strategies_passed=0)) == (
         on + " was interrupted and stopped. None of the 3 ideas it tested passed.")
@@ -103,7 +103,7 @@ def _wired(monkeypatch, took=True):
     store, rung = Store(monkeypatch), []
     monkeypatch.setattr(agent.repo, "finish_run", lambda cur, run_id, status, error=None, tried=0, passed=0, *a:
                         setattr(store, "finished", (status, error, tried, passed)) or took)
-    monkeypatch.setattr(agent.research_notice, "ring", lambda cur, run_id, passed=None: rung.append((run_id, passed)) or True)
+    monkeypatch.setattr(agent.research_notice, "ring", lambda cur, run_id: rung.append(run_id) or True)
     return agent, store, rung
 
 
@@ -114,15 +114,32 @@ def test_the_agent_rings_once_where_it_marks_the_session_finished(monkeypatch):
     agent, store, rung = _wired(monkeypatch)
     model, _ = scripted([plan(), hyps(WINNER, LOSER), hyps(WINNER)])
     agent.run_research(Conn(), {**RUN, "max_hypotheses": 3}, model=model, dataset_fn=lambda m, h=None: _dataset(n_contracts=60))
-    assert store.finished[0] == "succeeded" and rung == [(1, None)]
-    # Ended on an error: the row keeps 0 passed, so the notice is handed the count that passed before it.
+    assert store.finished[0] == "succeeded" and rung == [1]
     agent, store, rung = _wired(monkeypatch)
     model, _ = scripted([plan()] + ["no json here"] * 6)
     agent.run_research(Conn(), RUN, model=model, dataset_fn=lambda m, h=None: _dataset(n_contracts=60))
-    assert store.finished[0] == "failed" and rung == [(1, 0)]
+    assert store.finished[0] == "failed" and rung == [1]
     agent, store, rung = _wired(monkeypatch)
     agent.run_research(Conn(), RUN, model=scripted([])[0], dataset_fn=lambda m, h=None: _dataset(n_contracts=2))
-    assert store.finished[0] == "stopped" and rung == [(1, 0)]
+    assert store.finished[0] == "stopped" and rung == [1]
+
+
+def test_a_session_that_errors_after_ideas_passed_stores_how_many_passed(monkeypatch):
+    """A run until stopped gates a first round (a pass is saved), then the model's replies go bad and the run
+    ends on an error. The row it finishes with counts that pass, as the checkpoint does, so the Research list,
+    the session page and the bell (which all read the row) agree with the strategy that exists. It stored 0."""
+    from tests.test_app_agent import Conn, RUN, WINNER, LOSER, scripted, plan, hyps
+    from tests.test_app_backtest import _dataset
+
+    agent, store, rung = _wired(monkeypatch)
+    model, _ = scripted([plan(), hyps(WINNER, LOSER)] + ["no json here"] * 6)
+    agent.run_research(Conn(), {**RUN, "max_hypotheses": 2, "run_forever": True},
+                       model=model, dataset_fn=lambda m, h=None: _dataset(n_contracts=60))
+    saved = sum(s["status"] == "passed" for s in store.strategies)
+    status, _error, tried, passed = store.finished
+    assert status == "failed" and saved >= 1 and tried >= 2
+    assert passed == saved
+    assert rung == [1]  # the bell reads the same row: no count of its own
 
 
 def test_a_finish_that_did_not_end_the_run_rings_nothing(monkeypatch):
