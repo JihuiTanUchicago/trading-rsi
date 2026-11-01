@@ -108,6 +108,7 @@ def test_me_reports_the_switch(monkeypatch):
     monkeypatch.setattr(account_routes, "_researchable_markets", lambda cur: [])
     monkeypatch.setattr(server.repo, "get_kalshi_key", lambda cur, uid: None)
     monkeypatch.setattr(server.repo, "get_kalshi_dev_key", lambda cur, uid: None)
+    monkeypatch.setattr(server.repo, "kalshi_keys_saved", lambda cur, uid: (False, False))
     base = {"id": 3, "email": "a@example.invalid", "name": "A", "picture_url": None, "autopilot": 0}
 
     class Handler:

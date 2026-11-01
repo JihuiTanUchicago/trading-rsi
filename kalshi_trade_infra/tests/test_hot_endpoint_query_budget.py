@@ -67,7 +67,7 @@ from app.web.routes import chat as chat_routes
 # A steady-state poll: the process-wide shared reads (series list, data freshness) and the run page's
 # dream line are warm, as they are for every request but one a minute. get_run's run is queued past
 # the overdue limit, so it also counts the queue ahead (5 for a run that is working normally).
-BUDGET = {"autopilot_status": 9, "me": 5, "get_run": 6, "dashboard": 14}  # dashboard: the trades CSV counts ride the realized-P&L pass
+BUDGET = {"autopilot_status": 9, "me": 4, "get_run": 6, "dashboard": 14}  # dashboard: the trades CSV counts ride the realized-P&L pass
 # Counted cold, as above: each page that sums the positions reads their version first (book_memo), +1
 # (not the strategy page, which sums only its own deployments).
 # The Deploy board polls /api/deployments every 10s; /api/strategies/<id> is the strategy page. Both
@@ -648,6 +648,42 @@ def test_the_presence_reads_answer_as_the_key_reads_did():
             probe = log[0][0]
             assert probe == "SELECT 1 AS present FROM %s WHERE user_id=%%s LIMIT 1" % table and log[0][1] == (7,)
             assert not any(c in probe for c in KEY_COLUMNS)
+
+
+# /api/me, which every signed-in page's shell carries, asked for both Kalshi key rows (the key's id and its encrypted
+# bytes) only to say whether each is saved. It asks both in one statement selecting constants
+# (repo.kalshi_keys_saved): me 5 -> 4 statements on every page load (measured 2026-11-01 on the seeded heavy account,
+# local MariaDB; the shells of /, /deploy, /strategies, /research, /funds and the rest each one fewer).
+KEYS_SAVED = "SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live"
+
+
+@pytest.mark.parametrize("live_key,demo_key", [(True, True), (True, False), (False, True), (False, False)])
+def test_me_asks_whether_each_kalshi_key_is_saved_in_one_statement_and_never_reads_one(production, live_key, demo_key):
+    log = []
+    out = server.me(_ctx(log, 10.0, extra={KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]}))
+    keys = [(s, p) for s, p in log if "app_kalshi_keys" in s or "app_kalshi_dev_keys" in s]
+    assert keys == [("SELECT EXISTS(SELECT 1 FROM app_kalshi_keys WHERE user_id=%s) AS live, "
+                     "EXISTS(SELECT 1 FROM app_kalshi_dev_keys WHERE user_id=%s) AS demo", (7, 7))], keys
+    assert not [s for s, _ in log if any(c in s for c in KEY_COLUMNS)], log
+    assert (out["kalshi_connected"], out["kalshi_dev_connected"]) == (live_key, demo_key)
+
+
+def test_me_answers_as_it_did_reading_the_key_rows(production, monkeypatch):
+    """The same reply as when me read each key row and asked whether it was there, for each pair of keys."""
+    import json
+
+    for live_key in (True, False):
+        for demo_key in (True, False):
+            saved = server.me(_ctx([], 10.0, extra={KEYS_SAVED: [{"live": int(live_key), "demo": int(demo_key)}]}))
+            row = {"key_id": "placeholder", "private_key_enc": b"\x00", "created_at": None}
+            with monkeypatch.context() as m:
+                m.setattr(server.repo, "kalshi_keys_saved", lambda cur, uid: (
+                    server.repo.get_kalshi_key(cur, uid) is not None, server.repo.get_kalshi_dev_key(cur, uid) is not None))
+                rows = {"FROM app_kalshi_keys WHERE user_id=%s": [row] if live_key else [],
+                        "FROM app_kalshi_dev_keys WHERE user_id=%s": [row] if demo_key else []}
+                read = server.me(_ctx([], 10.0, extra=rows))
+            assert json.dumps(saved, default=server._json_default, sort_keys=True) == json.dumps(
+                read, default=server._json_default, sort_keys=True)
 
 
 # The run page's first read of a long run-until-stopped session: the newest RUN_EVENTS_PAGE lines and, in the same

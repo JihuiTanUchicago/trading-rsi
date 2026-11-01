@@ -106,6 +106,7 @@ def test_me_sends_the_long_names_of_markets_its_list_leaves_out(monkeypatch):
     monkeypatch.setattr(server.billing, "configured", lambda: False)
     for name in ("get_stripe_customer", "get_kalshi_key", "get_kalshi_dev_key"):
         monkeypatch.setattr(server.repo, name, lambda *a: None)
+    monkeypatch.setattr(server.repo, "kalshi_keys_saved", lambda *a: (False, False))
     monkeypatch.setattr(server.repo, "credit_balance", lambda *a: 10.0)
     monkeypatch.setattr(server.repo, "spot_symbols_with_data", lambda *a: set())
     monkeypatch.setattr(server.repo, "series_with_candles", lambda *a: set())

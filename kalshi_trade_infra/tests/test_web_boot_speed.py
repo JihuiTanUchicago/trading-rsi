@@ -91,7 +91,7 @@ def test_a_signed_in_shell_carries_the_account_so_the_app_starts_without_a_me_re
 
 
 def _account_reads(monkeypatch):
-    for name, value in (("get_stripe_customer", None), ("get_kalshi_key", None), ("get_kalshi_dev_key", None),
+    for name, value in (("get_stripe_customer", None), ("get_kalshi_key", None), ("get_kalshi_dev_key", None), ("kalshi_keys_saved", (False, False)),
                         ("credit_balance", 1.0), ("spot_symbols_with_data", set()), ("series_with_candles", set())):
         monkeypatch.setattr(server.repo, name, lambda *a, _v=value: _v)
     monkeypatch.setattr(server.billing, "configured", lambda: False)
