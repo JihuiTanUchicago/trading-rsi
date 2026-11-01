@@ -49,12 +49,12 @@ export function multiFamilyCases({name, frontend, dashboard, apStatus}) {
   test(`${name}: the credits line says the research cap per 24 hours and today's spend in dollars, and when the cap stops new research`, async () => {
     let f = await apPage({...apStatus, focus: FOCUS, week, research_cap: {usd: 240, spent_24h: 217, reached: false}});
     let line = f.root.querySelector('#dash-ap .ap-week-left').innerHTML;
-    assert.match(line, /Its research is capped at \$240\.00 per 24 hours: <b>\$217\.00<\/b> spent in the last 24 hours, your own sessions included\. At the cap it starts no new research until earlier spend rolls off; research you start yourself isn’t limited\. Within the cap, each time your balance falls to \$5\.00, auto-reload charges your card and research carries on\./);
-    assert.doesNotMatch(line, /no daily spending cap|P&amp;L|paper/);
+    assert.match(line, /Its research is capped at \$240\.00 per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>\$217\.00<\/b>\. At the cap it starts no new research until enough of them are over 24 hours old; research you start yourself isn’t limited\. Within the cap, each time your balance falls to \$5\.00, auto-reload charges your card and research carries on\./);
+    assert.doesNotMatch(line, /no daily spending cap|P&amp;L|paper|spent in the last 24 hours/);
     f.clearTimers();
     f = await apPage({...apStatus, focus: FOCUS, week, research_cap: {usd: 240, spent_24h: 249.55, reached: true}}, {auto_reload: null});
     line = f.root.querySelector('#dash-ap .ap-week-left').innerHTML;
-    assert.match(line, /Its research reached its cap of \$240\.00 per 24 hours: <b>\$249\.55<\/b> spent in the last 24 hours, your own sessions included, so it starts no new research until earlier spend rolls off; research you start yourself isn’t limited\. Within the cap, it uses credits until your balance is under \$1\.00, then pauses\./);
+    assert.match(line, /Its research reached its cap of \$240\.00 per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>\$249\.55<\/b>, so it starts no new research until enough of them are over 24 hours old; research you start yourself isn’t limited\. Within the cap, it uses credits until your balance is under \$1\.00, then pauses\./);
     assert.doesNotMatch(line, /no daily spending cap/);
     f.clearTimers();
     // No cap from the server (none set, or an older server): the line as before.

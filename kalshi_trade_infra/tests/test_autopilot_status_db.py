@@ -471,7 +471,11 @@ def test_the_research_cap_figure_is_what_the_cap_counts_and_rides_the_pulse(conn
     monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", round(spent, 2) - 1)
     out, _ = _status(counting, uid)
     assert out["research_cap"]["reached"] is True
-    assert any(line.startswith("It has reached its research cap: $%.2f spent in the last 24 hours" % spent) for line in out["story"])
+    # It names what it counts (sessions started in the last 24 hours, the user's own too), never "spent in the last 24
+    # hours": a session started yesterday still debits, so the day's spend on Billing can be more (walk 2026-11-01).
+    assert any(line.startswith("It has reached its research cap: research sessions started in the last 24 hours, your own "
+                               "included, have cost $%.2f" % spent) for line in out["story"])
+    assert not any("spent in the last 24 hours" in line for line in out["story"])
     monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 0.0)
     out = _status(counting, uid)[0]
     assert out["research_cap"] is None and out["research_cap_usd"] is None  # no cap
