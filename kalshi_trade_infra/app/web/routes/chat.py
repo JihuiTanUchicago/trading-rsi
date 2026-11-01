@@ -19,7 +19,7 @@ from app.services import book_memo, customer_text
 from app.trading import engine
 from app.trading.markets import customer_name
 from app.web.caches import _forget_own_change
-from app.web.http import ApiError, Ctx, _int_param
+from app.web.http import ApiError, Ctx, _int_param, _int_query
 from app.web.routes.billing import (
     _credits_running_low,
     pace_days,
@@ -50,7 +50,7 @@ from trading_core.domain.slippage import PAPER, paper_estimate
 
 
 def get_chat(ctx: Ctx):
-    after = int(ctx.query.get("after") or 0)
+    after = _int_query(ctx, "after")
     run = repo.active_agent_run(ctx.cur, ctx.uid)
     wait = _run_wait(run)
     rows = repo.chat_messages(ctx.cur, ctx.uid, after)
@@ -1136,8 +1136,10 @@ def autopilot_focus(ctx: Ctx):
 def autopilot_model(ctx: Ctx):
     """Pick the model the autopilot's own research/review/chat runs use (manual runs still choose
     per-run). Validated against the catalog; empty/unknown clears back to the catalog default."""
-    key = (ctx.body.get("model") or "").strip() or None
-    if key is not None and catalog.get(key) is None:
+    key = ctx.body.get("model") or None
+    if isinstance(key, str):
+        key = key.strip() or None
+    if key is not None and (not isinstance(key, str) or catalog.get(key) is None):
         raise ApiError(400, "Pick a model from the list, or leave it on the default.")  # as a research session's says
     repo.set_autopilot_model(ctx.cur, ctx.uid, key)
     return {"ok": True, "model": key or catalog.DEFAULT_KEY}

@@ -253,6 +253,13 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# The market page's words for a link with no market behind it (core.js MKT_GONE), never the raw code from the link.
+NO_MARKET = ("Kalshi has no market at this link. It may have been taken down, or the link is incomplete. "
+             "Find it again on Explore.")
+# A Kalshi market ticker's characters. A link's ticker went into Kalshi's API path as sent ("../x", "a?b=c").
+_MARKET_TICKER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\Z")
+
+
 def explore_market(ctx: Ctx):
     """One market's dataset for the Explore detail view: its metadata, how it settles, the price
     history Kalshi has for it (the same candlesticks the backtester trains on), and the reader's
@@ -263,6 +270,8 @@ def explore_market(ctx: Ctx):
     ticker = (ctx.query.get("ticker") or "").strip()
     if not ticker:
         raise ApiError(400, "This link names no market. Find one on Explore.")
+    if not _MARKET_TICKER.match(ticker) or ".." in ticker:
+        raise ApiError(404, NO_MARKET)
     series = ticker.split("-", 1)[0]
     m: Dict = {}
     open_ts = None
@@ -283,8 +292,7 @@ def explore_market(ctx: Ctx):
         # The raw error named the proxy and Kalshi's host to the user; keep that in the log.
         if " failed 404:" in str(e):  # api_get's RuntimeError carries the status in its text
             # The words the market page says (core.js MKT_GONE), never the raw code from the link ("KXNOPE-…").
-            raise ApiError(404, "Kalshi has no market at this link. It may have been taken down, or the link is "
-                                "incomplete. Find it again on Explore.")
+            raise ApiError(404, NO_MARKET)
         print("[explore] market %s history failed: %r" % (ticker, e), flush=True)
         # Still show the market: Kalshi's own record if that call got through, else the Explore
         # feed's snapshot of it. Only the chart waits for Kalshi (history_unavailable).
