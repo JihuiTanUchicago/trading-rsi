@@ -338,7 +338,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         <div id="dflash"></div>
         <p class="hint" id="rf-hint">A session takes a few minutes and keeps running if you leave this page.</p>
       </form>`;
-    const apLines = `${S.me.user && !S.me.user.autopilot ? `<p class="research-ap">Rather not write ideas yourself? <button type="button" data-research-ap>Turn on autopilot</button> and it picks ideas and researches them on its own, on paper.</p>` : ''}${S.me.user ? `<p class="research-ap-on" data-ap-next${S.me.user.autopilot ? '' : ' hidden'}>Autopilot is on: the sessions it starts are listed below with an Autopilot tag. You can still start a session of your own.</p>` : ''}`;
+    // Where its sessions show, wherever the list sits: "listed below" sat under the list on a Tau phone, where the
+    // sessions come first and the form after (walk 2026-11-01).
+    const apLines = `${S.me.user && !S.me.user.autopilot ? `<p class="research-ap">Rather not write ideas yourself? <button type="button" data-research-ap>Turn on autopilot</button> and it picks ideas and researches them on its own, on paper.</p>` : ''}${S.me.user ? `<p class="research-ap-on" data-ap-next${S.me.user.autopilot ? '' : ' hidden'}>Autopilot is on: the sessions it starts show in your session list with an Autopilot tag. You can still start a session of your own.</p>` : ''}`;
     // Tau's page opens on the form, its figures and the sessions under it; Meridian's on the session at work, the
     // form folded under New session (open from ?new=1) and a table of the rest. New session shows at the top right,
     // beside the h1, so it comes right after the h1 in the markup and Tab reaches it first: it came after the session
@@ -499,12 +501,14 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       const running = d.counts.research_running, queued = d.counts.research_queued, paused = d.counts.research_paused || 0;
       // Tau says the counts in a line of words over its figures; Meridian sets out all time and now as two rows of figures.
       if (tau) {
+        // Each says "passed every test": "0 through every gate" was jargon to a new account watching its first session,
+        // with no hint beside it (the figure below keeps its glossary hint; walk 2026-11-01).
         // The live count and the all-time totals are two sentences: "1 agent researching now — all time, 13 ideas
         // tested" set "now" against "all time" in one breath.
         const said = running || paused
-          ? `${[running ? `<em>${num(running)}</em> agent${running > 1 ? 's' : ''} researching now` : '', paused ? `<em>${num(paused)}</em> paused` : '', queued ? `<em>${num(queued)}</em> queued` : ''].filter(Boolean).join(SEP)}. All time: <em>${num(tried)}</em> idea${+tried === 1 ? '' : 's'} tested${SEP}<em>${num(passed)}</em> through every gate${fell ? `${SEP}<em>${num(fell)}</em> not cleared` : ''}.`
+          ? `${[running ? `<em>${num(running)}</em> agent${running > 1 ? 's' : ''} researching now` : '', paused ? `<em>${num(paused)}</em> paused` : '', queued ? `<em>${num(queued)}</em> queued` : ''].filter(Boolean).join(SEP)}. All time: <em>${num(tried)}</em> idea${+tried === 1 ? '' : 's'} tested${SEP}<em>${num(passed)}</em> passed every test${fell ? `${SEP}<em>${num(fell)}</em> not cleared` : ''}.`
           : tried
-            ? `Your engine has tested <em>${num(tried)}</em> idea${+tried === 1 ? '' : 's'} and kept ${+passed ? `<em>${num(passed)}</em>` : 'none'} that beat every gate${fell ? ` (<em>${num(fell)}</em> ${fellWords})` : ''}. ${S.me.user && S.me.user.autopilot ? 'Autopilot starts its next run on its own; <a href="#dispatch">add an idea</a> to steer it.' : '<a href="#dispatch">Seed another idea</a> to keep hunting.'}`
+            ? `Your engine has tested <em>${num(tried)}</em> idea${+tried === 1 ? '' : 's'} and kept ${+passed ? `<em>${num(passed)}</em>` : 'none'} that passed every test${fell ? ` (<em>${num(fell)}</em> ${fellWords})` : ''}. ${S.me.user && S.me.user.autopilot ? 'Autopilot starts its next run on its own; <a href="#dispatch">add an idea</a> to steer it.' : '<a href="#dispatch">Seed another idea</a> to keep hunting.'}`
             // Nothing tested yet: it repeated the page's subtitle word for word ("describe an idea, it writes strategies
             // and tests each on data it never saw"), under a form that already asks for the idea.
             // With autopilot on it is about to start one itself: "Describe an idea to start your first session" read as

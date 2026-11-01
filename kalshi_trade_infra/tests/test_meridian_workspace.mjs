@@ -59,6 +59,7 @@ import {moneyDriftCases} from './money_drift_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {multiFamilyCases} from './multi_family_frontend_cases.mjs';
+import {firstQuarterHourCases} from './first_quarter_hour_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
@@ -6976,6 +6977,7 @@ a11yCases({name: 'Meridian', frontend, storageFor: m => m, billingPage, cardedBi
   dashboard: dashboardData, fundsData: funds, apStatus});
 creditsCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, apStatus});
 multiFamilyCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
+firstQuarterHourCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 timeTruthCases({name: 'Meridian', billingPage, cardedBilling});
 midnightCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, storageFor: m => m});
 dayClockCases({name: 'Meridian', frontend, fundsData: funds, storageFor: m => m});

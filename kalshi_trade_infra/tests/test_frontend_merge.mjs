@@ -58,6 +58,7 @@ import {moneyDriftCases} from './money_drift_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {multiFamilyCases} from './multi_family_frontend_cases.mjs';
+import {firstQuarterHourCases} from './first_quarter_hour_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
@@ -766,7 +767,9 @@ test('Tau: a new user\'s first idea reads "1 idea tested", not "1 ideas"', async
   let f = at({research_running: 1, research_queued: 0});
   f.S.me.user.autopilot = false;
   await f.viewResearch(); await flush(); await flush();
-  assert.match(f.root.querySelector('#rstatus .said').innerHTML, /researching now\. All time: <em>1<\/em> idea tested · <em>0<\/em> through every gate\./);
+  assert.match(f.root.querySelector('#rstatus .said').innerHTML, /researching now\. All time: <em>1<\/em> idea tested · <em>0<\/em> passed every test\./);
+  // "Gate" is the glossary word under the figure; the sentence says it plainly (walk 2026-11-01).
+  assert.doesNotMatch(f.root.querySelector('#rstatus .said').textContent, /gate/i);
   // "researching now — all time, …" set "now" against "all time" in one phrase: they are two sentences.
   assert.doesNotMatch(f.root.querySelector('#rstatus .said').innerHTML, /—|now[^.]*all time/i);
   f.clearTimers();
@@ -774,7 +777,7 @@ test('Tau: a new user\'s first idea reads "1 idea tested", not "1 ideas"', async
   f.S.me.user.autopilot = false;
   await f.viewResearch(); await flush(); await flush();
   // Nothing kept reads "kept none", not "kept 0" (walk 2026-10-31).
-  assert.match(f.root.querySelector('#rstatus .said').innerHTML, /tested <em>1<\/em> idea and kept none that beat every gate/);
+  assert.match(f.root.querySelector('#rstatus .said').innerHTML, /tested <em>1<\/em> idea and kept none that passed every test/);
   f.clearTimers();
 });
 
@@ -6427,6 +6430,7 @@ a11yCases({name: 'Tau', frontend, storageFor: m => ({getItem: k => m.get(k) ?? n
   source, strategyFrontend, detailStrategy, dashboard: emptyDashboard, fundsData: funds, apStatus: apOn});
 creditsCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, apStatus: apOn});
 multiFamilyCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn});
+firstQuarterHourCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn, fundsData: funds});
 timeTruthCases({name: 'Tau', billingPage, cardedBilling});
 midnightCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 dayClockCases({name: 'Tau', frontend, fundsData: funds, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});

@@ -388,7 +388,7 @@ window.TauPage('funds', (T) => {
         </section>`;
       const paperSec = `<section class="panel">
           <h2>Paper account (simulation)</h2>
-          <p class="lede" style="margin-bottom:14px">App-controlled practice money. Add funds, take some out, or reset to a fresh starting balance. Paper strategies trade the real market with it, so results are realistic, but nothing real is at stake.</p>
+          <p class="lede" style="margin-bottom:14px">App-controlled practice money. Add funds, take some out, or reset to a fresh starting balance. Paper strategies trade at real market prices with it, so results are realistic, but nothing real is at stake.</p>
           <form id="paper" class="amount">
             <label class="field"><span>Amount</span><input class="input" name="amount" type="number" min="1" max="100000" step="0.01" inputmode="decimal" required placeholder="500"></label>
             <button class="btn" data-kind="deposit" type="submit">Add</button>

@@ -705,7 +705,7 @@ export function perpsFrontendCases({name, frontend, detailStrategy, strategyFron
       await f.viewStrategies(); await flush();
       const html = f.root.querySelector('#slips').innerHTML;
       assert.equal(/See its research/.test(html), on, `autopilot ${on}, ${total} strategies`);
-      assert.equal(/Autopilot (keeps researching|is on\. The strategies it finds will land here)/.test(html), on);
+      assert.equal(/Autopilot (keeps researching|is on\. Each idea its research tests is listed here)/.test(html), on);
       // Not "is researching": the autopilot panel may be reporting a stale check-in or a billing pause.
       assert.doesNotMatch(html, /is researching/);
       if (!on) assert.match(html, /Go to Research|New session/);
