@@ -157,6 +157,7 @@ def test_the_boards_live_ready_count_is_the_deploy_boards_kept_checks(conn, book
     gate = agent.paper_evidence
     monkeypatch.setattr(agent, "paper_evidence", lambda cur, u, sid: calls.append(sid) or gate(cur, u, sid))
     paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
     agent._EDGE_P.clear()
     alone = _board(conn, book["user"])
     asked = sorted(calls)
@@ -186,3 +187,46 @@ def test_the_boards_live_ready_count_is_the_deploy_boards_kept_checks(conn, book
     assert calls == [] and kept == alone and kept["paper"]["total"]["live_ready"] == 1
     assert not [q for q in log if "FROM app_order_intents" in q]  # no demo record read: the gate wasn't asked
     paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
+
+
+def test_the_first_board_after_the_warm_up_reads_no_gate_and_a_moved_record_is_read_again(conn, book, frozen, monkeypatch):
+    """The startup warm-up keeps the board's live-ready answers beside the Deploy board's (keep_scoreboard_checks), so
+    the first board after it asks the gate for nothing and answers as it does with nothing kept; the board keeps what
+    it reads, so a second board doesn't ask either. A strategy whose record moved (a trade closed) is asked again,
+    and only it, and the board answers as it does with nothing kept."""
+    from app import repository as repo, server
+    from app.research import agent
+    from app.services import paper_checks
+
+    uid, user, sids = book["uid"], book["user"], book["sids"]
+    calls = []
+    gate = agent.paper_evidence
+    monkeypatch.setattr(agent, "paper_evidence", lambda cur, u, sid: calls.append(sid) or gate(cur, u, sid))
+    paper_checks.KEPT.clear()
+    paper_checks.GATE.clear()
+    agent._EDGE_P.clear()
+    alone = _board(conn, user)
+    assert sorted(calls) == sorted(sids[:2]) and _board(conn, user) == alone and len(calls) == 2
+    paper_checks.KEPT.clear()  # a fresh process, warmed at startup
+    paper_checks.GATE.clear()
+    server._ROADS.clear()
+    monkeypatch.setattr(server.repo, "paper_board_users", lambda cur, limit: [uid])
+    assert server.warm_deploy_boards() == 1
+    calls.clear()
+    assert _board(conn, user) == alone and calls == []
+    cur = conn.cursor()
+    ref = "sim:" + uuid.uuid4().hex
+    dep = next(d["id"] for d in repo.list_deployments(cur, uid) if d["strategy_id"] == sids[0] and d["mode"] == "paper")
+    pid = repo.insert_closed_position(cur, dep, uid, "paper", "KXBTC15M-MOVED-T1", "yes", 3, 0.4, 0.02, 1.0, 0.0, 1.78,
+                                      "settled", NOW, order_ref=ref, opened_at=NOW - timedelta(minutes=12), closed_at=NOW)
+    try:
+        moved = _board(conn, user)
+        assert calls == [sids[0]]
+        paper_checks.KEPT.clear()
+        paper_checks.GATE.clear()
+        assert _board(conn, user) == moved and sorted(calls[1:]) == sorted(sids[:2])
+    finally:
+        cur.execute("DELETE FROM app_positions WHERE id=%s", (pid,))
+        paper_checks.KEPT.clear()
+        paper_checks.GATE.clear()

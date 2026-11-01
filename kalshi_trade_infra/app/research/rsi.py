@@ -531,8 +531,9 @@ def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
     repo.list_deployments(include_stopped=True) and `trips_by` repo.paper_round_trips_by_strategy for
     every strategy those ran on paper, when the caller has already read them (the scoreboard, which
     hands the same rows to the tournament); without them they are read here. `kept_ready(strategy_id)`,
-    when given, is a display's kept answer to whether paper_evidence clears the strategy (the Deploy
-    board's, services.paper_checks), or None to ask paper_evidence as before."""
+    when given, is a display's answer to whether paper_evidence clears the strategy (the scoreboard's,
+    kept with the Deploy board's in services.paper_checks), or None to ask paper_evidence as before;
+    either failing counts the strategy as not live-ready."""
     from app.research import agent
     from app import repository as repo
     if all_deps is None:
@@ -554,14 +555,11 @@ def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
         # `net` is the same trips' P&L summed exactly (DECIMAL); below zero, paper_evidence's net check
         # refuses it whatever else it reads, so its five reads and its bootstrap are skipped.
         if trips >= agent.MIN_REALISTIC_PAPER_TRADES and net >= 0:
-            kept = kept_ready(sid) if kept_ready is not None else None
-            if kept is not None:
-                ready = kept
-            else:
-                try:
-                    ready = bool(agent.paper_evidence(cur, user_id, sid)["ready"])
-                except Exception:  # noqa: BLE001 - informational; never fail the scoreboard
-                    ready = False
+            try:
+                kept = kept_ready(sid) if kept_ready is not None else None
+                ready = kept if kept is not None else bool(agent.paper_evidence(cur, user_id, sid)["ready"])
+            except Exception:  # noqa: BLE001 - informational; never fail the scoreboard
+                ready = False
         rows.append({"strategy_id": sid, "family": family(d.get("market")), "playbook_id": playbooks.get(sid),
                      "round_trips": int(trips), "net_pnl": float(net),
                      "backtest_per_trade": float(oos.get("pnl") or 0) / n_bt if n_bt else None,

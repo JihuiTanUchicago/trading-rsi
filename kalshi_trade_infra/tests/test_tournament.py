@@ -355,3 +355,79 @@ def test_standings_read_the_deployments_once_and_every_strategys_trips_at_once(m
     assert [(r["strategy_id"], r["weight"]) for r in out["entrants"]] == [(a["strategy_id"], a["weight"]) for a in arms]
     assert out["entrants"][0]["net_pnl"] == round(sum(t["pnl"] for t in trips[4]), 4)
     assert out["pooled"] == tournament.pooled(every) and out["book"] == tournament.book(every, {})
+
+
+def _count_draws(monkeypatch):
+    """Record each real allocate (the draws) while allocate_kept runs on an empty store."""
+    monkeypatch.setattr(tournament, "_ALLOCATIONS", type(tournament._ALLOCATIONS)())
+    draws, real = [], tournament.allocate
+    monkeypatch.setattr(tournament, "allocate", lambda e, seed="": draws.append(seed) or real(e, seed))
+    return draws, real
+
+
+def test_allocate_kept_answers_exactly_what_allocate_computes(monkeypatch):
+    ents = [_entry(1, [0.25, -0.1, 0.35] * 12), _entry(2, [0.3, -0.3] * 20), _entry(3, [])]
+    seed = "7:%s" % NOW.strftime("%Y%m%d%H")
+    want = tournament.allocate(ents, seed=seed)
+    draws, _real = _count_draws(monkeypatch)
+    first = tournament.allocate_kept(ents, seed=seed)
+    again = tournament.allocate_kept(ents, seed=seed)
+    assert first == want and again == want and draws == [seed]  # the second answer is kept, not drawn again
+    assert repr(again) == repr(want)  # float for float, as computing it gives
+    # A caller changing its rows never changes the kept answer.
+    again[0]["weight"] = -1.0
+    first[1]["p_best"] = 2.0
+    assert repr(tournament.allocate_kept(ents, seed=seed)) == repr(want) and draws == [seed]
+
+
+def test_allocate_kept_draws_again_for_a_new_hour_or_a_changed_entrant(monkeypatch):
+    draws, real = _count_draws(monkeypatch)
+    ents = [_entry(1, [0.25, -0.1] * 12), _entry(2, [0.3, -0.3] * 20)]
+    tournament.allocate_kept(ents, seed="7:2026102512")
+    tournament.allocate_kept(ents, seed="7:2026102513")  # the hour turned
+    tournament.allocate_kept(ents, seed="8:2026102512")  # another user
+    moved = [_entry(1, [0.25, -0.1] * 12 + [0.4]), ents[1]]  # a trip closed
+    assert tournament.allocate_kept(moved, seed="7:2026102512") == real(moved, seed="7:2026102512")
+    redeployed = [ents[0], dict(ents[1], id=999)]  # the same strategy on a new deployment
+    assert tournament.allocate_kept(redeployed, seed="7:2026102512")[1]["deployment_id"] == 999
+    tournament.allocate_kept(ents[:1], seed="7:2026102512")  # an entrant left
+    monkeypatch.setattr(tournament, "DRAWS", 500)  # the draw settings are in the key too
+    tournament.allocate_kept(ents, seed="7:2026102512")
+    assert len(draws) == 7
+    tournament.allocate_kept(ents, seed="7:2026102513")
+    assert len(draws) == 8
+
+
+def test_allocate_kept_is_bounded(monkeypatch):
+    _count_draws(monkeypatch)
+    monkeypatch.setattr(tournament, "ALLOCATIONS_KEPT_MAX", 3)
+    monkeypatch.setattr(tournament, "DRAWS", 50)
+    ents = [_entry(1, [0.1, -0.1])]
+    for h in range(10):
+        tournament.allocate_kept(ents, seed="7:%02d" % h)
+    assert [k[0] for k in tournament._ALLOCATIONS] == ["7:07", "7:08", "7:09"]  # the oldest dropped first
+    tournament.allocate_kept(ents, seed="7:07")  # a hit is the most recently used
+    tournament.allocate_kept(ents, seed="7:10")
+    assert [k[0] for k in tournament._ALLOCATIONS] == ["7:09", "7:07", "7:10"]
+
+
+def test_standings_keeps_its_allocation_and_rebalance_draws_its_own(monkeypatch):
+    from app import repository
+    deps = [dict(_entry(1, []), mode="paper", status="running", updated_at=None)]
+    trips = {1: [{"pnl": 1.0, "ticker": "KXSOL15M-26OCT251200-00", "opened_at": NOW - timedelta(hours=2),
+                  "closed_at": NOW - timedelta(hours=1)}]}
+    monkeypatch.setattr(repository, "list_deployments", lambda cur, uid, include_stopped=False: deps)
+    monkeypatch.setattr(repository, "paper_round_trips_by_strategy", lambda cur, uid, sids: trips)
+    monkeypatch.setattr(repository, "paper_round_trips", lambda cur, uid, sid: trips.get(sid, []))
+    monkeypatch.setattr(tournament, "weight_history", lambda cur, uid: {})
+    monkeypatch.setattr(tournament, "last_snapshot_ts", lambda cur, uid: None)
+    monkeypatch.setattr(tournament, "is_probation", lambda cur, d: False)
+    saved = []
+    monkeypatch.setattr(tournament, "save_snapshot", lambda cur, uid, ts, rows: saved.append(rows))
+    monkeypatch.setattr(tournament, "_now", lambda: NOW)
+    draws, _real = _count_draws(monkeypatch)
+    first = tournament.standings(None, 7)
+    assert tournament.standings(None, 7) == first and draws == ["7:2026102512"]
+    tournament.rebalance(None, {"id": 7, "autopilot": 1})
+    assert draws == ["7:2026102512"] * 2 and len(saved) == 1  # the hourly rebalance draws for itself
+    assert [(a["strategy_id"], a["p_best"]) for a in saved[0]] == [(r["strategy_id"], r["p_best"]) for r in first["entrants"]]

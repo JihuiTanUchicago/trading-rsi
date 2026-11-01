@@ -17,7 +17,9 @@ paper strategies, and it ran on the request every five minutes.
 
 Display only: the live gate (agent._proven_on_paper) and Road to live call paper_evidence themselves,
 and the answer here is that function's, unchanged. The research scoreboard's live-ready count takes a
-kept answer when there is one (kept), so the two displays agree and the board skips the gate's reads.
+kept answer when there is one, and keeps the gate's answer when it reads it (live_ready, GATE), so the
+two displays agree, a Deploy board after it reads only the candidate check, and a scoreboard after the
+startup warm-up (which keeps the scoreboard's answers too) reads no gate.
 """
 from __future__ import annotations
 
@@ -36,6 +38,9 @@ MAX_QUEUED = 256  # refreshes waiting for the worker; past this a lapsed answer 
 WORKER_IDLE = 60.0  # seconds the worker waits for more before it exits (started again when needed)
 
 KEPT: Dict[Tuple, Tuple[float, List[str]]] = {}  # (user, strategy, *record) -> (read at, failing)
+# The same key -> (read at, paper_evidence's failing checks) the scoreboard read (live_ready), without the
+# gatekeeper's candidate check: what `failing` adds that one read to. Bounded and forgotten as KEPT is.
+GATE: Dict[Tuple, Tuple[float, List[str]]] = {}
 _GEN: Dict[int, int] = {}  # user -> forget count: a read started before a forget is not kept
 _PENDING: set = set()
 _QUEUE: "queue.Queue[Tuple[Tuple, int]]" = queue.Queue(maxsize=MAX_QUEUED)
@@ -47,33 +52,64 @@ def failing_checks(cur, uid: int, sid: int) -> List[str]:
     """The checks refusing the strategy: "candidate" when the gatekeeper hasn't promoted it, then
     agent.paper_evidence's failing checks in gate order. Empty means its record clears every check."""
     ev = agent.paper_evidence(cur, uid, sid)
-    return ([] if agent._is_deployment_candidate(cur, sid) else ["candidate"]) + [
-        k for k, ok in ev["checks"].items() if not ok]
+    return _with_candidate(_gate_failing(ev), agent._is_deployment_candidate(cur, sid))
+
+
+def _gate_failing(ev: Dict) -> List[str]:
+    return [k for k, ok in ev["checks"].items() if not ok]
+
+
+def _with_candidate(gate: List[str], candidate: bool) -> List[str]:
+    return ([] if candidate else ["candidate"]) + list(gate)
 
 
 def failing(cur, uid: int, sid: int, record: Tuple) -> List[str]:
-    """failing_checks for the strategy whose paper record is `record`, kept as the module says."""
+    """failing_checks for the strategy whose paper record is `record`, kept as the module says. When
+    the scoreboard has just read the gate for this record (GATE, fresh), only the gatekeeper's
+    candidate check is read here, and the answer is kept as of the gate's read."""
     val = kept(uid, sid, record)
     if val is not None:
         return val
     key = (int(uid), int(sid)) + tuple(record)
     gen = _GEN.get(key[0], 0)
-    val = failing_checks(cur, uid, sid)
-    _keep(key, val, gen)
+    hit = GATE.get(key)
+    if hit is not None and time.time() - hit[0] < FAILING_TTL:
+        val, at = _with_candidate(hit[1], agent._is_deployment_candidate(cur, sid)), hit[0]
+    else:
+        val, at = failing_checks(cur, uid, sid), None
+    _keep(key, val, gen, at=at)
     return list(val)
 
 
 def kept(uid: int, sid: int, record: Tuple) -> Optional[List[str]]:
     """The answer `failing` would serve for this record without reading the gate (kept and fresh, or
-    lapsed and queued for the worker), else None. For another display of the same answer (the
-    research scoreboard's live-ready count), which reads the gate itself when nothing is kept."""
+    lapsed and queued for the worker), else None."""
     key = (int(uid), int(sid)) + tuple(record)
     hit = KEPT.get(key)
-    if hit is not None:
-        age = time.time() - hit[0]
-        if age < FAILING_TTL or (age < STALE_MAX and _refresh_later(key)):
-            return list(hit[1])
+    if hit is not None and _servable(key, hit[0]):
+        return list(hit[1])
     return None
+
+
+def live_ready(cur, uid: int, sid: int, record: Tuple) -> bool:
+    """paper_evidence's `ready` for the strategy whose paper record is `record`, for another display of
+    the same answer (the research scoreboard's live-ready count, and the startup warm-up that keeps
+    it). The Deploy board's kept answer serves it as `kept` would: ready when it lists nothing but
+    "candidate", which `ready` never asked. Else an answer this read kept before (GATE), served the
+    same way (fresh, or lapsed and queued for the worker, which keeps the Deploy board's whole answer).
+    Else the gate is read here, its `ready` returned as it is and its failing checks kept in GATE, with
+    no read of the candidate check the scoreboard doesn't need."""
+    val = kept(uid, sid, record)
+    if val is not None:
+        return not [k for k in val if k != "candidate"]
+    key = (int(uid), int(sid)) + tuple(record)
+    hit = GATE.get(key)
+    if hit is not None and _servable(key, hit[0]):
+        return not hit[1]
+    gen = _GEN.get(key[0], 0)
+    ev = agent.paper_evidence(cur, uid, sid)
+    _keep(key, _gate_failing(ev), gen, store=GATE)
+    return bool(ev["ready"])
 
 
 def forget(uid: int, strategy_id: Optional[int] = None) -> None:
@@ -82,8 +118,9 @@ def forget(uid: int, strategy_id: Optional[int] = None) -> None:
     uid = int(uid)
     with _LOCK:
         _GEN[uid] = _GEN.get(uid, 0) + 1
-        for key in [k for k in KEPT if k[0] == uid and (strategy_id is None or k[1] == int(strategy_id))]:
-            del KEPT[key]
+        for store in (KEPT, GATE):
+            for key in [k for k in store if k[0] == uid and (strategy_id is None or k[1] == int(strategy_id))]:
+                del store[key]
 
 
 def start() -> None:
@@ -91,13 +128,20 @@ def start() -> None:
     _BACKGROUND["on"] = True
 
 
-def _keep(key: Tuple, val: List[str], gen: int) -> None:
+def _servable(key: Tuple, at: float) -> bool:
+    """An answer read at `at` is served while fresh, or lapsed (under STALE_MAX) once queued for the worker."""
+    age = time.time() - at
+    return age < FAILING_TTL or (age < STALE_MAX and _refresh_later(key))
+
+
+def _keep(key: Tuple, val: List[str], gen: int, store: Optional[Dict] = None, at: Optional[float] = None) -> None:
+    store = KEPT if store is None else store
     with _LOCK:
         if _GEN.get(key[0], 0) != gen:
             return  # the user changed something since this read began
-        if len(KEPT) >= MAX_ENTRIES:
-            KEPT.clear()
-        KEPT[key] = (time.time(), list(val))
+        if len(store) >= MAX_ENTRIES:
+            store.clear()
+        store[key] = (time.time() if at is None else at, list(val))
 
 
 def _refresh_later(key: Tuple) -> bool:

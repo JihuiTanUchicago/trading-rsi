@@ -704,17 +704,37 @@ def _board_ledger_spend(cur, uid: int, board: Dict) -> None:
             row["cost_usd"] = credit_usd(by_family.get(fam, Decimal(0)))
 
 
-def _kept_live_ready(uid: int, trips_by: Dict[int, List[Dict]]):
-    """The board's live-ready answer for a strategy from the Deploy board's kept checks (services.paper_checks,
-    keyed by the same paper record the board counts from these trips): True when they list nothing but the
-    gatekeeper's candidate check (which live-ready never asked), None when nothing is kept, so the paper
-    outcomes ask agent.paper_evidence as before. The gate's ~5 reads and its bootstrap per strategy were
-    most of a cold board, and the Deploy board and the startup warm-up already hold the same answers."""
-    def ready(sid: int) -> Optional[bool]:
+def _kept_live_ready(cur, uid: int, trips_by: Dict[int, List[Dict]]):
+    """The board's live-ready answer for a strategy, kept with the Deploy board's checks (services.paper_checks,
+    keyed by the same paper record the board counts from these trips): a kept answer when there is one, else
+    agent.paper_evidence's, read and kept there so the next board and the Deploy board take it. The gate's ~5
+    reads and its bootstrap per strategy were most of a cold board; the Deploy board, the startup warm-up
+    (keep_scoreboard_checks) and the board's own earlier reads hold the same answers."""
+    def ready(sid: int) -> bool:
         rec = _paper_record(trips_by.get(sid, []))
-        failing = paper_checks.kept(uid, sid, (rec["trades"], rec["events"], rec["span_hours"]))
-        return None if failing is None else not [k for k in failing if k != "candidate"]
+        return paper_checks.live_ready(cur, uid, sid, (rec["trades"], rec["events"], rec["span_hours"]))
     return ready
+
+
+def _scoreboard_paper_book(cur, uid: int):
+    """The deployments (stopped ones included) and every paper strategy's round trips: what the board's
+    paper outcomes and its tournament both read."""
+    from app.research import tournament
+    deps = repo.list_deployments(cur, uid, include_stopped=True)
+    return deps, repo.paper_round_trips_by_strategy(cur, uid, tournament.paper_strategy_ids(deps))
+
+
+def keep_scoreboard_checks(cur, uid: int) -> None:
+    """Keep the live-ready answers the research scoreboard's paper outcomes ask for (services.paper_checks),
+    for the startup warm-up beside the Deploy board's: the same reads and the same strategies the board
+    counts (stopped ones and those short of the Deploy board's event and hour counts included), so a
+    user's first board after a deploy reads no gate for them. Display only; the answer is the gate's. The
+    tournament's standings too, so the hour's allocation is kept (tournament.allocate_kept) and a first
+    board in the same hour doesn't draw it."""
+    from app.research import rsi, tournament
+    deps, trips_by = _scoreboard_paper_book(cur, uid)
+    rsi.paper_outcomes(cur, uid, deps, trips_by, _kept_live_ready(cur, uid, trips_by))
+    tournament.standings(cur, uid, deps, trips_by)
 
 
 def _research_scoreboard(cur, uid: int, days: int) -> Dict:
@@ -738,13 +758,12 @@ def _research_scoreboard(cur, uid: int, days: int) -> Dict:
     # each reads for itself as before (and fails into its own None).
     deps = trips_by = None
     try:
-        deps = repo.list_deployments(cur, uid, include_stopped=True)
-        trips_by = repo.paper_round_trips_by_strategy(cur, uid, tournament.paper_strategy_ids(deps))
+        deps, trips_by = _scoreboard_paper_book(cur, uid)
     except Exception:  # noqa: BLE001 - informational
         deps = trips_by = None
     try:
         board["paper"] = rsi.paper_outcomes(cur, uid, deps, trips_by,
-                                            _kept_live_ready(uid, trips_by) if trips_by is not None else None)
+                                            _kept_live_ready(cur, uid, trips_by) if trips_by is not None else None)
     except Exception:  # noqa: BLE001 - informational; the research half of the board still renders
         board["paper"] = None
     try:

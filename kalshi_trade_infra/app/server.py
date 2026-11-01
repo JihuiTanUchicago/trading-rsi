@@ -306,6 +306,7 @@ from app.web.routes.research import (  # noqa: F401  (moved; server.py keeps the
     dig_deeper,
     example_run,
     get_run,
+    keep_scoreboard_checks,
     list_runs,
     models,
     pause_run,
@@ -366,8 +367,10 @@ def warm_deploy_boards(limit: int = WARM_BOARD_USERS, budget: float = WARM_BOARD
     after a deploy doesn't run every paper strategy's gate bootstrap cold (agent._paper_edge_p_value
     keeps it per process; ~6s for a busy account's nine). It fills the same caches a request would
     (paper_checks' answers, the bootstrap memo), on one connection of its own, a user at a time with a
-    pause between, and stops at `limit` users or `budget` seconds. A failure is logged and skipped;
-    the requests then read as they did. Returns the boards read."""
+    pause between, and stops at `limit` users or `budget` seconds. Each user's research scoreboard
+    live-ready answers are kept the same way (keep_scoreboard_checks: its stopped strategies and those
+    the board doesn't check yet), so their first scoreboard reads no gate either. A failure is logged and
+    skipped; the requests then read as they did. Returns the boards read."""
     conn, done, t0 = None, 0, time.time()
     try:
         conn = get_db_conn()
@@ -381,6 +384,10 @@ def warm_deploy_boards(limit: int = WARM_BOARD_USERS, budget: float = WARM_BOARD
                 done += 1
             except Exception as e:  # noqa: BLE001 - this board is read in its request instead
                 _log_line("[app] warming user %d's Deploy board failed (%s)" % (uid, type(e).__name__))
+            try:
+                keep_scoreboard_checks(cur, uid)
+            except Exception as e:  # noqa: BLE001 - the scoreboard reads these in its request instead
+                _log_line("[app] warming user %d's scoreboard checks failed (%s)" % (uid, type(e).__name__))
             time.sleep(0.05)  # let requests in between
     except Exception as e:  # noqa: BLE001 - the boards are read in their requests instead
         _log_line("[app] warming the Deploy boards failed (%s)" % type(e).__name__)
