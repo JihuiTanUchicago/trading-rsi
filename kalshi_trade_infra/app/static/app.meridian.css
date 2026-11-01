@@ -264,6 +264,14 @@ th .info { vertical-align: 0; }
 .bell-menu:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .bell-sum { margin: 0; padding: 8px 9px; font-size: 12.5px; line-height: 1.4; color: var(--ink-2); border-bottom: 1px solid var(--rule); text-transform: none; letter-spacing: normal; white-space: normal; }
 .bell-empty { padding: 14px 9px; font-size: 12.5px; color: var(--ink-3); text-transform: none; letter-spacing: normal; white-space: normal; }
+/* Show older notices, under the list: a full-width control (44px on a phone), and a line above it only when a read
+   failed (its live region stays in place, empty and flat, so the failure is announced). */
+.bell-foot .bell-older { padding-bottom: 8px; }
+.bell-more-note { margin: 0; padding: 10px 9px 4px; font-size: 12px; line-height: 1.4; color: var(--ink-2); text-transform: none; letter-spacing: normal; white-space: normal; }
+.bell-more-note:empty { padding: 0; }
+.bell-foot .bell-more { display: block; width: calc(100% - 18px); margin: 4px 9px 9px; white-space: normal; }
+@media (max-width: 560px) { .bell-foot .bell-more { min-height: 44px; } }
+.bell-end { margin: 0; }
 /* A refresh that failed with a list up: one quiet line above the list, never an alert. */
 .bell-stale { margin: 0; padding: 6px 9px; font-size: 12px; line-height: 1.4; color: var(--ink-3); border-bottom: 1px solid var(--rule); text-transform: none; letter-spacing: normal; white-space: normal; }
 .bell-again, .stale-again { font: inherit; color: var(--ink-2); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }

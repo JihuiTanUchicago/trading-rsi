@@ -441,6 +441,103 @@ export function bellCases({name, frontend, detailStrategy}) {
     }
   });
 
+  // "Older notices aren't listed here" led nowhere: past the newest 20 lines an older notice couldn't be read at all.
+  test(`${name}: Show older notices reads the next page by cursor, adds its lines grouped, focuses the first, says when none are left or a read failed, and marks nothing read`, async () => {
+    const at = ago(3 * 86400e3);
+    const newest = Array.from({length: 2}, (_, i) => ({id: 300 - i, kind: 'deployed', body: `New ${i}.`, link: `/strategies/${300 - i}`,
+      created_at: ago((i + 1) * 60e3), read: false, more: 0}));
+    const pages = {
+      301: () => response({items: [
+        {id: 150, kind: 'comment', body: 'Ana replied to your post.', link: '/community#post-9', created_at: at, read: true, more: 2, alike: true, from: [], from_more: 0},
+        {id: 140, kind: 'passed', body: '“Fade” passed the paper forward gate.', link: '/strategies/6', created_at: at, read: true, more: 0}],
+      older: true, next_before: 139}),
+      139: () => (failing ? response({error: 'Traceback (most recent call last)'}, 500)
+        : response({items: [{id: 20, kind: 'share', body: 'An old notice.', link: null, created_at: at, read: true, more: 0}], older: false, next_before: null})),
+    };
+    let failing = false;
+    const olderReads = (f) => f.requests.filter(({path}) => path.startsWith('/api/notifications?')).map(({path}) => path);
+    const marks = (f) => f.requests.filter(({path}) => path === '/api/notifications/read').length;
+    const f = dashboard({unread: 3, unread_listed: 2, older: true, next_before: 301, items: newest}, (path) => {
+      const m = /^\/api\/notifications\?before=(\d+)$/.exec(path);
+      return m ? pages[m[1]]() : undefined;
+    });
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const wrap = f.root.querySelector('.bell-wrap'), list = wrap.querySelector('#bell-list');
+    await wrap.querySelector('.bell-trig').onclick({stopPropagation() {}}); await settle();
+    assert.equal(marks(f), 1, 'opening marks read, as before');
+    assert.equal(list.querySelector('.bell-older').textContent, 'Older notices aren’t listed here, including 1 new one.');
+    let more = list.querySelector('[data-bell-more]');
+    assert.equal(more.tagName, 'BUTTON'); assert.equal(more.getAttribute('type'), 'button');
+    assert.equal(more.textContent, 'Show older notices');
+    assert.ok(!Object.values(more.attributes).some((v) => /301|139/.test(v)), 'the cursor is never on the page');
+    assert.deepEqual(olderReads(f), [], 'nothing older is read until asked');
+
+    const press = async () => { list.listeners.get('click')({target: list.querySelector('[data-bell-more]')}); await settle(); };
+    await press();
+    assert.deepEqual(olderReads(f), ['/api/notifications?before=301']);
+    const lines = () => list.children.filter((n) => n.classes.has('notif'));
+    assert.deepEqual(lines().map((n) => n.textContent.replace(/<[^>]*>/g, '').split('.')[0]), ['New: New 0', 'New: New 1', 'Ana replied to your post', '“Fade” passed the paper forward gate']);
+    assert.match(lines()[2].innerHTML, /<span class="notif-more">and 2 more like this<\/span>/, 'grouped as the first page is');
+    assert.equal(lines()[2].getAttribute('href'), '/community#post-9');
+    assert.equal(list.children.at(-1).classes.has('bell-foot'), true, 'the new lines go above the control');
+    assert.equal(lines()[2].focusOptions && lines()[2].focusOptions.preventScroll, true, 'focus goes to the first line added');
+    more = list.querySelector('[data-bell-more]');
+    assert.equal(more.textContent, 'Show older notices'); assert.equal(more.getAttribute('aria-disabled'), null);
+    assert.ok(list.querySelector('.bell-older').removed, 'the note that they are not listed goes once they are');
+    assert.equal(marks(f), 1, 'reading an older page marks nothing read');
+
+    // A read that fails says so plainly, with Try again on the control; nothing reads again on its own.
+    failing = true;
+    await press();
+    assert.equal(list.querySelector('.bell-more-note').textContent, 'Older notices didn’t load just now.');
+    assert.equal(list.querySelector('.bell-more-note').getAttribute('role'), 'status');
+    assert.equal(more.textContent, 'Try again');
+    assert.doesNotMatch(list.querySelector('.bell-foot').textContent + more.textContent, /Traceback|500|undefined/);
+    f.shiftClock(5 * 60e3); [...f.intervals.values()].forEach((tick) => tick()); f.elapse(60e3); await settle();
+    assert.deepEqual(olderReads(f), ['/api/notifications?before=301', '/api/notifications?before=139']);
+    failing = false;
+    await press();
+    assert.equal(olderReads(f).length, 3);
+    const last = lines().at(-1);
+    assert.match(last.textContent, /An old notice\./); assert.equal(last.tagName, 'P');
+    assert.equal(last.getAttribute('tabindex'), '-1', 'a line with no page still takes the focus');
+    assert.equal(last.focusOptions && last.focusOptions.preventScroll, true);
+    assert.equal(list.querySelector('.bell-end').textContent, 'No older notices.');
+    assert.equal(list.querySelector('[data-bell-more]'), null, 'none left: no control');
+    assert.equal(marks(f), 1);
+    f.clearTimers && f.clearTimers();
+  });
+
+  test(`${name}: a list painted afresh while an older page reads drops that page; a server that sends no cursor shows the note alone`, async () => {
+    let answer;
+    const f = dashboard({unread: 0, older: true, next_before: 77, items: [{id: 80, kind: 'deployed', body: 'Kept.', link: '/strategies/1', created_at: ago(60e3), read: true, more: 0}]},
+      (path) => (path.startsWith('/api/notifications?before=') ? new Promise((resolve) => { answer = resolve; }) : undefined));
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const wrap = f.root.querySelector('.bell-wrap'), list = wrap.querySelector('#bell-list'), trig = wrap.querySelector('.bell-trig');
+    await trig.onclick({stopPropagation() {}}); await settle();
+    const more = list.querySelector('[data-bell-more]');
+    list.listeners.get('click')({target: more}); await settle();
+    assert.equal(more.textContent, 'Loading older notices…'); assert.equal(more.getAttribute('aria-disabled'), 'true');
+    list.listeners.get('click')({target: more}); await settle();  // a second press while it reads asks nothing more
+    assert.equal(f.requests.filter(({path}) => path.startsWith('/api/notifications?before=')).length, 1);
+    await trig.onclick({stopPropagation() {}}); f.shiftClock(20e3);
+    await trig.onclick({stopPropagation() {}}); await settle();  // reopened later: the list is read and painted afresh
+    answer(response({items: [{id: 70, kind: 'deployed', body: 'Stale page.', link: '/strategies/2', created_at: ago(9e6), read: true, more: 0}], older: false, next_before: null}));
+    await settle();
+    assert.doesNotMatch(list.children.map((n) => n.textContent).join(' '), /Stale page/);
+    assert.ok(list.querySelector('[data-bell-more]'), 'the fresh list offers its own control');
+    f.clearTimers && f.clearTimers();
+
+    const g = dashboard({unread: 0, older: true, items: [{id: 80, kind: 'deployed', body: 'Kept.', link: '/strategies/1', created_at: ago(60e3), read: true, more: 0}]});
+    g.location.pathname = '/';
+    await g.render(); await settle();
+    assert.equal(g.root.querySelector('#bell-list .bell-older').textContent, 'Older notices aren’t listed here.');
+    assert.equal(g.root.querySelector('[data-bell-more]'), null);
+    g.clearTimers && g.clearTimers();
+  });
+
   test(`${name}: read in another tab, this tab's bell agrees when the tab comes back or its window is focused, by a read only`, async () => {
     // Opening the bell in one tab marks the list read on the server; the other tab said "2 unread" until its next
     // minute's tick, also right after the reader came back to it (walk 2026-10-31).
