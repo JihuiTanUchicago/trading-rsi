@@ -203,10 +203,7 @@ def test_the_billing_page_reads_seven_statements(monkeypatch):
 
 
 def test_the_receipt_names_the_model_not_its_id(monkeypatch):
-    monkeypatch.setattr(server.repo, "get_user", lambda cur, uid: {"email": "t@example.invalid"})
-    monkeypatch.setattr(server.repo, "credit_balance", lambda cur, uid: 9.32)
-    monkeypatch.setattr(server.repo, "credit_spent_total", lambda cur, uid: 0.68)
-    monkeypatch.setattr(server.repo, "credit_rows", lambda cur, uid, limit: _rows())
+    monkeypatch.setattr(server.repo, "credit_history", lambda cur, uid, limit: {"rows": _rows(), "balance": 9.32, "spent": 0.68})
     _kind, _name, _ctype, body = server.billing_receipt(_ctx())
     rows = list(csv.reader(io.StringIO(body)))
     table = rows[rows.index(billing_routes.RECEIPT_HEADER) + 1:]
@@ -218,17 +215,14 @@ def test_the_receipt_names_the_model_not_its_id(monkeypatch):
 
 def test_the_receipt_says_each_card_charge_its_reference_and_each_debits_session(monkeypatch):
     from decimal import Decimal
-    monkeypatch.setattr(server.repo, "get_user", lambda cur, uid: {"email": "t@example.invalid"})
-    monkeypatch.setattr(server.repo, "credit_balance", lambda cur, uid: 9.32)
-    monkeypatch.setattr(server.repo, "credit_spent_total", lambda cur, uid: 0.68)
-    monkeypatch.setattr(server.repo, "credit_rows", lambda cur, uid, limit: [
+    monkeypatch.setattr(server.repo, "credit_history", lambda cur, uid, limit: {"rows": [
         {"kind": "usage", "amount_usd": Decimal("-0.25"), "memo": "Agent usage · us.anthropic.claude-opus-4-6-v1",
          "created_at": datetime(2026, 10, 25, 9), "run_id": 41, "stripe_ref": None, "run_kind": "research", "run_brief": 0},
         {"kind": "autoreload", "amount_usd": Decimal("25"), "memo": "Auto-reload $25", "created_at": datetime(2026, 10, 25, 8),
          "run_id": None, "stripe_ref": "pi_3Reload", "run_kind": None, "run_brief": None},
         {"kind": "bonus", "amount_usd": Decimal("20"), "memo": "Welcome credits", "created_at": datetime(2026, 10, 24),
          "run_id": None, "stripe_ref": None, "run_kind": None, "run_brief": None},
-    ])
+    ], "balance": 9.32, "spent": 0.68})
     # Run 41 is the user's third research session: the receipt says "Session 3", as the Research list does,
     # never the global run id.
     numbers = []
@@ -249,15 +243,12 @@ def test_the_receipts_type_column_says_each_line_in_billings_words_never_the_led
     import re
     from decimal import Decimal
     from pathlib import Path
-    monkeypatch.setattr(server.repo, "get_user", lambda cur, uid: {"email": "t@example.invalid"})
-    monkeypatch.setattr(server.repo, "credit_balance", lambda cur, uid: 9.32)
-    monkeypatch.setattr(server.repo, "credit_spent_total", lambda cur, uid: 0.68)
     line = lambda kind, amount, memo: {"kind": kind, "amount_usd": Decimal(amount), "memo": memo, "created_at": datetime(2026, 10, 25),
                                        "run_id": None, "stripe_ref": None, "run_kind": None, "run_brief": None}
-    monkeypatch.setattr(server.repo, "credit_rows", lambda cur, uid, limit: [
+    monkeypatch.setattr(server.repo, "credit_history", lambda cur, uid, limit: {"rows": [
         line("usage", "-0.25", "Agent usage · us.anthropic.claude-opus-4-6-v1"), line("autoreload", "25", "Auto-reload $25"),
         line("topup", "10", "Added $10 credits"), line("admin_grant", "5", "Admin grant by someone"), line("bonus", "20", "Welcome credits"),
-        line("promo_credit", "3", "Promo")])
+        line("promo_credit", "3", "Promo")], "balance": 9.32, "spent": 0.68})
     _kind, _name, _ctype, body = server.billing_receipt(_ctx())
     rows = list(csv.reader(io.StringIO(body)))
     table = rows[rows.index(billing_routes.RECEIPT_HEADER) + 1:]

@@ -159,10 +159,7 @@ def test_a_usage_memo_not_written_by_charge_usage_says_what_the_line_was_for():
 
 
 def test_the_receipt_never_names_staff_or_a_model_id(monkeypatch):
-    monkeypatch.setattr(repo, "get_user", lambda cur, uid: {"email": "trader@example.invalid"})
-    monkeypatch.setattr(repo, "credit_balance", lambda cur, uid: 32.5)
-    monkeypatch.setattr(repo, "credit_spent_total", lambda cur, uid: 0.5)
-    monkeypatch.setattr(repo, "credit_rows", lambda cur, uid, limit: _ledger())
+    monkeypatch.setattr(repo, "credit_history", lambda cur, uid, limit: {"rows": _ledger(), "balance": 32.5, "spent": 0.5})
     monkeypatch.setattr(repo, "research_session_numbers", lambda cur, uid: {3: 1})
     _kind, _name, _ctype, body = billing_routes.billing_receipt(_ctx())
     rows = list(csv.reader(io.StringIO(body)))

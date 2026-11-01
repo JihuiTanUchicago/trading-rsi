@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
@@ -404,22 +404,29 @@ def receipt_type(kind: Optional[str]) -> str:
     return RECEIPT_TYPE.get(kind or "") or (kind or "").replace("_", " ").strip().capitalize()
 
 
+RECEIPT_MAX_ROWS = 100000  # the receipt's ledger lines, newest first: every row a real account has
+
+
 def billing_receipt(ctx: Ctx):
     """Full Credits & Usage history as a downloadable CSV receipt. Memos can carry run and strategy
-    names, so every cell is formula-safe."""
+    names, so every cell is formula-safe. The account is the session's own user row (its email), and the balance
+    and total spent are summed from the same read of the ledger as the lines (repo.credit_history), so they always
+    agree with them: one statement where four read the user, the two totals and the lines."""
     import io
     cur = ctx.cur
-    user = repo.get_user(cur, ctx.uid) or {}
+    history = repo.credit_history(cur, ctx.uid, RECEIPT_MAX_ROWS)  # full history, newest first
+    ledger = history["rows"]
+    balance = history["balance"] if history["balance"] is not None else repo.credit_balance(cur, ctx.uid)
+    spent = history["spent"] if history["spent"] is not None else repo.credit_spent_total(cur, ctx.uid)
     buf = io.StringIO()
     row = _csv_rows(buf)
     row(["Tau - Credits & Usage receipt"])
-    row(["Account", user.get("email", "")])
+    row(["Account", (ctx.user or {}).get("email", "")])
     row(["Generated (UTC)", repo.now_utc().replace(microsecond=0).isoformat()])
-    row(["Current balance (USD)", _usd4(repo.credit_balance(cur, ctx.uid))])
-    row(["Total spent (USD)", _usd4(repo.credit_spent_total(cur, ctx.uid))])
+    row(["Current balance (USD)", _usd4(balance)])
+    row(["Total spent (USD)", _usd4(spent)])
     row([])
     row(RECEIPT_HEADER)
-    ledger = repo.credit_rows(cur, ctx.uid, 100000)  # full history, newest first
     # A research debit names its session as the Research list does ("Session 3", the user's own count),
     # never the global run id; a check-in or chat debit says what it was in its memo.
     seq = repo.research_session_numbers(cur, ctx.uid) if any(
@@ -535,12 +542,19 @@ def trades_csv(ctx: Ctx):
     row = _csv_rows(buf)
     row(TRADES_CSV_HEADER)
     names = _strategy_names(rows[:TRADES_CSV_MAX_ROWS])
+    # A close in words reads only the trade's close reason and its entry and exit prices (_close_said), and a book's
+    # thousands of trades share a few dozen of those: each is worded once per file.
+    said: Dict[Tuple, str] = {}
     for r in reversed(rows[:TRADES_CSV_MAX_ROWS]):  # oldest first, the order a reader checks a book in
+        key = (r.get("close_reason"), r.get("entry_price"), r.get("exit_price"))
+        close = said.get(key)
+        if close is None:
+            close = said[key] = _close_said(r)
         row([
             _iso_utc(r["closed_at"]), _iso_utc(r["opened_at"]), r["mode"],
             _strategy_cell(names, r), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
             _dec(r["entry_price"]), _dec(r["exit_price"]), _dec(r["entry_fee"]), _dec(r["exit_fee"]),
-            _dec(r["pnl"]), _close_said(r)])
+            _dec(r["pnl"]), close])
     if cut:
         row(["# Only the newest %d trades are in this file; older ones are not." % TRADES_CSV_MAX_ROWS])
     fname = "tau-trades-%s-%s.csv" % (mode, repo.now_utc().strftime("%Y%m%d"))

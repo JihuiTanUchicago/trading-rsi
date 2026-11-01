@@ -1,7 +1,7 @@
 """Credits ledger and Stripe customer SQL (usage billing)."""
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.adapters.db.sql import now_utc
@@ -40,6 +40,46 @@ def credit_rows(cur, user_id: int, limit: int = 50) -> List[Dict]:
         (user_id, limit),
     )
     return cur.fetchall()
+
+
+# The receipt's columns but the memo, packed in one column as text: pymysql parsing a DATETIME and a DECIMAL per row, and
+# seven columns' framing, was most of a 9,000-row receipt. The time is what str() of the DATETIME printed, the amount the
+# DECIMAL's own text, '' a NULL. Only the Stripe reference, last, could hold a comma (the rest are numbers, times and the
+# code's own kind names), and the split stops before it. The memo, free text, stays its own column. %% because the SQL
+# goes through pymysql's %s.
+_HISTORY_PACKED = ("CONCAT_WS(',', DATE_FORMAT(l.created_at, '%%Y-%%m-%%d %%H:%%i:%%s'), l.amount_usd, "
+                   "COALESCE(l.run_id, ''), COALESCE(r.brief, ''), l.kind, COALESCE(r.kind, ''), COALESCE(l.stripe_ref, ''))")
+
+
+def credit_history(cur, user_id: int, limit: int) -> Dict:
+    """The credits receipt's ledger in one read: {"rows": credit_rows(cur, user_id, limit)'s rows, newest first, with
+    created_at as its text ("2026-10-25 09:00:00", what str() of the DATETIME gives) and amount_usd as the DECIMAL's
+    own text ("-0.123400"); "balance": credit_balance and "spent": credit_spent_total (all time)}. The two totals
+    are the exact decimal sums of the rows read, the same figures their own reads return, so the receipt's balance
+    is the sum of its own lines. When the history reaches `limit` (it may be cut) they are None and the caller
+    reads them."""
+    cur.execute(
+        "SELECT l.memo, " + _HISTORY_PACKED + " AS v "
+        "FROM app_credit_ledger l LEFT JOIN app_agent_runs r ON r.id = l.run_id "
+        "WHERE l.user_id=%s ORDER BY l.id DESC LIMIT %s",
+        (user_id, int(limit)),
+    )
+    rows = list(cur.fetchall())
+    balance, usage = Decimal(0), Decimal(0)
+    with localcontext() as ctx:
+        ctx.prec = 60  # exact: DECIMAL(14,6) sums never round
+        for r in rows:
+            at, amount, run_id, brief, kind, run_kind, ref = r.pop("v").split(",", 6)
+            r.update(kind=kind, created_at=at, amount_usd=amount, run_id=int(run_id) if run_id else None,
+                     stripe_ref=ref or None, run_kind=run_kind or None, run_brief=int(brief) if brief else None)
+            exact = Decimal(amount)
+            balance += exact
+            if kind == "usage":
+                usage += exact
+    if len(rows) >= limit:
+        return {"rows": rows, "balance": None, "spent": None}
+    # COALESCE(-SUM(...), 0): no usage (or usage that nets to zero) is 0, never the -0.0 a negated Decimal zero gives.
+    return {"rows": rows, "balance": float(balance), "spent": float(-usage) if usage else 0.0}
 
 
 def last_credit_at(cur, user_id: int, kind: str):

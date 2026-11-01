@@ -416,8 +416,7 @@ def paper_round_trips_by_strategy(cur, user_id: int, strategy_ids: List[int], re
         return {}
     marks = ",".join(["%s"] * len(strategy_ids))
     cur.execute(
-        """SELECT d.strategy_id, p.order_ref, SUM(p.pnl) AS pnl, MIN(p.opened_at) AS opened_at,
-                  MAX(p.closed_at) AS closed_at, MAX(p.ticker) AS ticker
+        "SELECT d.strategy_id, " + _TRIP_PACKED + """ AS v
            FROM """ + _PAPER_SOURCE + """
            WHERE p.user_id=%s AND p.mode='paper' AND p.order_ref LIKE %s AND d.strategy_id IN (""" + marks + """)
            GROUP BY d.strategy_id, p.order_ref
@@ -426,10 +425,24 @@ def paper_round_trips_by_strategy(cur, user_id: int, strategy_ids: List[int], re
         (user_id, ref_prefix + "%", *strategy_ids),
     )
     out: Dict[int, List[Dict]] = {}
+    when = datetime.fromisoformat
     for r in cur.fetchall():
+        pnl, opened, closed, ticker = r["v"].split(",", 3)
         out.setdefault(int(r["strategy_id"]), []).append(
-            {"pnl": float(r["pnl"] or 0), "opened_at": r["opened_at"], "closed_at": r["closed_at"], "ticker": r.get("ticker")})
+            {"pnl": float(pnl) if pnl else 0.0, "opened_at": when(opened), "closed_at": when(closed) if closed else None,
+             "ticker": ticker})
     return out
+
+
+# paper_round_trips_by_strategy's figures, packed in one column as text: pymysql parsing two DATETIMEs and a DECIMAL per
+# round trip (and the order_ref no caller reads) was ~3/4 of the read for a heavy book's 3,300 trips (~52 -> ~26ms).
+# The sum is the DECIMAL's own text (float() of it is float() of the Decimal: Decimal converts through its text), ''
+# for NULL (0.0, as float(None or 0)); the times are the DATETIMEs' text (fromisoformat gives the same naive
+# datetime), '' a NULL closed_at; the ticker (NOT NULL, so its MAX is too) goes last, so the split never reads into it.
+# %% because the SQL goes through pymysql's %s.
+_TRIP_TIME = "'%%Y-%%m-%%d %%H:%%i:%%s'"
+_TRIP_PACKED = ("CONCAT_WS(',', COALESCE(SUM(p.pnl), ''), DATE_FORMAT(MIN(p.opened_at), {t}), "
+                "COALESCE(DATE_FORMAT(MAX(p.closed_at), {t}), ''), MAX(p.ticker))").format(t=_TRIP_TIME)
 
 
 def book_trade_stats(cur, user_id: int, strategy_ids: List[int], ref_prefix: str = "sim:") -> Dict[int, Dict[str, Dict]]:
