@@ -1607,6 +1607,11 @@
     return s + (n >= 1 ? ` At that rate your ${usd(bal)} lasts ${sessions(n)}.${also}`
       : ` That’s more than the ${usd(bal)} you have, so a session may stop short when your credits run out.`);
   };
+  // The autopilot's research cap per 24 hours, said before any research has run: off, and on with nothing spent yet,
+  // the card and the panel told what one session costs and how many the balance covers, and nothing of how much it
+  // could spend in a day (walk 2026-11-01: the cap showed only once the first session had spent something). '' with
+  // no cap. Its spend against the cap is said once there is some (apCreditsLeft).
+  const apCapShort = (cap) => +cap > 0 ? `It starts no new research once research has cost ${usd(+cap)} in 24 hours, your own sessions included; research you start yourself isn’t limited.` : '';
 
   // ---------- relative times that tick in place ----------
   // A relative time ("5m ago", "as of 4 min ago", "read just now") inside markup a poll compares before it redraws is a
@@ -1687,7 +1692,7 @@
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
-    exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,
+    exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, apCapShort,
     pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
   });
 })();

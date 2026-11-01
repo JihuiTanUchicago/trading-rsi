@@ -558,7 +558,8 @@ export function strategyListCases({name, frontend, detailStrategy}) {
     g.S.me.user.autopilot = true;
     g.location.pathname = '/strategies'; g.location.search = '?status=';
     await g.viewStrategies(); await flush();
-    assert.match(g.root.querySelector('#slips .empty').innerHTML, /Autopilot is on\. The strategies it finds will land here\./);
+    // It says what fills it, passed or not, and what Kept holds (walk 2026-11-01).
+    assert.match(g.root.querySelector('#slips .empty').innerHTML, /Autopilot is on\. Each idea its research tests is listed here once its verdict is in: the ones that pass under Kept, the rest under Void or Rejected\./);
     // Every empty list's heading is an h2 under the page's h1: an h3 skipped a level (axe heading-order, walked 2026-10-31).
     assert.equal(g.root.querySelector('#slips .empty h2').textContent, name === 'Tau' ? 'Nothing here yet' : 'No strategies yet');
     assert.equal(g.root.querySelectorAll('#slips h3').length, 0);

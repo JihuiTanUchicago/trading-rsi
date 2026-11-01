@@ -466,14 +466,18 @@ def test_the_research_cap_figure_is_what_the_cap_counts_and_rides_the_pulse(conn
     spent = agent.research_spend(cur, uid)
     assert spent > 0
     assert out["research_cap"] == {"usd": 240.0, "spent_24h": round(spent, 2), "reached": False}
+    assert out["research_cap_usd"] == 240.0
     assert not any(s.startswith("SELECT model, input_tokens") for s in log), "read in the pulse, not on its own"
     monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", round(spent, 2) - 1)
     out, _ = _status(counting, uid)
     assert out["research_cap"]["reached"] is True
     assert any(line.startswith("It has reached its research cap: $%.2f spent in the last 24 hours" % spent) for line in out["story"])
     monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 0.0)
-    assert _status(counting, uid)[0]["research_cap"] is None  # no cap
+    out = _status(counting, uid)[0]
+    assert out["research_cap"] is None and out["research_cap_usd"] is None  # no cap
     cur.execute("UPDATE app_users SET autopilot=0 WHERE id=%s", (uid,))
     monkeypatch.setattr(agent, "AUTOPILOT_RESEARCH_USD_PER_DAY", 240.0)
     out, log = _status(counting, uid)
     assert out["research_cap"] is None and not any("SUM(input_tokens)" in s for s in log)
+    # Off, the cap alone still rides the status (nothing read for it), so the off card can say it before the switch.
+    assert out["research_cap_usd"] == 240.0

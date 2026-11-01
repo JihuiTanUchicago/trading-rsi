@@ -45,7 +45,9 @@ export function newUserCases({name, frontend, detailStrategy, strategyFrontend, 
     const shown = (el) => !!el && el.getAttribute('hidden') === null && !el.hidden;
     const on = await researchPage([example], true);
     const line = on.root.querySelector('.research-ap-on');
-    assert.equal(line.textContent, 'Autopilot is on: the sessions it starts are listed below with an Autopilot tag. You can still start a session of your own.');
+    // Wherever the list sits: "listed below" sat under the list on a Tau phone (walk 2026-11-01).
+    assert.equal(line.textContent, 'Autopilot is on: the sessions it starts show in your session list with an Autopilot tag. You can still start a session of your own.');
+    assert.doesNotMatch(line.textContent, /below|above/);
     assert.ok(shown(line), 'shown while autopilot is on');
     // Its own class: the switch's copy sync hides every .research-ap (the Turn on nudge) once autopilot is on.
     assert.ok(!line.classes.has('research-ap'));

@@ -23,7 +23,7 @@
     waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince,
     sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER, apPillLabel, apAgo, apEvery, FOCUS_WORDS,
     creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount, exitWord, AP_FOCUS, KIND_LABEL, runwayLabel,
-    paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
+    paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, apCapShort, pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
   } = window.TauCore;
 
   const root = document.getElementById('app');
@@ -1200,8 +1200,10 @@
       const headHtml = '<b>Notifications</b>' + (d.unread ? `<span class="bell-new">${num(d.unread)} new</span>` : '');
       if (drawn.head !== headHtml) { drawn.head = headHtml; head.innerHTML = headHtml; }
       // Empty, it says what rings it: through a new user's first research session it said only "No notifications yet."
+      // And where the research it doesn't ring for shows: opened just after autopilot started its first session, the empty
+      // bell left a new account wondering whether anything had started (walk 2026-11-01).
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
-      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
+      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card. Research sessions don\u2019t ring it: <a class="bell-go" href="/research">Research</a> shows each one as it runs.</p>`;
       if (drawn.list === listHtml) return;
       if (ageOnly(list, drawn.list, listHtml)) { drawn.list = listHtml; return; }
       paints++; drawn.list = listHtml; list.innerHTML = listHtml;
@@ -1299,7 +1301,7 @@
     // Opening a notice closes the list first, so its click-outside listener doesn't outlive the page.
     list.addEventListener('click', (e) => {
       const again = e.target.closest('[data-bell-retry]'), more = e.target.closest('[data-bell-more]');
-      if (again) retry(again); else if (more) showOlder(more); else if (e.target.closest('a.notif')) close();
+      if (again) retry(again); else if (more) showOlder(more); else if (e.target.closest('a.notif') || e.target.closest('a.bell-go')) close();
     });
     if (staleEl) staleEl.addEventListener('click', (e) => { const again = e.target.closest('[data-bell-retry]'); if (again) retry(again); });
   }
@@ -2791,8 +2793,11 @@
         // listed but not running (paused) keeps "nothing running" on live money: it may still hold live positions.
         fig('Money', live.length ? '<span class="mk live">Live</span>' : runDemo || demoPaused ? `${runPaper || (demoPaused && paperDeps.length) ? '<span class="mk">Paper</span> ' : ''}<span class="mk dep">Demo</span>` : '<span class="mk">Paper</span>', { small: live.length ? `${live.length} on live money` : liveIdle ? liveIdleCount(liveIdle) : liveDeps.length ? 'Nothing running on live money' : runDemo ? (runPaper ? 'Paper and demo only, nothing live' : 'Demo only, nothing live') : demoPaused ? `${runPaper ? 'Paper running, demo paused' : paperDeps.length ? 'Paper and demo paused' : 'Demo paused'}, nothing live` : 'Paper money only, nothing live' }));
       const regs = curveRegs(d.deployments);
+      // Nothing passed with autopilot on, its button goes to the research it is running, as the Strategies list's and the
+      // track record's do: "Start a research session" read as the next step for a new account whose autopilot was already researching
+      // (walk 2026-11-01).
       paintKeep(root.querySelector('#deps'), d.deployments.length ? deploymentTable(pausedFirst(withTwins(d.deployments)).map((x) => deploymentSlip(x, regs, true)).join(''), true)
-        : `<div class="empty"><h3>Nothing deployed</h3><p>${passedN === 0 ? 'Nothing has passed yet. A strategy goes on the board once it passes every test in a research session, paper first.' : 'Open a passed strategy and deploy it here. Paper first: it trades the live market with paper money.'}</p>${S.me && S.me.user && S.me.user.autopilot ? '<p>Autopilot is on: strategies that pass every research test deploy here on their own, on paper.</p>' : ''}${apNudge('Rather not pick strategies yourself?', 'and it deploys the ones that pass, on paper.')}${passedN === 0 ? '<a class="btn" href="/research?new=1">Start a research session</a>' : '<a class="btn" href="/strategies?status=passed">See passed strategies</a>'}</div>`);
+        : `<div class="empty"><h3>Nothing deployed</h3><p>${passedN === 0 ? 'Nothing has passed yet. A strategy goes on the board once it passes every test in a research session, paper first.' : 'Open a passed strategy and deploy it here. Paper first: it trades the live market with paper money.'}</p>${S.me && S.me.user && S.me.user.autopilot ? '<p>Autopilot is on: strategies that pass every research test deploy here on their own, on paper.</p>' : ''}${apNudge('Rather not pick strategies yourself?', 'and it deploys the ones that pass, on paper.')}${passedN === 0 ? (S.me && S.me.user && S.me.user.autopilot ? '<a class="btn" href="/research">See its research</a>' : '<a class="btn" href="/research?new=1">Start a research session</a>') : '<a class="btn" href="/strategies?status=passed">See passed strategies</a>'}</div>`);
       paint(root.querySelector('#demo-health'), d.demo_health ? `<div class="notice bad" role="status">${ICON.warn}<span>${demoHealthLine(d.demo_health)}</span></div>` : '');
       // The board's read never waits on Kalshi: a demo check that needs the demo cash while the server's memo
       // isn't kept comes demo_health_pending (a line from a figure read under two minutes ago stands meanwhile).
@@ -3651,7 +3656,9 @@
   }
   // The same line on its own, in a paragraph of `cls`: under the off card's cost line, in the off panel, and in an
   // autopilot week with nothing in it yet.
-  const apOffCost = (d, cls) => { const s = apSessionLine(d); return s ? `<p class="${cls}">${s}</p>` : ''; };
+  // Beside it, the autopilot's research cap per 24 hours (the status's research_cap, or research_cap_usd while it is off).
+  const apCapLine = (d) => !d || !S.me || !S.me.billing_enabled ? '' : apCapShort(d.research_cap ? d.research_cap.usd : d.research_cap_usd);
+  const apOffCost = (d, cls) => { const s = [apSessionLine(d), apCapLine(d)].filter(Boolean).join(' '); return s ? `<p class="${cls}">${s}</p>` : ''; };
   // What switching it on costs, said before the click: the agent's runs spend credits, and with
   // auto-reload on the saved card is charged when they run low. Payments off on this server: no line.
   function apCostLine() {

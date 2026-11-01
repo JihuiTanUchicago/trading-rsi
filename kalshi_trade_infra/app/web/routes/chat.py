@@ -1048,6 +1048,9 @@ def autopilot_status(ctx: Ctx):
         "focus": agent.focus_tokens(u),  # the user's binding market focus ([] = any market)
         # Its research cap and the last 24 hours' research spend against it (None while off, or with no cap).
         "research_cap": _research_cap(pulse) if on else None,
+        # The cap alone, on or off, with nothing read: the off card says it before the switch is turned on, and a new
+        # account's card before anything is spent (walk 2026-11-01). None with no cap.
+        "research_cap_usd": float(agent.AUTOPILOT_RESEARCH_USD_PER_DAY) if agent.AUTOPILOT_RESEARCH_USD_PER_DAY > 0 else None,
         "billing_blocked": billing_blocked,
         "billing_reason": (("card" if _needs_card(ctx, reads) else "credits") if billing_blocked else None),
         # Warn before the pause, not after: days of credit left when that's under three.
