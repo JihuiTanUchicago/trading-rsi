@@ -15,7 +15,7 @@ from app.adapters.kalshi_perps import kalshi_perps_trading
 from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.research import agent
-from app.services import book_memo, customer_text
+from app.services import book_memo, customer_text, reader_day
 from app.trading import engine
 from app.trading.markets import customer_name
 from app.web.caches import _forget_own_change
@@ -371,6 +371,13 @@ def _crypto_scope_line(focus: Optional[List[str]]) -> str:
             "coin." % _focus_list(agent.AUTOPILOT_CRYPTO_COINS))
 
 
+def _utc_day_live(d: Dict) -> float:
+    """The live book's realized P&L since 00:00 UTC, the day the daily loss limit counts: the status's
+    utc_day_live_pnl (today_live_pnl in a status from before it counted the reader's day)."""
+    v = d.get("utc_day_live_pnl", d.get("today_live_pnl"))
+    return float(v or 0)
+
+
 def _plural(n: int, one: str, many: str = "") -> str:
     return "{:,} {}".format(n, one if n == 1 else (many or one + "s"))
 
@@ -506,12 +513,13 @@ def _autopilot_story(d: Dict) -> List[str]:
             _plural(n, "strategy is", "strategies are"), "it places" if n == 1 else "they place"))
     elif int(d.get("live_running") or 0):
         lines.append("%s trading real money." % _plural(int(d["live_running"]), "strategy is", "strategies are"))
-    elif limit > 0 and float(d.get("today_live_pnl") or 0) <= -limit:
+    elif limit > 0 and _utc_day_live(d) <= -limit:
         # The kill switch turned live autopilot off and paused live deployments; the panel used to
-        # go back to "Nothing trades real money until..." as if live had never run.
+        # go back to "Nothing trades real money until..." as if live had never run. The limit counts the live
+        # loss since 00:00 UTC (utc_day_live_pnl, the figure the engine's own notice says); the words are as they were.
         lines.append("Live trading stopped for today: today’s live loss of $%.2f reached your $%.2f daily limit, "
                      "so live autopilot switched itself off and live strategies were paused. Paper keeps running."
-                     % (-float(d["today_live_pnl"]), limit))
+                     % (-_utc_day_live(d), limit))
     else:
         lines.append("Nothing trades real money until a strategy makes money on paper over at least %d trades "
                      "from %d separate events and %d hours, and you turn on live autopilot.%s" % (
@@ -1043,10 +1051,18 @@ def autopilot_status(ctx: Ctx):
     gates_ok = bool(engine.LIVE_TRADING_ENABLED and kalshi_connected)
     live_on = bool(u.get("autopilot_live")) and gates_ok and on
     mode = "live" if (live_on and live_run) else ("live-armed" if live_on else ("paper" if on else "off"))
-    # Each book's day, summed apart (never together) and kept until a position moves.
-    # The same read sums each book's contract fills, for the paper day's after-slippage estimate (display only).
-    today, today_fills = book_memo.realized_since(memo, ("live", "paper"), _start_of_day_utc(), fills=True)
-    today_live = cents(today["live"])
+    # Each book's day, summed apart (never together) and kept until a position moves. The day is the reader's (their
+    # last midnight, reader_day), as Home's; the UTC day when their zone isn't known yet (day_start says which).
+    # The same read sums each book's contract fills, for the paper day's after-slippage estimate (display only), and
+    # the live book since 00:00 UTC: the day the daily loss limit counts (agent's kill switch), which the loss budget
+    # and the story's "stopped for today" go by. The limit's day is the risk logic's (an owner call), never the reader's.
+    day, utc_day = reader_day.day_start(reader_day.reader_zone(ctx)), _start_of_day_utc()
+    if day == utc_day:  # a reader on UTC, or one whose zone isn't known yet: one day
+        today, today_fills = book_memo.realized_since(memo, ("live", "paper"), day, fills=True)
+        since_utc = today
+    else:
+        today, today_fills, since_utc = book_memo.realized_since(memo, ("live", "paper"), day, fills=True, also=utc_day)
+    today_live, utc_live = cents(today["live"]), cents(since_utc["live"])
     limit = float(u.get("autopilot_daily_loss_limit") or 50)
     # The week's credit figures and, when a figure below needs it, the balance: one read of the ledger.
     payments = billing.configured()
@@ -1107,13 +1123,17 @@ def autopilot_status(ctx: Ctx):
         # already running keep trading" says. Added up, the books above counted that strategy twice.
         "trading_strategies": trading_strategies,
         "today_live_pnl": today_live,
+        # Where the day figures start: the reader's midnight, or 00:00 UTC without their zone.
+        "day_start": day,
+        # The live book since 00:00 UTC, what the daily loss limit counts (beside today_live_pnl, the reader's day).
+        "utc_day_live_pnl": utc_live,
         # The paper book's day, so a paper-only panel shows its own money instead of a live $0.00.
         "today_paper_pnl": cents(today["paper"]),
         # Beside it, never in place of it: the paper day after the slippage a live order typically pays
         # (trading_core.domain.slippage). None before a paper trade closes today; live never carries one.
         "today_paper_slippage_estimate": paper_estimate(PAPER, today["paper"], today_fills.get(PAPER)),
         "daily_loss_limit": limit,
-        "loss_headroom": cents(max(0.0, limit + min(0.0, today_live))),  # how much loss budget is left today
+        "loss_headroom": cents(max(0.0, limit + min(0.0, utc_live))),  # how much loss budget is left since 00:00 UTC
         "last_action": _last_move(_last_action(cur, ctx.uid, pulse["chat"]), deps),
         "last_review_at": pulse["last_review_at"],  # liveness: a quiet review posts nothing, this still shows it ran
         # How often it usually checks in (minutes), beside "at its next check-in"; None while none is coming.

@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Hashable, List, Optional, Tuple
 
 from app import repository as repo
+from app.services import reader_day
 from app.trading import track_record as record
 
 MAX_ENTRIES = 4096  # kept answers across users; cleared whole past this (a few per active user)
@@ -110,14 +111,22 @@ def paper_ledger_summary(cur, uid: int, version: Optional[Tuple[int, int]] = Non
     return dict(hit[1])
 
 
-def realized_since(memo: BookMemo, modes: Tuple[str, ...], since: datetime, fills: bool = False):
+def realized_since(memo: BookMemo, modes: Tuple[str, ...], since: datetime, fills: bool = False,
+                   also: Optional[datetime] = None):
     """repo.realized_pnl_by_mode (each book's realized P&L of the trades closed since `since`), kept: a
     closed row's pnl and closed_at are never written again, so the sum moves only with a position (or a
     new `since`, part of the key). No position, nothing realized: no read. With `fills`, ({mode: realized},
-    {mode: contract fills}) from the same read, for the paper after-slippage estimate (display only)."""
+    {mode: contract fills}) from the same read, for the paper after-slippage estimate (display only). With
+    `also`, one more item last: {mode: realized} since `also` (the autopilot panel's 00:00 UTC, which its loss
+    budget counts from, beside the reader's day), summed in the same read."""
     if not memo.version()[0]:
         none = {m: 0.0 for m in modes}
-        return (none, {m: 0 for m in modes}) if fills else none
+        out = (none,) + (({m: 0 for m in modes},) if fills else ()) + ((dict(none),) if also is not None else ())
+        return out[0] if len(out) == 1 else out
+    if also is not None:
+        got = memo.get("realized_since_also", (tuple(modes), since, also, fills),
+                       lambda: repo.realized_pnl_by_mode(memo.cur, memo.uid, tuple(modes), since, fills=fills, also=also))
+        return tuple(dict(x) for x in got)
     if fills:
         pnl, taker = memo.get("realized_since_fills", (tuple(modes), since),
                               lambda: repo.realized_pnl_by_mode(memo.cur, memo.uid, tuple(modes), since, fills=True))
@@ -208,21 +217,31 @@ def deployments_for_display(memo: BookMemo, strategy_id: Optional[int] = None) -
     return deps
 
 
-def daily_pnl(memo: BookMemo, mode: str, days: int = 60) -> List[Dict]:
-    """repo.daily_pnl(mode, days): closed P&L per UTC day from `days` ago, oldest first. The first
-    day counts only what closed after the window's start, which moves every request, so it is read
-    fresh (a day's rows through idx_pos_user); the whole days after it are kept."""
-    start = repo.now_utc() - timedelta(days=days)
+def daily_pnl(memo: BookMemo, mode: str, days: int = 60, zone=None) -> List[Dict]:
+    """repo.daily_pnl(mode, days): closed P&L per day from `days` ago, oldest first, each day the reader's (`zone`,
+    app.services.reader_day.reader_zone's answer; the UTC day without one). The first day counts only what closed after
+    the window's start, which moves every request, so it is read fresh (a day's rows through idx_pos_user); the
+    whole days after it (from the reader's first midnight in the window) are kept, keyed by the offsets they were
+    grouped by."""
+    now = repo.now_utc()
+    start = now - timedelta(days=days)
+    tz = reader_day.offsets(zone, start, now)
     if not memo.version()[0]:
-        return repo.daily_pnl(memo.cur, memo.uid, mode, since=start)
-    midnight = datetime(start.year, start.month, start.day) + timedelta(days=1)
-    rest = memo.peek("daily", (mode, midnight))
+        return repo.daily_pnl(memo.cur, memo.uid, mode, since=start, tz=tz)
+    midnight = reader_day.day_start(zone, start) + timedelta(days=1)
+    if zone is not None:  # a day across a clock change is 23 or 25 hours: the reader's midnight after start
+        midnight = reader_day.day_start(zone, midnight + timedelta(hours=3))
+    key = (mode, midnight) if tz == 0 else (mode, midnight, reader_day.offsets_key(tz))
+    rest = memo.peek("daily", key)
+    first_day = reader_day.local_date(midnight, zone)
     if rest is None:
         # One read of the whole window; its days from midnight on are the whole days kept.
-        rows = repo.daily_pnl(memo.cur, memo.uid, mode, since=start)
-        memo.keep("daily", (mode, midnight), [r for r in rows if r["d"] >= midnight.date()])
+        rows = repo.daily_pnl(memo.cur, memo.uid, mode, since=start, tz=tz)
+        memo.keep("daily", key, [r for r in rows if r["d"] >= first_day])
         return rows
     first = repo.realized_pnl_between(memo.cur, memo.uid, mode, start, midnight)
+    if first and zone is not None:
+        first = dict(first, d=reader_day.local_date(start, zone))
     return ([first] if first else []) + list(rest)
 
 

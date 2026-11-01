@@ -9,7 +9,7 @@ from app import repository as repo
 from app.adapters.kalshi import kalshi_account, kalshi_dev_exec
 from app.adapters.kalshi_perps import kalshi_perps_trading
 from app.adapters.ses import notify
-from app.services import book_memo
+from app.services import book_memo, reader_day
 from app.web.http import ApiError, Ctx, _num
 from app.web.routes.brokers import _perps_live_call
 from app.web import settings as web_settings
@@ -79,7 +79,8 @@ def funds(ctx: Ctx):
     # Each book's realized P&L and closed trades, from the dashboard's read (kept while the positions
     # are unchanged), so Funds says what each book has made with the figure the dashboard, Deploy and
     # the track record show. Demo's is since its last reload, as on the dashboard.
-    day = repo.now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
+    # The dashboard's day (the reader's, reader_day), so this is the same kept read as the dashboard's; Funds shows no day figure.
+    day = reader_day.day_start(reader_day.reader_zone(ctx))
     # The same pass sums each book's contract fills, for the paper book's after-slippage estimate (display only).
     realized, closed, _, fills = book_memo.closed_book_totals(book_memo.BookMemo(cur, ctx.uid), day, fills=True)
     de = demo_book_equity(ctx, realized["demo"][0])

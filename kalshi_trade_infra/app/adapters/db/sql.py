@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, List, Optional, Tuple
 
 
 def now_utc() -> datetime:
@@ -46,3 +46,17 @@ def contract_fills_sql(col: str = "") -> str:
     table alias with its dot ("p."). The caller keeps it to closed rows. Display only: the paper
     after-slippage estimate reads it, no gate does."""
     return "%sqty * (CASE WHEN %sclose_reason='settled' THEN 1 ELSE 2 END)" % (col, col)
+
+
+def day_shift_sql(tz, col: str) -> Tuple[str, Tuple]:
+    """Minutes behind UTC for a row, as SQL over the naive UTC column `col` and its parameters, for grouping rows by
+    the reader's day (DATE(col - INTERVAL <shift> MINUTE)): one offset (an int, getTimezoneOffset() minutes), or
+    [(from, minutes)] oldest first (the first from None), the offset in force from each naive UTC instant on, so a
+    row before a clock change counts on the reader's day by the offset it fell under (app.services.reader_day.offsets)."""
+    if isinstance(tz, (list, tuple)) and len(tz) > 1:
+        params: List = []
+        for (start, _), (_, before) in zip(tz[1:], tz[:-1]):
+            params += [start, int(before)]
+        return ("(CASE " + " ".join(["WHEN %s < %%s THEN %%s" % col] * (len(tz) - 1)) + " ELSE %s END)",
+                tuple(params) + (int(tz[-1][1]),))
+    return "%s", (int(tz[0][1] if isinstance(tz, (list, tuple)) else tz),)

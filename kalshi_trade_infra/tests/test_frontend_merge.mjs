@@ -64,6 +64,7 @@ import {firstQuarterHourCases} from './first_quarter_hour_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
+import {readerDayCases} from './reader_day_frontend_cases.mjs';
 import {dayClockCases} from './day_clock_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
@@ -6516,6 +6517,7 @@ multiFamilyCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: ap
 firstQuarterHourCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn, fundsData: funds});
 timeTruthCases({name: 'Tau', billingPage, cardedBilling});
 midnightCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
+readerDayCases({name: 'Tau', frontend, dashboard: emptyDashboard, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 dayClockCases({name: 'Tau', frontend, fundsData: funds, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 writeWaitCases({name: 'Tau', frontend, billingPage, cardedBilling, postRequests, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 declinedCardCases({name: 'Tau', frontend, dashboard: emptyDashboard});

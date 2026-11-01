@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from app import repository as repo
 from app.adapters.stripe import billing
-from app.services import book_memo, page_poll
+from app.services import book_memo, page_poll, reader_day
 from app.trading import engine
 from app.web.caches import _TRACK_RECORD, _shared
 from app.web.http import Ctx
@@ -26,7 +26,6 @@ from app.web.views import (
     _paper_books,
     _paper_equity,
     _silent_before,
-    _start_of_day_utc,
     credit_exact,
     credit_usd,
     kalshi_keys,
@@ -64,7 +63,10 @@ def dashboard(ctx: Ctx):
     the dashboard again once that cash is read. The poll's version covers the cash, its read time and its
     pending mark, so a cash read since the page's last answer sends the page a full one."""
     cur = ctx.cur
-    day = _start_of_day_utc()
+    # Each book's day is the reader's (their last midnight, from the zone their browser keeps in its cookies), and so
+    # are the paper days below; the UTC day when no zone is known yet. `day_start` says which, so the page names it.
+    zone = reader_day.reader_zone(ctx)
+    day = reader_day.day_start(zone)
     open_pos = _with_marks(repo.user_positions(cur, ctx.uid, "open"))
     # Aggregate live mark-to-market unrealized P&L per deployment (from the marks just stamped), so
     # the Deployed table can show each strategy's current open P&L, not only its realized P&L.
@@ -99,7 +101,7 @@ def dashboard(ctx: Ctx):
         deposited=cents(deposited),
         total_pnl=cents(equity - exact(deposited)),
         roi=round(float(equity - exact(deposited)) / deposited, 4) if deposited > 0 else None,
-        daily=book_memo.daily_pnl(memo, "paper"),
+        daily=book_memo.daily_pnl(memo, "paper", zone=zone),
         # total_pnl restarts at a reset (the ledger is wiped), so its label says "since reset", not
         # "all time", while the track record still counts every closed trade.
         reset_at=ledger["reset_at"],
@@ -138,6 +140,8 @@ def dashboard(ctx: Ctx):
         "paper": paper,
         "demo": demo,
         "live": live,
+        # Where each book's today_pnl and the paper days start: the reader's midnight, or 00:00 UTC without their zone.
+        "day_start": day,
         # Each position less the columns the page never reads (views.UNSENT_POSITION_FIELDS).
         "open_positions": [position_out(p) for p in _with_why(open_pos, deps)],
         "recent_closed": [position_out(p) for p in _with_why(repo.user_positions(cur, ctx.uid, "closed", 12), deps)],

@@ -450,10 +450,42 @@
   const utcDaysAgo = (at, now = Date.now()) => (at ? Math.floor(now / 864e5) - Math.floor(at / 864e5) : 0);
   const UTC_MON_DAY = { month: 'short', day: 'numeric', timeZone: 'UTC' };
   const utcDayWord = (at) => { const n = utcDaysAgo(at); return n <= 0 ? 'today' : n === 1 ? 'yesterday' : 'on ' + dateFmt(new Date(at), UTC_MON_DAY); };
-  const pnlWin = (k, at) => {
+  // Since the server counts the reader's own day (app/services/reader_day.py: the zone boot.js keeps in its cookies), a
+  // payload's day figures come with `day_start`, the instant their day began. Home said "Today (UTC)" to a reader in
+  // New York, whose day it rolled over at 7-8pm, the figure dropping to $0.00 (walk 2026-11-01). A day_start that is the
+  // reader's own midnight is their day and says "Today", "Yesterday" or its date; none (an older payload) or 00:00 UTC
+  // when the server didn't know their zone yet (a first load on this device) is the UTC day, said as before; any other
+  // start (their zone changed since) says when it began. Display only: the server's figures, as before.
+  const readerMidnight = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const dayKind = (start) => {
+    const t = start == null ? NaN : Date.parse(start);
+    if (!Number.isFinite(t) || t % 864e5 === 0 && readerMidnight(t) !== t) return { kind: 'utc' };
+    return { kind: readerMidnight(t) === t ? 'reader' : 'other', t };
+  };
+  // How many of the reader's days before now the figure's day began (0 today), by its day_start.
+  const readerDaysAgo = (t, now = Date.now()) => Math.round((readerMidnight(now) - t) / 864e5);
+  // The day a figure counts, as the end of a phrase ("Live realized today"): `at` is when it was read (the UTC day's
+  // measure), `start` its payload's day_start.
+  const dayWord = (at, start) => {
+    const k = dayKind(start);
+    if (k.kind === 'utc') return `${utcDayWord(at)} (UTC)`;
+    if (k.kind === 'other') return `since ${dateFmt(new Date(k.t), LOG_STAMP)}`;
+    const n = readerDaysAgo(k.t);
+    return n <= 0 ? 'today' : n === 1 ? 'yesterday' : 'on ' + dateFmt(new Date(k.t), MON_DAY);
+  };
+  const pnlWin = (k, at, start) => {
+    const d = k === 'today' ? dayKind(start) : { kind: 'utc' };
+    if (d.kind === 'reader') {
+      const n = readerDaysAgo(d.t);
+      return `<span class="pnl-win">${n <= 0 ? 'Today' : n === 1 ? 'Yesterday' : dateFmt(new Date(d.t), MON_DAY)}:</span>`;
+    }
+    if (d.kind === 'other') return `<span class="pnl-win">Since ${dateFmt(new Date(d.t), LOG_STAMP)}:</span>`;
     const n = k === 'today' ? utcDaysAgo(at) : 0;
     return `<span class="pnl-win">${n <= 0 ? PNL_WINDOW[k] : n === 1 ? 'Yesterday (UTC)' : dateFmt(new Date(at), UTC_MON_DAY) + ' (UTC)'}:</span>`;
   };
+  // Whether a payload's days (Home's paper days, its day figures) are the reader's own: they are grouped by the zone
+  // day_start was cut in.
+  const daysReaders = (start) => dayKind(start).kind === 'reader';
   // On the dashboard (its money band, the autopilot card, its week and its panel's day) the estimate carries the
   // slippage bubble (slipText from the core), glued to its last word. The other pages keep slipEst as it was.
   const slipEstGl = (e) => (slipText(e) ? `<span class="slip-est">${gl(slipText(e), 'slippage')}</span>` : '');
@@ -1489,8 +1521,10 @@
   // they can tell, null when they can't (the newest rows all closed today and none of them is this book's), so the
   // page keeps the server's figure then. Day 4 of a new account read "Today (UTC): $0.00 realized" with its last
   // trade two days back, as if today's trading had broken even (walk 2026-10-31). Display only.
-  const closedToday = (rows, mode, closedAll, now = Date.now()) => {
-    const day = Math.floor(now / 864e5) * 864e5, at = (r) => Date.parse(r && r.closed_at);
+  // `start`, the payload's day_start, is the day the figure counts from (the reader's midnight); without it, the UTC day `now` falls on.
+  const closedToday = (rows, mode, closedAll, now = Date.now(), start) => {
+    const k = dayKind(start), at = (r) => Date.parse(r && r.closed_at);
+    const day = k.kind === 'utc' ? Math.floor(now / 864e5) * 864e5 : k.t;
     const list = Array.isArray(rows) ? rows : [], mine = list.filter((r) => r && r.mode === mode);
     if (mine.some((r) => at(r) >= day)) return true;
     if (mine.length >= (+closedAll || 0)) return false;
@@ -1508,9 +1542,14 @@
   // −$1.76" with nothing saying which counted what (walk 2026-10-31). The server keeps no reload time, so the day can't
   // be cut at the reload; it says where it counts from instead.
   const DEMO_DAY_SPAN = 'from midnight UTC, not from the reload';
-  // `at`: when the figure was read (pnlWin), its day the one "no trades closed yet" goes by.
-  const demoToday = (dm, recent, at) => (!dm || dm.today_pnl == null || demoNoClose(dm)) ? ''
-    : `<span class="fig-today">${pnlWin('today', at)} ${!+dm.today_pnl && closedToday(recent, 'demo', dm.closed_trades, at || undefined) === false ? 'no trades closed yet' :`<span class="amt">${money(dm.today_pnl)}</span> realized, ${FEES_NET}${+dm.before_reload ? `${SEP}${DEMO_DAY_SPAN}` : ''}`}</span>`;
+  // The reader's day counts from their own midnight; a day begun some other time says when.
+  const demoDaySpan = (start) => {
+    const k = dayKind(start);
+    return k.kind === 'utc' ? DEMO_DAY_SPAN : k.kind === 'reader' ? 'from midnight, not from the reload' : `from ${dateFmt(new Date(k.t), LOG_STAMP)}, not from the reload`;
+  };
+  // `at`: when the figure was read (pnlWin), its day the one "no trades closed yet" goes by; `start` the payload's day_start.
+  const demoToday = (dm, recent, at, start) => (!dm || dm.today_pnl == null || demoNoClose(dm)) ? ''
+    : `<span class="fig-today">${pnlWin('today', at, start)} ${!+dm.today_pnl && closedToday(recent, 'demo', dm.closed_trades, at || undefined, start) === false ? 'no trades closed yet' :`<span class="amt">${money(dm.today_pnl)}</span> realized, ${FEES_NET}${+dm.before_reload ? `${SEP}${demoDaySpan(start)}` : ''}`}</span>`;
   // A demo deployment's realized P&L counts every closed trade it made, from its first demo trade: a reload doesn't
   // reset it. Beside a reloaded book's "since reload" figure (the dashboard's demo card) a row's bare figure read as
   // that book's: "+$3.49 realized since reload" over a Late-rush fade demo row at "−$11.66" (walk 2026-10-31). The
@@ -1785,7 +1824,7 @@
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName, dayZone,
     logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
-    PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
+    PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, dayWord, daysReaders, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.adapters.db.sql import contract_fills_sql, now_utc
+from app.adapters.db.sql import contract_fills_sql, day_shift_sql, now_utc
 
 
 def open_positions(cur, deployment_id: int) -> List[Dict]:
@@ -352,25 +352,46 @@ def realized_pnl(cur, user_id: int, mode: str, since: Optional[datetime] = None)
     return float(cur.fetchone()["p"])
 
 
-def realized_pnl_by_mode(cur, user_id: int, modes: Tuple[str, ...], since: datetime, fills: bool = False):
+def realized_pnl_by_mode(cur, user_id: int, modes: Tuple[str, ...], since: datetime, fills: bool = False,
+                         also: Optional[datetime] = None):
     """{mode: realized_pnl(mode, since)} for each of `modes`, from one read grouped by mode: each book
     summed apart, never together. A display read (the autopilot panel's day); the gates keep calling
     realized_pnl. With `fills`, ({mode: realized}, {mode: contract fills}): the same rows' contracts times
     taker fills (sql.contract_fills_sql), summed in the same read from their qty and close_reason, for the
-    paper after-slippage estimate (trading_core.domain.slippage). Display only, as the rest."""
-    cur.execute(
-        "SELECT mode, COALESCE(SUM(pnl),0) AS p" + (", COALESCE(SUM(" + contract_fills_sql() + "),0) AS f" if fills else "")
-        + " FROM app_positions WHERE user_id=%s AND status='closed' "
-        "AND closed_at >= %s AND mode IN (" + ",".join(["%s"] * len(modes)) + ") GROUP BY mode",
-        (user_id, since) + tuple(modes),
-    )
+    paper after-slippage estimate (trading_core.domain.slippage). Display only, as the rest.
+
+    With `also` (another start, other than `since`), one more item last: {mode: realized_pnl(mode, also)} from the
+    same read, each sum cut at its own start (the panel's day is the reader's; its loss budget counts from 00:00
+    UTC, as the daily loss limit does)."""
+    if also is None or also == since:
+        cur.execute(
+            "SELECT mode, COALESCE(SUM(pnl),0) AS p" + (", COALESCE(SUM(" + contract_fills_sql() + "),0) AS f" if fills else "")
+            + " FROM app_positions WHERE user_id=%s AND status='closed' "
+            "AND closed_at >= %s AND mode IN (" + ",".join(["%s"] * len(modes)) + ") GROUP BY mode",
+            (user_id, since) + tuple(modes),
+        )
+    else:
+        cur.execute(
+            "SELECT mode, COALESCE(SUM(CASE WHEN closed_at >= %s THEN pnl END),0) AS p"
+            + (", COALESCE(SUM(CASE WHEN closed_at >= %s THEN " + contract_fills_sql() + " END),0) AS f" if fills else "")
+            + ", COALESCE(SUM(CASE WHEN closed_at >= %s THEN pnl END),0) AS a"
+            " FROM app_positions WHERE user_id=%s AND status='closed' "
+            "AND closed_at >= %s AND mode IN (" + ",".join(["%s"] * len(modes)) + ") GROUP BY mode",
+            (since,) + ((since,) if fills else ()) + (also, user_id, min(since, also)) + tuple(modes),
+        )
     rows = cur.fetchall()
     got = {r["mode"]: float(r["p"]) for r in rows}
     pnl = {m: got.get(m, 0.0) for m in modes}
-    if not fills:
-        return pnl
-    taker = {r["mode"]: int(r.get("f") or 0) for r in rows}
-    return pnl, {m: taker.get(m, 0) for m in modes}
+    out: Tuple = (pnl,)
+    if fills:
+        taker = {r["mode"]: int(r.get("f") or 0) for r in rows}
+        out += ({m: taker.get(m, 0) for m in modes},)
+    if also is not None and also != since:
+        got_a = {r["mode"]: float(r["a"]) for r in rows}
+        out += ({m: got_a.get(m, 0.0) for m in modes},)
+    elif also is not None:
+        out += (dict(pnl),)
+    return out[0] if len(out) == 1 else out
 
 
 BOOK_MODES = ("paper", "demo", "live")
@@ -556,12 +577,25 @@ def user_open_exposure(cur, user_id: int, mode: Optional[str] = None) -> Dict:
     return cur.fetchone()
 
 
-def daily_pnl(cur, user_id: int, mode: str, days: int = 60, since: Optional[datetime] = None) -> List[Dict]:
-    """Closed P&L per UTC day for one mode, oldest first, from `days` ago (or from `since`)."""
+def daily_pnl(cur, user_id: int, mode: str, days: int = 60, since: Optional[datetime] = None, tz=0) -> List[Dict]:
+    """Closed P&L per day for one mode, oldest first, from `days` ago (or from `since`). A day is the reader's
+    (`tz`: getTimezoneOffset() minutes, or the offsets in force over the window as app.services.reader_day.offsets gives
+    them; sql.day_shift_sql), the UTC day at 0. Display only: the same rows and sums, grouped by the reader's day."""
+    start = since if since is not None else now_utc() - timedelta(days=days)
+    if tz == 0:
+        cur.execute(
+            """SELECT DATE(closed_at) AS d, SUM(pnl) AS pnl FROM app_positions
+               WHERE user_id=%s AND mode=%s AND status='closed' AND closed_at >= %s
+               GROUP BY DATE(closed_at) ORDER BY d""",
+            (user_id, mode, start),
+        )
+        return cur.fetchall()
+    shift, params = day_shift_sql(tz, "closed_at")
+    day = "DATE(closed_at - INTERVAL " + shift + " MINUTE)"
     cur.execute(
-        """SELECT DATE(closed_at) AS d, SUM(pnl) AS pnl FROM app_positions
-           WHERE user_id=%s AND mode=%s AND status='closed' AND closed_at >= %s
-           GROUP BY DATE(closed_at) ORDER BY d""",
-        (user_id, mode, since if since is not None else now_utc() - timedelta(days=days)),
+        "SELECT " + day + " AS d, SUM(pnl) AS pnl FROM app_positions "
+        "WHERE user_id=%s AND mode=%s AND status='closed' AND closed_at >= %s "
+        "GROUP BY " + day + " ORDER BY d",
+        params + (user_id, mode, start) + params,
     )
     return cur.fetchall()
