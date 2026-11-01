@@ -1193,8 +1193,20 @@ def _cross_market_options(market: str) -> str:
             "band effects, settlement mechanics, favorite-longshot overpricing) can instead be judged on "
             "their POOLED trades: add \"pool\": [<keys>] (no cross). The same rule runs on every pooled "
             "market, so validation sees ~N times the trades and the detectable edge shrinks ~sqrt(N) times; "
-            "it trades only on %s if it passes. The mechanism must apply to every pooled market."
-            % (market, labels, market))
+            "it trades only on %s if it passes. The mechanism must apply to every pooled market.%s"
+            % (market, labels, market, _daily_pool_note(market)))
+
+
+def _daily_pool_note(market: str) -> str:
+    """Daily outcome-settled series (weather highs): one settlement per city per day, so a one-city spec
+    rarely has the validation trades to pass. Prod 2026-11-01: 6 of 8 NYC-high ideas died underpowered."""
+    cap = specmod.max_pool(MARKETS.get(market))
+    if cap != specmod.MAX_POOL_MARKETS_HOURLY:
+        return ""
+    return ("\nThis market settles once a day, so a spec on it ALONE usually dies 'underpowered' (too few "
+            "validation trades to see a few-cent edge). For a mechanism that should hold in every city (forecast "
+            "vs market, observation lock, favorite-longshot), pool up to %d other cities of the same series kind "
+            "(highs with highs, lows with lows)." % cap)
 
 
 # Shared tail for every NON-PRICE (event-settled) market profile. The built-in gbm model is a

@@ -19,6 +19,7 @@ Filters on any FEATURES entry express regimes (time of day, vol, spread...).
 from __future__ import annotations
 
 import copy
+import os
 import math
 import re
 from dataclasses import dataclass
@@ -106,7 +107,10 @@ MAX_POOL_MARKETS = 3  # extra markets a pooled spec may be judged across, beyond
 # 365-day KXHIGHNY load measured +120MB RSS (2,190 contracts, 78k snapshots, 6.7s) on the box on
 # 10-24, so 1+6 cities is ~0.85GB per run, leaving room for two concurrent runs. More cities is the
 # main lever on statistical power for a daily market (one settlement per city per day).
-MAX_POOL_MARKETS_HOURLY = 6
+# Prod 2026-10-31/11-01: the first 12h of reopened weather research developed 8 NYC-high ideas and 6 of
+# them died "underpowered" (Todd wants a pass fast; thresholds stay). 1+12 cities is ~1.6GB per run, so
+# four concurrent pooled weather runs still fit the agents worker's 8G.
+MAX_POOL_MARKETS_HOURLY = int(os.getenv("TAU_MAX_POOL_MARKETS_HOURLY", "12"))
 
 SPEC_GUIDE = """A strategy spec is a JSON object:
 {
