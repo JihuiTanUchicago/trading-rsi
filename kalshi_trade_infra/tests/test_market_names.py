@@ -163,3 +163,23 @@ def test_the_front_end_names_markets_only_through_the_core():
     core = (ROOT / "app" / "static" / "core.js").read_text()
     assert "const mktLong = (k, me) => (!k ? NO_MARKET : mktCatalog(k, me) || MKT_SHORT[k] || UNLISTED_MARKET);" in core
     assert "const mktShort = (k, me) => (!k ? NO_MARKET : MKT_SHORT[k] || wxShort(mktCatalog(k, me)) || mktCatalog(k, me) || UNLISTED_MARKET);" in core
+
+
+def test_the_bell_and_the_page_it_opens_say_one_long_name_per_market(monkeypatch):
+    """Bell walk 2026-11-01: the research_done notice said "Bitcoin above a set price at 5pm ET" and the session page it
+    opens was headed "Session · BTC above set price at 5pm ET". One market of each kind (crypto 15-minute and daily,
+    daily highs in two cities, three leagues): the notice says its customer_label, and the front-end guard
+    (tests/market_names_frontend_cases.mjs, which holds the session heading, decks, buttons and contracts to the long
+    name) is fed the same names, so the bell and the page can't drift apart."""
+    from app.services import research_notice
+    city = markets.market_from_series({"series_ticker": "KXHIGHCHI", "title": "Highest temperature in Chicago",
+                                       "category": "Climate and Weather", "frequency": "daily", "open_markets": 6})
+    monkeypatch.setitem(markets.MARKETS, city.key, city)
+    src = (ROOT / "tests" / "market_names_frontend_cases.mjs").read_text()
+    said = dict(re.findall(r"\b(\w+): '([^']+)'", src[src.index("const LONG = {"):src.index("SHORT.kxhighchi")]))
+    assert set(said) >= {"btc15m", "btc_daily", "high_ny", "kxhighchi", "nba_game", "nfl_game", "epl_game"}
+    for key, long in said.items():
+        assert long == markets.MARKETS[key].customer_label, key
+        body = research_notice.body({"kind": "research", "by_autopilot": 0, "market": key, "status": "succeeded",
+                                     "hypotheses_tried": 2, "strategies_passed": 1})
+        assert body.startswith("Your research session on %s finished." % long), body

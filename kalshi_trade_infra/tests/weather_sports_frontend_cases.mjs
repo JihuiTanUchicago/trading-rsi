@@ -2,7 +2,8 @@
 // plainly as Bitcoin ones. Walked 2026-11-01 with research reopened on daily highs and sports, an account holding NYC,
 // Chicago and Oklahoma City highs, an NFL game, an EPL draw and a postponed NBA game, both themes, phone and desktop:
 // - two NYC positions both read "NYC daily high temperature", and a game "NFL game winner (moneyline)": no degrees,
-//   no day, no teams, no side;
+//   no day, no teams, no side (a contract now reads its market's long name with them: "NYC daily high temperature on
+//   Nov 1, 58° to 59°F", the name the strategy page's Market line says);
 // - a city high the catalog adds had no short name, so chips clipped "HIGHEST TEMPERATURE IN CHICAG", and the research
 //   picker and the Strategies filter listed two weather groups ("Climate and Weather" and "Weather");
 // - Explore's game rows dropped the side a contract pays on ("Kansas City at Buffalo Winner?", sub "Kansas City");
@@ -24,25 +25,29 @@ const MARKETS = [
   {key: 'nba_game', label: 'NBA game winner (moneyline)', series: 'KXNBAGAME', category: 'Sports', has_data: true},
 ];
 const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+// The catalog's city highs as the server names them today (markets.Market.customer_label), the long name a position's
+// contract begins with.
+const NAMED = MARKETS.map((m) => (m.key === 'kxhighchi' ? {...m, label: 'Chicago daily high temperature'}
+  : m.key === 'kxhightokc' ? {...m, label: 'Oklahoma City daily high temperature'} : m));
 
 export function weatherSportsCases({name, frontend, detailStrategy, strategyFrontend}) {
   test(`${name}: a weather or game position says its city, day and degrees, or its teams, day and side, never only its market`, async () => {
     const close = new Date(Date.now() + 9 * 3600e3).toISOString();
     const hold = (ticker) => ({ticker, side: 'yes', qty: 4, entry_price: 0.31, cost: 1.3, unrealized: 0.1, mark_ts: new Date().toISOString(), mode: 'paper', market_close_time: close});
     const cases = [
-      ['high_ny', 'KXHIGHNY-26NOV01-B58.5', 'NYC high temp on Nov 1, 58° to 59°F'],
-      ['high_ny', 'KXHIGHNY-26NOV02-T64', 'NYC high temp on Nov 2, 64°F threshold'],
-      ['kxhighchi', 'KXHIGHCHI-26NOV01-B48.5', 'Chicago high temp on Nov 1, 48° to 49°F'],
-      ['kxhightokc', 'KXHIGHTOKC-26NOV01-T71', 'Oklahoma City high temp on Nov 1, 71°F threshold'],
+      ['high_ny', 'KXHIGHNY-26NOV01-B58.5', 'NYC daily high temperature on Nov 1, 58° to 59°F'],
+      ['high_ny', 'KXHIGHNY-26NOV02-T64', 'NYC daily high temperature on Nov 2, 64°F threshold'],
+      ['kxhighchi', 'KXHIGHCHI-26NOV01-B48.5', 'Chicago daily high temperature on Nov 1, 48° to 49°F'],
+      ['kxhightokc', 'KXHIGHTOKC-26NOV01-T71', 'Oklahoma City daily high temperature on Nov 1, 71°F threshold'],
       ['nfl_game', 'KXNFLGAME-26NOV01KCBUF-KC', 'NFL: Chiefs vs Bills on Nov 1, Chiefs to win'],
       ['nba_game', 'KXNBAGAME-26OCT30GSWMIA-MIA', 'NBA: Warriors vs Heat on Oct 30, Heat to win'],
-      ['epl_game', 'KXEPLGAME-26NOV01ARSCHE-TIE', 'Premier League: Arsenal vs Chelsea on Nov 1, a draw'],
+      ['epl_game', 'KXEPLGAME-26NOV01ARSCHE-TIE', 'English Premier League: Arsenal vs Chelsea on Nov 1, a draw'],
       // A Bitcoin contract keeps its market's name.
       ['btc15m', 'KXBTC15M-26NOV012315-15', 'Bitcoin up or down in 15 minutes'],
     ];
     for (const [market, ticker, plain] of cases) {
       const f = strategyFrontend(detailStrategy({market, holdings: [hold(ticker)]}), () => response({}));
-      f.S.me.markets = MARKETS;
+      f.S.me.markets = NAMED;
       await f.viewStrategy(42); await flush();
       const html = f.root.querySelector('#holding-now').innerHTML;
       assert.ok(html.includes(`<a href="/explore?m=${encodeURIComponent(ticker)}">${plain}</a>`), `${ticker}: ${text(html).slice(0, 160)}`);
@@ -65,8 +70,7 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
   // markets.Market.customer_label) since walk 2026-11-01; its short name is the same as from Kalshi's title.
   test(`${name}: a catalog city high sent by its long name keeps its short city name in chips and the picker`, () => {
     const f = frontend();
-    const named = MARKETS.map((m) => (m.key === 'kxhighchi' ? {...m, label: 'Chicago daily high temperature'}
-      : m.key === 'kxhightokc' ? {...m, label: 'Oklahoma City daily high temperature'} : m));
+    const named = NAMED;
     f.S.me.markets = named;
     const names = [...f.marketPicker(named).matchAll(/<span class="mktrow-name">([^<]+)/g)].map((m) => m[1].trim());
     for (const n of ['NYC high temp', 'Chicago high temp', 'Oklahoma City high temp']) assert.ok(names.includes(n), `${n} in ${names}`);
