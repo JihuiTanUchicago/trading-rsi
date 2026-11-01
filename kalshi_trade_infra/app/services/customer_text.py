@@ -442,6 +442,24 @@ _FWD_HELD = re.compile(r"^Paper forward gate: (.+?) passed on paper \(" + _FWD_S
                        r"(.+?)\.?$", re.S)
 
 
+# The diversification check's own reason (gatekeeper.marginal_contribution_ok) names the experiment it repeats by its
+# id: "max |corr| 0.81 to deployed experiment 17 exceeds 0.70" read so in the feed (walk 2026-11-01, road to live). In
+# the strategy page's words (gate_explain.diversification), never the id; any other reason of that check (an
+# experiment's state, research-only markets) as the page says it, by the check.
+_FWD_CORR = re.compile(r"^max \|corr\| ([\d.]+) to deployed experiment \S+ exceeds ([\d.]+)$")
+
+
+def _fwd_held_why(reason: str) -> str:
+    r = reason.strip()
+    m = _FWD_CORR.match(r)
+    if m:
+        return ("it is too similar to a strategy you already run (a %s correlation of daily results; %s or less needed)"
+                % (m.group(1), m.group(2)))
+    if re.search(r"\bexperiment\b|\|corr\||forward_validated|_", r):
+        return "the diversification check after it didn’t clear it; its page says why"
+    return r
+
+
 def _fwd_record(n: str, ret: str) -> str:
     """"20 paper trades, averaging +6.1% of the stake per trade after fees" (the strategy page's words)."""
     return "%s paper trade%s, averaging %s%% of the stake per trade after fees" % (n, "" if n == "1" else "s", ret.replace("-", "−", 1))
@@ -463,7 +481,7 @@ def forward_line(text: Optional[str]) -> Optional[str]:
     m = _FWD_HELD.match(s)
     if m:
         return "%s passed its paper forward test (%s) but isn’t cleared to trade: %s." % (
-            m.group(1), _fwd_record(m.group(2), m.group(3)), m.group(4))
+            m.group(1), _fwd_record(m.group(2), m.group(3)), _fwd_held_why(m.group(4)))
     return text
 
 

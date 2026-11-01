@@ -4986,7 +4986,15 @@ def _copilot_context(cur, user: Dict) -> str:
             # Realistic-fill evidence for the paper -> live gate, so reviews promote, keep or stop
             # paper deployments on what live would actually earn. Best-effort (test stub -> skip).
             try:
-                lines.append("    paper evidence: " + paper_evidence_line(paper_evidence(cur, user["id"], d["strategy_id"])))
+                ev = paper_evidence(cur, user["id"], d["strategy_id"])
+                lines.append("    paper evidence: " + paper_evidence_line(ev))
+                # Where it stands with the gatekeeper past those counts, as Deploy and its page say it.
+                rec = rr.experiments_for_strategy(cur, d["strategy_id"], (repo.get_strategy(cur, user["id"], d["strategy_id"]) or {}).get("experiment_id"))
+                stage = chat_facts.paper_stage_line(
+                    chat_facts.paper_stage((rec or {}).get("results") or [], ((rec or {}).get("experiment") or {}).get("min_sample")),
+                    ((rec or {}).get("experiment") or {}).get("min_sample"), ev["trades"], ev.get("events") or 0)
+                if stage:
+                    lines.append("    " + stage)
             except Exception:
                 pass
     if not deps:

@@ -18,7 +18,7 @@ from trading_core.domain.slippage import contract_fills
 # The display reads' own columns, which the gates' list_deployments never carries: the paper after-slippage
 # estimate's input, and the strategy's status and whether a passed one has no gatekeeper record (a
 # backtest-only or record-less row's "later-period" words), and whether a void one has none (void_no_record).
-DISPLAY_ONLY = ("contract_fills", "strategy_status", "no_gatekeeper_record", "void_no_record", "cleared_never")
+DISPLAY_ONLY = ("contract_fills", "strategy_status", "no_gatekeeper_record", "void_no_record", "cleared_never", "forward_sample")
 
 pytestmark = pytest.mark.skipif(os.getenv("APP_TEST_MYSQL") != "1", reason="needs APP_TEST_MYSQL=1 and a MySQL")
 
@@ -799,9 +799,10 @@ def test_the_autopilot_panels_reads_answer_as_the_position_scans_they_replace(co
 
     full = repo.list_deployments(cur, uid)
     aggregates = ("realized_pnl", "closed_trades", "wins", "open_positions")
-    # Plus the display-only cleared_never (none of these strategies has a gatekeeper record).
+    # Plus the display-only cleared_never and forward_sample (none of these strategies has a gatekeeper record).
     brief = repo.list_deployments_brief(cur, uid)
     assert {d.pop("cleared_never") for d in brief} == {None}
+    assert {d.pop("forward_sample") for d in brief} == {None}
     assert brief == [{k: v for k, v in d.items() if k not in aggregates} for d in full]
     assert repo.deployment_closed_totals(cur, [d["id"] for d in full]) == {
         d["id"]: (d["closed_trades"], d["realized_pnl"]) for d in full if d["closed_trades"]}
@@ -1098,19 +1099,34 @@ def test_a_paper_strategy_whose_one_judgment_is_in_unpromoted_reads_as_never_cle
         alt_hypothesis="edge>0", planned_test="stationary_bootstrap", falsification_criteria="ci_lo<=0",
         min_sample=150, cost_assumptions={}, research_partition_id=0, planned_n_tests=1, correction_method="BH"))
 
-    def flags():
+    def flags(col="cleared_never"):
         out = []
         for read in (repo.list_deployments_brief, repo.list_deployments_for_display, repo.deployment_rows_for_display):
-            out.append({d["id"]: d["cleared_never"] for d in read(cur, uid)})
+            out.append({d["id"]: d[col] for d in read(cur, uid)})
         assert out[0] == out[1] == out[2]
         return out[0]
 
     rr.append_result(cur, eid, "validation", "inconclusive", 56)
     assert flags() == {dep["id"]: None, demo: None}
+    # Still in its paper forward test: its one judgment comes at the experiment's min_sample (a paper row's only).
+    assert flags("forward_sample") == {dep["id"]: 150, demo: None}
     rr.append_result(cur, eid, "paper", "inconclusive", 12)
     assert flags() == {dep["id"]: "paper", demo: None}
+    assert flags("forward_sample") == {dep["id"]: None, demo: None}
     rr.append_result(cur, eid, "paper", "deployment_candidate", 12)
     assert flags() == {dep["id"]: None, demo: None}
+    # A paper pass the diversification check held back reads as held back, not as a judgment that failed.
+    eid2 = rr.preregister(cur, dict(
+        user_id=uid, run_id=None, strategy_id=sid, market="btc15m", hypothesis_hash=uuid.uuid4().hex,
+        spec={}, economic_rationale="m", primary_metric="mean_net_return_per_trade", null_hypothesis="edge<=0",
+        alt_hypothesis="edge>0", planned_test="stationary_bootstrap", falsification_criteria="ci_lo<=0",
+        min_sample=40, cost_assumptions={}, research_partition_id=0, planned_n_tests=1, correction_method="BH"))
+    cur.execute("UPDATE app_strategies SET experiment_id=%s WHERE id=%s", (eid2, sid))
+    rr.append_result(cur, eid2, "validation", "inconclusive", 20)
+    assert flags("forward_sample") == {dep["id"]: 40, demo: None}
+    rr.append_result(cur, eid2, "paper", "forward_validated", 40)
+    assert flags() == {dep["id"]: "paper_held", demo: None}
+    assert flags("forward_sample") == {dep["id"]: None, demo: None}
 
     since = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
     mine = repo.create_run(cur, uid, "research", "btc15m", "momentum", "an idea")

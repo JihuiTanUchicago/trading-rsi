@@ -433,12 +433,26 @@ def _autopilot_story(d: Dict) -> List[str]:
     elif prog and prog.get("cleared_never"):
         # Every paper strategy's one later judgment is in and none was cleared (autopilot_status picks the furthest
         # among those only then): its count is no step toward live, so the line says that first.
-        lines.append("%s on paper (pretend money), but %s be cleared to trade: %s one-time judgment didn’t clear it. "
-                     "%s %s on paper, %s on them %s." % (
+        # "didn’t clear it" read wrong for a pass the diversification check held back: neither was cleared.
+        lines.append("%s on paper (pretend money), but %s be cleared to trade: %s one-time judgment is in and %s "
+                     "cleared. %s %s on paper, %s on them %s." % (
                          _plural(paper, "strategy is", "strategies are"), "it can’t" if paper == 1 else "none can",
-                         "its" if paper == 1 else "each one’s", "It has" if paper == 1 else "The furthest along has",
+                         "its" if paper == 1 else "each one’s", "it wasn’t" if paper == 1 else "none was",
+                         "It has" if paper == 1 else "The furthest along has",
                          _plural(int(prog.get("trades") or 0), "realistic trade"), _money(prog.get("net_pnl") or 0),
                          customer_text.PAPER_NET_SHORT))
+    elif prog and prog.get("forward_sample") and int(prog.get("trades") or 0) > 0:
+        # Every paper strategy whose record could count toward live has none yet, and the furthest is in its paper
+        # forward test (autopilot_status picks it only then): its trades count toward its one judgment there, and
+        # live isn't on its road before that passes. It read "has 40 realistic paper trades (live needs 30)".
+        have, need = int(prog["trades"]), int(prog["forward_sample"])
+        lines.append("%s on paper (pretend money). The furthest along is in its paper forward test: it has %s and is %s "
+                     "on them %s. Only a pass there can clear it to trade, and that judgment is made once." % (
+                         _plural(paper, "strategy is", "strategies are"),
+                         ("%s of the %d realistic paper trades its one judgment needs" % ("{:,}".format(have), need)) if have < need
+                         else ("%s realistic paper trades (its one judgment needs %d, from %d separate events)"
+                               % ("{:,}".format(have), need, agent.MIN_PAPER_EVENTS)),
+                         _money(prog["net_pnl"]), customer_text.PAPER_NET_SHORT))
     elif prog and int(prog.get("trades") or 0) > 0:
         # Its count and net are the realistic paper record across all its paper runs (the road to live's),
         # not one deployment's realized P&L: said so, since the Deploy row beside it shows that one.
@@ -984,12 +998,21 @@ FIRST_PAPER_WHEN = ("If a session passes a strategy through every test, the next
                     "There’s no set time for that, and most ideas don’t pass.")
 
 
-def _furthest(sids: List[int], prog: Dict[int, Tuple[int, float]], never: Dict[int, str]) -> Tuple[int, List[int]]:
-    """(the paper strategy furthest along, by realistic trades then net, among those the gatekeeper can still clear,
-    or among all when none can; the ones it can still clear). `prog` is book_memo.paper_readouts' counts, `never`
-    {strategy id: its deployment row's cleared_never} for those it can no longer clear."""
-    open_sids = [s for s in sids if s not in never]
-    best = max(open_sids or sids, key=lambda s: (prog.get(s, (0, 0.0))[0], prog.get(s, (0, 0.0))[1]))
+def _furthest(sids: List[int], prog: Dict[int, Tuple[int, float]], never: Dict[int, str],
+              forward: Optional[Dict[int, int]] = None) -> Tuple[int, List[int]]:
+    """(the paper strategy furthest along, by realistic trades then net, among those whose paper record counts toward
+    live, else among those still in their paper forward test, else among all; the ones whose record counts toward
+    live). `prog` is book_memo.paper_readouts' counts, `never` {strategy id: its deployment row's cleared_never} for
+    those the gatekeeper can no longer clear, `forward` {strategy id: its deployment row's forward_sample} for those
+    it will still judge once on their paper trades: until that judgment passes, their count is no step toward live.
+    "Furthest on paper" named a probation strategy with 40 trades "(30 needed)" over one cleared to trade."""
+    forward = forward or {}
+    open_sids = [s for s in sids if s not in never and s not in forward]
+    testing = [s for s in sids if s not in never and s in forward]
+    score = lambda s: (prog.get(s, (0, 0.0))[0], prog.get(s, (0, 0.0))[1])  # noqa: E731
+    # One in its forward test with trades outranks one counting toward live with none yet ("none has traded yet").
+    pool = next((p for p in (open_sids, testing) if any(score(s)[0] > 0 for s in p)), None)
+    best = max(pool or open_sids or testing or sids, key=score)
     return best, open_sids
 
 
@@ -1052,11 +1075,15 @@ def autopilot_status(ctx: Ctx):
         prog, events = book_memo.paper_readouts(memo, sids)
         titles = {int(d["strategy_id"]): d.get("title") or "" for d in paper_run}
         never = {int(d["strategy_id"]): d["cleared_never"] for d in paper_run if d.get("cleared_never")}
-        best, open_sids = _furthest(sids, prog, never)
+        forward = {int(d["strategy_id"]): int(d["forward_sample"]) for d in paper_run if d.get("forward_sample")}
+        best, open_sids = _furthest(sids, prog, never, forward)
         trades, net = prog.get(best, (0, 0.0))
+        # One still in its paper forward test counts toward its one judgment there (its experiment's min_sample, as
+        # Deploy's row says it), not toward live: `forward_sample` says so.
         paper_progress = {"strategy_id": best, "title": titles[best], "trades": trades,
-                          "trades_needed": agent.MIN_REALISTIC_PAPER_TRADES, "net_pnl": cents(net),
-                          "strategies": len(sids), **({"cleared_never": never[best]} if best in never else {})}
+                          "trades_needed": forward.get(best, agent.MIN_REALISTIC_PAPER_TRADES), "net_pnl": cents(net),
+                          "strategies": len(sids), **({"cleared_never": never[best]} if best in never else {}),
+                          **({"forward_sample": forward[best]} if best in forward and best not in never else {})}
         # When the soonest one that can still be cleared could have a full record for the live check, at the pace
         # each trades.
         from app.research import rsi

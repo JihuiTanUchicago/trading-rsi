@@ -157,3 +157,50 @@ def recent_trades_lines(closed: List[Dict], deps: List[Dict], market_name: Calla
 
 def open_notional(row: Optional[Dict]) -> Decimal:
     return exact((row or {}).get("notional") or 0)
+
+
+# A paper strategy's place on the road to live past the counts, as Deploy's row and its own page say it: the deployment
+# reads' cleared_never and forward_sample columns (deployment_repository), judged alike from its experiment's rows. The
+# context's "paper evidence ... not live-ready: it needs 30+ closed paper trades (has 22)" read as eight trades from live
+# for a probation strategy whose one paper judgment needs 40 and comes first, and as only demo orders left for one the
+# diversification check held back for good (walk 2026-11-01, road to live).
+PAPER_MIN_EVENTS = 20  # gatekeeper.PAPER_MIN_EVENTS, the live gate's floor too (agent.MIN_PAPER_EVENTS)
+
+
+def paper_stage(results: List[Dict], min_sample: Optional[int]) -> str:
+    """'' (a deployment candidate, or nothing to say), 'forward' (its one paper judgment still to come), or the one later
+    judgment in without a promotion: 'paper' / 'holdout' (it didn't pass), 'paper_held' / 'holdout_held' (it passed and
+    the diversification check held it back). `results` are its experiment's rows, any order."""
+    rows = results or []
+    if any(r.get("classification") == "deployment_candidate" for r in rows):
+        return ""
+    for phase in ("paper", "holdout"):
+        mine = [r for r in rows if r.get("phase") == phase]
+        if mine:
+            return phase + ("_held" if any(r.get("classification") == "forward_validated" for r in mine) else "")
+    if any(r.get("phase") == "validation" and r.get("classification") == "statistically_supported" for r in rows):
+        return ""
+    return "forward" if int(min_sample or 0) > 0 else ""
+
+
+_STAGE_NEVER = {
+    "paper": "its one judgment on its own paper trades didn’t pass",
+    "holdout": "its one-time final test didn’t pass",
+    "paper_held": "it passed its one judgment on its own paper trades but the diversification check held it back",
+    "holdout_held": "it passed its one-time final test but the diversification check held it back",
+}
+
+
+def paper_stage_line(stage: str, min_sample: Optional[int], trades: int, events: int) -> str:
+    """The context line for `paper_stage`, or '' when there is nothing past the counts to say."""
+    if stage == "forward":
+        need = int(min_sample or 0)
+        due = int(trades) >= need and int(events) >= PAPER_MIN_EVENTS
+        return ("stage: in its paper forward test, NOT cleared to trade: its one judgment on its own paper trades comes at "
+                "%d realistic trades from %d separate events (has %d trades from %d events%s), and only a pass can clear "
+                "it. Until then the live counts above are no step toward live; say so if asked how close it is."
+                % (need, PAPER_MIN_EVENTS, int(trades), int(events), ", so that judgment is due" if due else ""))
+    if stage in _STAGE_NEVER:
+        return ("stage: it can never be cleared to trade: %s. Its paper record doesn’t lead to live, whatever the counts "
+                "above say." % _STAGE_NEVER[stage])
+    return ""
