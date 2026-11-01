@@ -4,7 +4,7 @@
 window.TauPage('funds', (T) => {
   'use strict';
   const {
-    announce, api, armed, BEHIND, boardTitle, busy, cashFig, cashNow, cashRead, contractName, DEMO_BOOK, DEMO_WHAT, demoCapital, demoKeyless, demoNoClose, demoSpan, errText, esc, fig, flash, holdFocus, ICON, inBalance, kalshiRef, liveOpen, loading, num, olderRows, openCost, pageAssets, PAPER_NET,
+    announce, api, armed, BEHIND, boardTitle, busy, cashFig, cashNow, cashRead, contractName, DEMO_BOOK, DEMO_WHAT, demoCapital, demoKeyless, demoNoClose, demoSpan, errText, esc, fig, flash, holdFocus, ICON, inBalance, liveOpen, loading, num, olderRows, openCost, pageAssets, PAPER_NET,
     paint, painted, poll, refreshed, root, S, SEP, settleAt, dayAt, localDay, shell, slipEst, tone, usd, ageAt, ageOnly
   } = T;
 
@@ -129,19 +129,18 @@ window.TauPage('funds', (T) => {
     // a contract" over +$4.50). It says Kalshi cancelled it; the memo and the amount are the engine's, as they are.
     const settled = r.kind === 'settlement' ? (/\bVOID\b/.test(memo) ? `${SEP}${LEDGER_CANCELLED}` : +r.amount > 0 ? `${SEP}won, paid $1 a contract` : `${SEP}lost, paid $0`) : '';
     // Each contract goes by its plain name, as an open position does (contractName: "Bitcoin up or down in 15
-    // minutes"); its ticker carries the raw series key, so it moves to the small line under it (kalshiRef). A pair
-    // trade names two: only the first was renamed, and the second's raw ticker stood in the words (walk 2026-10-31).
-    const ticks = [];
+    // minutes"); its ticker carries the raw series key, so no line shows it (it sat on a small line under the words
+    // until the walk of 2026-11-01). A pair trade names two: only the first was renamed, and the second's raw ticker
+    // stood in the words (walk 2026-10-31).
     let said = '', from = 0;
     for (const t of memo.matchAll(LEDGER_TICKER)) {
       said += esc(memo.slice(from, t.index)) + esc(contractName(t[0]));
-      if (!ticks.includes(t[0])) ticks.push(t[0]);
       from = t.index + t[0].length;
     }
     said += esc(memo.slice(from));
     // The words and the settled note are one inline run: the stacked cell is a flex row, so the note was an item
     // of its own and at 390px "· won, paid $1 a contract" began a line under "settled YES".
-    return `<span class="ledger-said">${said}${settled ? `<span class="hint">${settled}</span>` : ''}</span>` + ticks.map((t) => `<div class="sub-fig">${kalshiRef(t)}</div>`).join('');
+    return `<span class="ledger-said">${said}${settled ? `<span class="hint">${settled}</span>` : ''}</span>`;
   };
   const LEDGER_CANCELLED = 'Kalshi cancelled this market: no Yes or No result';
   // A Kalshi contract ticker in a memo: its series, then the event's date (KXBTCD-26OCT2617-T114999.99).

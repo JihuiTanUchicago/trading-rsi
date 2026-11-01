@@ -608,7 +608,25 @@
   // do, [chip, name], never the raw series or another market's label. Every series of services/btc_spot.py's
   // BTC_SERIES is a market's or here (test_every_bitcoin_series_the_app_shows_has_a_label).
   const SERIES_SHORT = { KXBTC: ['BTC range at {h} ET', 'Bitcoin range at {h} ET'] };
-  const kalshiRef = (ticker) => `<span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">${esc(ticker)}</span></span>`;
+  // A list of positions or trades whose plain names repeat (five "Solana up or down in 15 minutes", one per window) tells
+  // each apart by what the row already knows: when it settles, in the reader's zone (settleAt), where the rows of that
+  // name settle at different times, then its side, where those of that name and time hold different sides. The
+  // contract's code (KXSOL15M-26NOV011815-00) used to sit under each name to do that, and it carries the raw series key, so
+  // no page shows it (keyboard walk 2026-11-01: Deploy read "Kalshi contract KXSOL15M-…" five times). `names` are the
+  // rows' plain names, in order; each answer is the words that follow its name (" (18:15 UTC)", " (18:15 UTC, NO)"; text,
+  // the caller escapes it), the same before and after the close, or '' when no other row has its name or nothing of the
+  // contract tells them apart (one contract in two books: the row's book and strategy do). Display only.
+  const apartWords = (rows, names) => {
+    const at = rows.map((r) => (Number.isFinite(new Date(r.market_close_time || NaN).getTime()) ? settleAt(r.market_close_time) : ''));
+    const side = rows.map((r) => String(r.side || '').toUpperCase());
+    const differ = (vals, same) => new Set(vals.filter((v, j) => same(j))).size > 1;
+    return names.map((n, i) => {
+      const t = at[i] && differ(at, (j) => names[j] === n) ? at[i] : '';
+      const sd = side[i] && differ(side, (j) => names[j] === n && (!t || at[j] === t)) ? side[i] : '';
+      const words = [t, sd].filter(Boolean).join(', ');
+      return words ? ` (${words})` : '';
+    });
+  };
 
   // ---------- page pieces ----------
   const boardTitle = (title, sub = '') => `<div class="board-title"><h1 class="page">${esc(title)}</h1>${sub ? `<p class="deck">${sub}</p>` : ''}</div>`;
@@ -1720,7 +1738,7 @@
     logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
-    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
+    catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared,

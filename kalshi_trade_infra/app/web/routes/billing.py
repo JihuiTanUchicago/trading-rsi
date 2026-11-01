@@ -13,7 +13,7 @@ from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.services import customer_text
 from app.services.trade_why import trade_why
-from app.trading.markets import customer_name
+from app.trading.markets import contract_customer_name, customer_name
 from app.web.http import ApiError, Ctx, _num
 from app.web.views import credit_cents, credit_exact, credit_split, credit_usd, session_title
 
@@ -489,11 +489,13 @@ def billing_receipt(ctx: Ctx):
 
 TRADE_MODES = ("paper", "demo", "live")
 TRADES_CSV_MAX_ROWS = 50000  # about 7MB; a cap, so one request can't read an unbounded book
-TRADES_CSV_HEADER = ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
-                     "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
-                     "close_reason"]
+TRADES_CSV_HEADER = ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "market",
+                     "kalshi_contract_code", "side", "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee",
+                     "realized_pnl", "close_reason"]
 # The file's last column was each trade's internal position id (walk 2026-11-01): no column carries an id now. A trade
-# is told apart by its Kalshi contract (ticker) and its times.
+# is told apart by its Kalshi contract and its times. The contract's code (KXSOL15M-26NOV011815-00) carries the raw
+# series key, so its column says what it is, the exchange's code for the contract, and the market column beside it
+# names the market in words (markets.contract_customer_name), as the pages do: the column was a bare "ticker".
 
 
 def _close_said(r: Dict) -> str:
@@ -590,14 +592,19 @@ def trades_csv(ctx: Ctx):
     # A close in words reads only the trade's close reason and its entry and exit prices (_close_said), and a book's
     # thousands of trades share a few dozen of those: each is worded once per file.
     said: Dict[Tuple, str] = {}
+    market: Dict[Tuple, str] = {}  # each (series, strategy market) named once per file
     for r in reversed(rows[:TRADES_CSV_MAX_ROWS]):  # oldest first, the order a reader checks a book in
         key = (r.get("close_reason"), r.get("entry_price"), r.get("exit_price"))
         close = said.get(key)
         if close is None:
             close = said[key] = _close_said(r)
+        mkey = (str(r["ticker"] or "").split("-", 1)[0], r.get("strategy_market"))
+        name = market.get(mkey)
+        if name is None:
+            name = market[mkey] = contract_customer_name(r["ticker"], r.get("strategy_market"))
         row([
             _iso_utc(r["closed_at"]), _iso_utc(r["opened_at"]), r["mode"],
-            _strategy_cell(names, r), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
+            _strategy_cell(names, r), r.get("title") or "", name, r["ticker"], r["side"], int(r["qty"]),
             _dec(r["entry_price"]), _dec(r["exit_price"]), _dec(r["entry_fee"]), _dec(r["exit_fee"]),
             _dec(r["pnl"]), close])
     if cut:

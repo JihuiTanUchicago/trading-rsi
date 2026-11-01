@@ -10,7 +10,7 @@ window.TauPage('explore', (T) => {
   const {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
-    exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
+    exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel, pricesOld,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
     settleAt, dayAt, shell, sinceMin, smooth, ageAt, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
@@ -19,6 +19,9 @@ window.TauPage('explore', (T) => {
   // Context column and the Yes bid and ask), and says a market page short of history in its own words; the reads,
   // the polls, the pages, the way back and the market page are the same in both.
   const tau = theme === 'tau';
+  // A downloaded file's name from a market's words, lower case and dashed ("Bitcoin above $60,000" ->
+  // "bitcoin-above-60-000"); "kalshi-market" when they leave nothing.
+  const csvName = (words) => String(words || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '') || 'kalshi-market';
 
   // ---------- explore ----------
   function priceChart(points) {
@@ -195,7 +198,8 @@ window.TauPage('explore', (T) => {
       : closedNow ? fig('Closed', dayAt(d.close_time, 'kz'))
       : fig(liveClose(d.close_time, 'lab', { skew: closeSkew }), dayAt(d.close_time, 'kz'), { small: liveClose(d.close_time, 'in', { skew: closeSkew }) });
     const kalshiLink = `https://kalshi.com/markets/${encodeURIComponent((d.series || '').toLowerCase())}`;
-    // The line under the name says what the code is, as a position does (kalshiRef): "Kalshi contract KX…", not a bare ticker.
+    // The line under the name is the contract's plain words and its status, never its code (KXBTCD-…), which carries the raw
+    // series key: it read "Kalshi contract KX…" there (walk 2026-11-01). View on Kalshi opens the market on Kalshi.
     // An open market's status follows the same clock as its Closes figure (closeClock), flipping to "Closed, result
     // pending" once the close passes; Kalshi's own closed and settled statuses stay as Kalshi sent them.
     // A read with no status (the Explore feed's snapshot) said "Market" there, a word that says nothing: it says nothing.
@@ -214,7 +218,7 @@ window.TauPage('explore', (T) => {
     const pricesFrom = over ? '' : d.snapshot ? d.as_of || '' : d.as_of ? readAt : '';
     // The way back sits at the top as well as the foot: on a 390px phone the foot's "Back to Explore" was about three
     // screens down. Both go to the list this tab last showed, its filter kept (exploreBackHref).
-    shell('/explore', `<p class="mk-back"><a href="${esc(exploreBackHref())}">← Back to Explore</a></p>` + boardTitle(label, [esc(contractMarket(d.ticker)), statusLine, d.ticker ? kalshiRef(d.ticker) : ''].filter(Boolean).join(SEP)) +
+    shell('/explore', `<p class="mk-back"><a href="${esc(exploreBackHref())}">← Back to Explore</a></p>` + boardTitle(label, [esc(contractMarket(d.ticker)), statusLine].filter(Boolean).join(SEP)) +
       '<dl class="figures measure" style="margin-top:14px">' +
         (settled ? fig('Result', d.result === 'yes' ? 'Yes' : 'No', { small: d.result === 'yes' ? 'each Yes contract paid $1' : 'each No contract paid $1' })
           : cancelled ? fig('Result', 'Cancelled', { small: `Kalshi cancelled this market${paidEach ? ' and ' + paidEach : ''}: no Yes or No result` })
@@ -262,7 +266,8 @@ window.TauPage('explore', (T) => {
     if (dl) dl.onclick = () => {
       const csv = 'time_utc,unix_ts,yes_price,volume\n' + d.points.map((p) => `${new Date(p.t * 1000).toISOString()},${p.t},${p.yes},${Math.round(p.vol || 0)}`).join('\n');
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      const a = document.createElement('a'); a.href = url; a.download = `${d.ticker}.csv`; a.click();
+      // The file is named by the market's words ("bitcoin-above-60-000-prices.csv"), not its code: it was "KXBTCD-….csv".
+      const a = document.createElement('a'); a.href = url; a.download = `${csvName(label)}-prices.csv`; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
   }

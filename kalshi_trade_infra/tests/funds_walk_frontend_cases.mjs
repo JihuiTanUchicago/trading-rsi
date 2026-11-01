@@ -27,15 +27,14 @@ export function fundsWalkCases({name, frontend, fundsData}) {
     f.location.pathname = '/funds';
     await f.viewFunds(); await settle();
     const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].filter((tr) => !tr.classList.contains('ledger-day')).map((tr) => tr.innerHTML);
-    const what = (r) => r.replace(/<span class="kalshi-ref">[\s\S]*?<\/span><\/span>/g, '');
     assert.match(rows[0], /Bitcoin \$115,000 or above at 5pm ET settled YES<span class="hint">\u00a0· won, paid \$1 a contract<\/span>/);
     assert.match(rows[1], /Sold 8 YES Bitcoin up or down in 15 minutes at 58¢ \(take profit\)/);
     assert.match(rows[2], /Bought 5 YES Bitcoin up or down in 15 minutes at 30¢/);
-    // The ticker is still there to find the contract on Kalshi, on its own small line, never the headline.
-    assert.match(rows[2], /<div class="sub-fig"><span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXBTC15M-26OCT241200-00<\/span><\/span><\/div>/);
-    for (const r of rows.slice(0, 3)) assert.doesNotMatch(what(r), /KXBTC/);
+    // The ticker carries the raw series key, so no row shows it: it sat on a small line under the words ("Kalshi
+    // contract KXBTC15M-…") until the keyboard walk of 2026-11-01.
+    for (const r of rows) assert.doesNotMatch(r.replace(/<[^>]*>/g, ' '), /KX[A-Z0-9]{3,}/);
     assert.match(rows[3], /Starting paper balance/);
-    assert.doesNotMatch(rows[3], /kalshi-ref/);
+    for (const r of rows) assert.doesNotMatch(r, /kalshi-ref|class="sub-fig"/);
     // When: a clock with its zone (and the day), never a bare date.
     for (const [i, iso] of [[0, '2026-10-26T21:00:00Z'], [2, '2026-10-24T16:00:00Z']]) {
       assert.match(rows[i], new RegExp(`<time datetime="${iso}" data-day="at">[^<]*\\d\\d:\\d\\d [A-Z+\\-0-9:]+</time>`), rows[i]);

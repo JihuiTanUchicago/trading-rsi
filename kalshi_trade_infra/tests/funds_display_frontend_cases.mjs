@@ -14,7 +14,7 @@ const MARKETS = [{key: 'btc15m', series: 'KXBTC15M', label: 'Bitcoin up or down 
   {key: 'btc_daily', series: 'KXBTCD', label: 'Bitcoin above a set price at 5pm ET', close_hour_et: 17}];
 
 export function fundsDisplayCases({name, frontend, fundsData}) {
-  test(`${name}: Funds' paper history names both contracts of a pair trade in plain words, each ticker on its small line`, async () => {
+  test(`${name}: Funds' paper history names both contracts of a pair trade in plain words, and neither ticker anywhere`, async () => {
     // "Bought 3 pair Bitcoin $113,000 or above at 5pm ET/KXBTCD-26OCT3117-T113999.99 (pair)": only the first ticker was
     // renamed, so the second's raw series key stood in the words. The engine's own words stay as written. Display only:
     // the stored memo and the amount are unchanged.
@@ -31,15 +31,13 @@ export function fundsDisplayCases({name, frontend, fundsData}) {
     await f.viewFunds(); await settle();
     const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].filter((tr) => !tr.classList.contains('ledger-day'));
     const said = rows.map((tr) => tr.querySelector('.ledger-said').textContent);
-    const refs = rows.map((tr) => [...tr.querySelectorAll('.kalshi-ref')].map((r) => r.textContent.replace(/\s+/g, ' ')));
     assert.match(said[2], /^Bought 3 pair Bitcoin \$113,000 or above at 5pm ET\/Bitcoin \$114,000 or above at 5pm ET \(pair\)$/);
-    assert.deepEqual(refs[2], [`Kalshi contract ${A}`, `Kalshi contract ${B}`]);
     assert.match(said[3], /^Bought 1 pair Bitcoin /);
     assert.match(said[1], /^Unwound 1 unhedged YES Bitcoin \$113,000 or above at 5pm ET \(pair\)$/);
     assert.match(said[0], /^Bought 1 YES Bitcoin \$113,000 or above at 5pm ET \(pair leg left naked\)$/);
     for (const s of said) assert.doesNotMatch(s, /KX[A-Z0-9]+-|\/K/);
-    // A repeated contract is listed once under its line.
-    assert.equal(refs[1].length, 1);
+    // Nor on a small line under the words, where each ticker sat ("Kalshi contract KXBTCD-…") until the walk of 2026-11-01.
+    for (const tr of rows) assert.doesNotMatch(tr.textContent, /KX[A-Z0-9]{3,}/);
     f.clearTimers();
   });
 

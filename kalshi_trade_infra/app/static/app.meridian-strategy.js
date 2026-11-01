@@ -6,9 +6,9 @@ window.TauPage('strategy', (T) => {
   'use strict';
   const {
     actionLink, announce, api, ApiError, closeClock, liveClose, apWhenSpan, armed, BEHIND, boardTitle, bookName, btCheckLine, busy,
-    cents, chartScale, chartWidth, CODE_RESEARCH_ONLY, contractLink, contractName, dateFmt, DEMO_BOOK, demoCashRead, demoHealthLine, DEP_DONE, depIdle,
+    apartWords, cents, chartScale, chartWidth, CODE_RESEARCH_ONLY, contractLink, contractName, dateFmt, DEMO_BOOK, demoCashRead, demoHealthLine, DEP_DONE, depIdle,
     depActed, depSaid, depWrite, dirLabel, equityChart, esc, EXAMPLE_NOTE, EXAMPLE_TAG, exitWord, FEES_NET, fig, flash, fmt0, fold, fundsLinked,
-    gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
+    gl, glo, gloSep, go, ICON, isPerpetual, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
     tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt
@@ -701,7 +701,7 @@ window.TauPage('strategy', (T) => {
       : 'No gate results recorded for this strategy. Gates only run for finalists that made money in testing.'}</p>`;
     // Opened is on the page's 24-hour clock, with its date and zone (LOG_STAMP): it read "11:21 PM EDT" beside "21:36 EDT".
     const trades = (s.recent_trades || []).length ? `<table class="table stack"><thead><tr><th>Opened</th><th>Market</th><th>Position</th><th class="num">Entry${perpetual ? ' (USD)' : ''}</th><th class="num">Exit${perpetual ? ' (USD)' : ''}</th><th class="num">P&amp;L</th></tr></thead><tbody>
-        ${s.recent_trades.map((t) => `<tr><td data-lab="Opened">${t.opened ? esc(dateFmt(new Date(t.opened.replace('Z', ':00Z')), LOG_STAMP)) : '—'}</td><td class="pos-name" data-lab="Market">${esc(contractName(t.ticker, s.market))}<div class="sub-fig">${kalshiRef(t.ticker)}</div></td><td data-lab="Position">${t.side ? esc(t.side.toUpperCase()) : '—'} ×${num(t.qty)}</td><td class="num" data-lab="Entry">${tradePrice(t.entry, perpetual)}</td><td class="num" data-lab="Exit">${tradePrice(t.exit, perpetual)} <small class="hint">${esc(exitWord(t.reason))}</small></td><td class="num ${tone(t.pnl)}" data-lab="P&amp;L">${usd(t.pnl, true)}</td></tr>`).join('')}
+        ${s.recent_trades.map((t) => `<tr><td data-lab="Opened">${t.opened ? esc(dateFmt(new Date(t.opened.replace('Z', ':00Z')), LOG_STAMP)) : '—'}</td><td class="pos-name" data-lab="Market">${esc(contractName(t.ticker, s.market))}</td><td data-lab="Position">${t.side ? esc(t.side.toUpperCase()) : '—'} ×${num(t.qty)}</td><td class="num" data-lab="Entry">${tradePrice(t.entry, perpetual)}</td><td class="num" data-lab="Exit">${tradePrice(t.exit, perpetual)} <small class="hint">${esc(exitWord(t.reason))}</small></td><td class="num ${tone(t.pnl)}" data-lab="P&amp;L">${usd(t.pnl, true)}</td></tr>`).join('')}
       </tbody></table>` : `<p class="hint">No later-period trades (${laterQual}) to show.</p>`;
     const activeDeps = restricted ? [] : s.deployments.filter((d) => d.status !== 'stopped');
     // Stopped deployments can still hold positions; the server refuses the delete until they close.
@@ -812,9 +812,11 @@ window.TauPage('strategy', (T) => {
       // Beside a Live or Demo row a paper one says Paper too: untagged, it read as the real-money book.
       // Each holding reads as the dashboard's position rows do: its market's plain name, then when it settles. The line
       // under the name was the raw contract code ("Kalshi contract KXNBAGAME-26OCT31MILPHI-PHI"); the name opens the
-      // market page, which still gives that code beside its Kalshi link for anyone finding it there.
+      // market page. Holdings that share a name (a 15-minute market's windows) say their settle time inside the link to a
+      // screen reader (apartWords), as the line under it shows.
+      const held = apartWords(s.holdings, s.holdings.map((p) => contractName(p.ticker, s.market)));
       return `<section class="panel" id="holding-now"><h3>Holding right now</h3>
-      <ul class="holdlist">${s.holdings.map((p) => `<li><div class="pos-name">${contractLink(p.ticker, s.market)} ${p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : books.length > 1 ? '<span class="mk">Paper</span>' : ''}</div><div class="sub-fig">${liveClose(p.market_close_time, 'settles', { cap: true })}</div>
+      <ul class="holdlist">${s.holdings.map((p, i) => `<li><div class="pos-name">${contractLink(p.ticker, s.market, held[i], true)} ${p.mode === 'live' ? '<span class="mk live">Live</span>' : p.mode === 'demo' ? '<span class="mk dep">Demo</span>' : books.length > 1 ? '<span class="mk">Paper</span>' : ''}</div><div class="sub-fig">${liveClose(p.market_close_time, 'settles', { cap: true })}</div>
         <div class="holdlist-figs"><b>${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(p.entry_price)}</b><span>Cost + fee ${usd(p.cost)}</span><span>Unrealized ${p.unrealized == null ? NOT_MARKED.toLowerCase() : markFig(p.mark_ts, money(p.unrealized)) + (p.mark_ts ? ` ${markedAt(p.mark_ts)}` : '')}</span></div>${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</li>`).join('')}</ul>
       <p class="hint" style="margin-top:8px">${books.map(bookLine).join('<br>')}</p></section>`;
     })() : '';

@@ -101,7 +101,7 @@ window.TauPage('billing', (T) => {
       const main = !d.configured
         ? `<div class="notice">${ICON.warn}<span>Card payments aren’t available yet. You can still use your free credits.</span></div>
            <section class="sect"><div class="sect-head"><h2>Credits &amp; usage</h2><a class="btn sm" href="/api/billing/receipt" download>Download receipt (CSV)</a></div><div id="bledger">${ledgerTable(d)}</div></section>`
-        : `<div id="blow">${lowNote(d)}</div><div class="detail bill-detail">
+        : `<a class="skip-to" href="#add-credits">Skip to Add credits</a><div id="blow">${lowNote(d)}</div><div class="detail bill-detail">
             <div>
               <section class="panel"><h2>Payment method</h2><div id="cards">${cardLines}</div>
                 <div id="card-add" style="margin-top:14px">
@@ -122,7 +122,7 @@ window.TauPage('billing', (T) => {
               </section>
               <section class="sect"><div class="sect-head"><h2>Credits &amp; usage</h2><a class="btn sm" href="/api/billing/receipt" download>Download receipt (CSV)</a></div><div id="bledger">${ledgerTable(d)}</div></section>
             </div>
-            <aside aria-label="Add credits">
+            <aside id="add-credits" aria-label="Add credits">
               <section class="panel"><h2>Add credits</h2>
                 <label class="field"><span>Amount (USD)</span><input class="input" id="topup-amt" type="number" min="${d.min_topup}" max="${d.max_topup}" step="1" value="20"></label>
                 <p class="hint" id="topup-note" style="margin-top:8px">${feeNote}</p>

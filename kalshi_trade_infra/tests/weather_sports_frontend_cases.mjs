@@ -125,7 +125,7 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     const html = f.root.innerHTML;
     assert.match(html, /Result<\/dt><dd><span class="fig ">Cancelled<\/span><\/dd><dd class="sub-fig">Kalshi cancelled this market and paid 50¢ a contract: no Yes or No result/);
     assert.match(html, /<h2>How it settles<\/h2><p>Cancelled by Kalshi · paid 50¢ a contract<\/p>/);
-    assert.match(f.root.querySelector('.deck').innerHTML, /^NBA: GSW vs MIA on Oct 30, GSW to win · Cancelled by Kalshi · <span class="kalshi-ref">/);
+    assert.equal(f.root.querySelector('.deck').innerHTML, 'NBA: GSW vs MIA on Oct 30, GSW to win · Cancelled by Kalshi');
     assert.doesNotMatch(text(html), /scalar|no result sent|sent no Yes or No|chance of Yes/i);
     if (f.clearTimers) f.clearTimers();
   });

@@ -854,12 +854,12 @@ def test_the_trades_download_stays_in_its_query_budget_and_reads_each_strategy_o
     # Oldest first; deployment 6 is gone, so no strategy. The strategy column is the title, never its id.
     btc, eth = "Fade tails (Bitcoin up or down in 15 minutes)", "Fade tails (Ethereum up or down in 15 minutes) (removed deployment)"
     assert data.splitlines()[1:] == [
-        "2026-10-25T07:00:00Z,2026-10-25T06:00:00Z,paper,%s,Fade tails,KXBTC15M-26OCT2517-T98,yes,3,"
+        "2026-10-25T07:00:00Z,2026-10-25T06:00:00Z,paper,%s,Fade tails,Bitcoin up or down in 15 minutes,KXBTC15M-26OCT2517-T98,yes,3,"
         "0.5000,1.0000,0.0700,0.0000,1.4300,Held to settlement: paid $1" % eth,
-        "2026-10-25T09:00:00Z,2026-10-25T08:00:00Z,paper,%s,Fade tails,KXBTC15M-26OCT2517-T98,yes,3,"
+        "2026-10-25T09:00:00Z,2026-10-25T08:00:00Z,paper,%s,Fade tails,Bitcoin up or down in 15 minutes,KXBTC15M-26OCT2517-T98,yes,3,"
         "0.5000,0.0000,0.0700,0.0000,-1.5700,Held to settlement: expired worthless" % btc,
-        "2026-10-25T11:00:00Z,2026-10-25T10:00:00Z,paper,,,KXBTC15M-26OCT2517-T98,yes,3,0.5000,,0.0700,,,",
-        "2026-10-25T13:00:00Z,2026-10-25T12:00:00Z,paper,%s,Fade tails,KXBTC15M-26OCT2517-T98,yes,5,"
+        "2026-10-25T11:00:00Z,2026-10-25T10:00:00Z,paper,,,Bitcoin up or down in 15 minutes,KXBTC15M-26OCT2517-T98,yes,3,0.5000,,0.0700,,,",
+        "2026-10-25T13:00:00Z,2026-10-25T12:00:00Z,paper,%s,Fade tails,Bitcoin up or down in 15 minutes,KXBTC15M-26OCT2517-T98,yes,5,"
         "0.4000,1.0000,0.0700,0.0000,2.9300,Held to settlement: paid $1" % btc]
     assert "No. " not in data
     log = []
