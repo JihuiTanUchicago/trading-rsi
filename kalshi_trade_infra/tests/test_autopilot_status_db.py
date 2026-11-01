@@ -428,6 +428,28 @@ def test_the_engines_real_loss_guard_pause_is_the_last_move_after_an_older_deplo
     assert last["at"] > before["last_action"]["at"]
 
 
+def test_each_books_running_count_is_its_strategies_not_their_deployments(conn, frozen):
+    """Audit 2026-11-01: a strategy deployed twice on paper read "3 paper" on the card and "your 3 paper strategies"
+    over two strategies. Each book counts its strategies (as the page's stratCount does), on its own: a demo copy is
+    that book's one, never added into paper's."""
+    from app import repository as repo
+    from app.trading import spec as specmod
+
+    cur = conn.cursor()
+    _engine_beats(cur)
+    uid = _account(conn, "twice", busy=False)["uid"]
+    spec = specmod.validate({"side": "yes", "entry": {"min_edge": 0.05}, "sizing": {"stake": 5.0, "max_positions": 4}})
+    fade, rain = (repo.insert_strategy(cur, uid, None, None, "btc15m", "momentum", title, "t", spec, "passed",
+                                       {"capital": 20.0, "out_of_sample": {"trades": 30, "pnl": 3.0}})
+                  for title in ("Twice fade", "Once rain"))
+    for sid, mode in ((fade, "paper"), (fade, "paper"), (rain, "paper"), (fade, "demo")):
+        repo.create_deployment(cur, uid, sid, "btc15m", mode)
+    out, _ = _status(Counting(conn), uid)
+    assert (out["paper_running"], out["demo_running"], out["live_running"]) == (2, 1, 0)
+    assert out["paper_progress"]["strategies"] == 2
+    assert out["idle"]["code"] == "starting" and "your 2 paper strategies" in out["idle"]["line"], out["idle"]
+
+
 def test_the_research_cap_figure_is_what_the_cap_counts_and_rides_the_pulse(conn, frozen, monkeypatch):
     """The panel's research cap line (walk 2026-11-01: it said "It has no daily spending cap" under a $240 cap):
     the last 24 hours' research tokens ride the pulse summed per model, answer as the single read the cap uses

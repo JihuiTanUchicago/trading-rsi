@@ -801,6 +801,14 @@ def _passed_undeployed(cur, uid: int, focus: List[str], deployed: Optional[Dict[
     return out
 
 
+def _strat_count(deps: List[Dict]) -> int:
+    """How many strategies these deployments are, as the page's stratCount (core.js) counts them: a strategy deployed
+    twice on one book is two deployments but one strategy, so the autopilot card read "4 paper" and "your 4 paper
+    strategies" over three (audit 2026-11-01). A row with no strategy id counts as its own. One book's list at a time:
+    each book is counted apart, never summed into another's."""
+    return len({("s", d["strategy_id"]) if d.get("strategy_id") is not None else ("row", i) for i, d in enumerate(deps)})
+
+
 def _idle(code: str, line: str, action: Optional[Dict] = None) -> Dict:
     return {"code": code, "line": line, "action": action}
 
@@ -840,7 +848,7 @@ def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age,
         scans = [dep.get("scan") or {} for dep in paper_run]
         if any(sc.get("entered") or sc.get("qualifying") for sc in scans):
             return None
-        n = len(paper_run)
+        n = _strat_count(paper_run)  # "your N paper strategies": strategies, not deployments
         if not any(sc.get("why") for sc in scans):
             # No scan record says nothing about the trades: a strategy that has already closed paper
             # trades read "No trades yet ... hasn't had its first look" when its scan row was missing.
@@ -886,11 +894,11 @@ def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age,
     doing = (now[len("Right now "):] if now.startswith("Right now ") else now)
     doing = doing[0].upper() + doing[1:]
     if paused:
-        p = paused[0]
-        lead = ("%s is paused" % _short_title(p.get("title")) if len(paused) == 1
-                else "your %d paper strategies are paused (the latest, %s" % (len(paused), _short_title(p.get("title"))))
+        p, n_paused = paused[0], _strat_count(paused)
+        lead = ("%s is paused" % _short_title(p.get("title")) if n_paused == 1
+                else "your %d paper strategies are paused (the latest, %s" % (n_paused, _short_title(p.get("title"))))
         why = _pause_clause(p.get("status_reason"))
-        line = ("Nothing is trading: %s: %s." % (lead, why)) if len(paused) == 1 else \
+        line = ("Nothing is trading: %s: %s." % (lead, why)) if n_paused == 1 else \
                ("Nothing is trading: %s: %s)." % (lead, why))
         return _idle("stopped", line + " Resume one, or let the autopilot find new ones.",
                      {"label": "Open Deploy", "href": "/deploy"})
@@ -1034,7 +1042,9 @@ def autopilot_status(ctx: Ctx):
         "live_enabled": bool(engine.LIVE_TRADING_ENABLED),
         "kalshi_connected": kalshi_connected,
         "mode": mode,
-        "live_running": len(live_run), "paper_running": len(paper_run), "demo_running": len(demo_run),
+        # Each book's strategies (_strat_count), never one figure for all: the card's "2 paper · 1 demo" and the story's
+        # "N strategies are on paper" counted a strategy deployed twice on paper twice.
+        "live_running": _strat_count(live_run), "paper_running": _strat_count(paper_run), "demo_running": _strat_count(demo_run),
         "today_live_pnl": today_live,
         # The paper book's day, so a paper-only panel shows its own money instead of a live $0.00.
         "today_paper_pnl": cents(today["paper"]),
@@ -1085,8 +1095,7 @@ def autopilot_status(ctx: Ctx):
         out["idle"] = _idle_reason(out, paper_run, paused, pulse["engine_age"] if running else _UNKNOWN,
                                    _passed_undeployed(cur, ctx.uid, out["focus"], pulse["dep_strategies"]) if not running and not paused
                                    and not billing_blocked else [],
-                                   trading_strategies=len({x["strategy_id"] for x in paper_run + demo_run
-                                                           + (live_run if out["live_enabled"] else [])}))
+                                   trading_strategies=_strat_count(paper_run + demo_run + (live_run if out["live_enabled"] else [])))
         # A demo copy whose every order Kalshi refuses is what isn't trading when paper is fine, and
         # the truer line when nothing is on paper (only the engine or billing outrank it there).
         idle = out["idle"]
