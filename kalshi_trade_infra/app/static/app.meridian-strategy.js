@@ -990,26 +990,40 @@ window.TauPage('strategy', (T) => {
       root.querySelector('[data-retry]').onclick = () => render();
       announce(DEP_DONE.stop + BEHIND);
     }));
+    // Deleted in another tab or on another device: Share and Delete came back "No such strategy." under buttons that
+    // stayed on offer, and the poll read the 404 as a failure and said "retrying" for good (walk 2026-11-01). The page
+    // says so once, with the way to the list, where it was pressed too, and its Share and Delete stand down. Display only.
+    let gone = false;
+    const standDown = () => { if (gone) root.querySelectorAll('#del-strat, #share-form button').forEach((b) => { b.disabled = true; }); };
+    const stratGone = (where) => {
+      gone = true;
+      const moved = root.querySelector('#strat-moved');
+      if (moved && !moved.querySelector('.strat-gone')) paintKeep(moved, `<p class="hint strat-moved strat-gone">${STRAT_GONE} <a class="btn sm" href="/strategies">All strategies</a></p>`);
+      standDown();
+      if (where) flash(where, STRAT_GONE, 'bad');
+    };
     const delStrat = root.querySelector('#del-strat');
     if (delStrat) delStrat.onclick = () => {
       if (activeDeps.length) { flash('#delflash', 'Stop its deployment first (button above).', 'bad'); return; }
       if (delBlock) { flash('#delflash', delBlock, 'bad'); return; }
+      if (gone) { stratGone('#delflash'); return; }
       armed(delStrat, 'Confirm delete', () => busy(delStrat, async () => {
-        try { await api(`/api/strategies/${s.id}/delete`, {}); go('/strategies'); } catch (e) { flash('#delflash', e.message, 'bad'); }
-      }));
+        try { await api(`/api/strategies/${s.id}/delete`, {}); go('/strategies'); } catch (e) { if (e.status === 404) stratGone('#delflash'); else flash('#delflash', e.message, 'bad'); }
+      }).then(standDown));
     };
     const shareForm = root.querySelector('#share-form');
     if (shareForm) shareForm.onsubmit = (e) => {
       e.preventDefault();
       const email = root.querySelector('#share-email').value.trim();
       if (!email) { flash('#shareflash', 'Enter an email first.', 'bad'); return; }
+      if (gone) { stratGone('#shareflash'); return; }
       busy(shareForm.querySelector('button'), async () => {
         try {
           const r = await api(`/api/strategies/${s.id}/share`, { email });
           root.querySelector('#share-email').value = '';
           flash('#shareflash', r.already ? 'They already have this strategy.' : 'Shared — they’ll see it in their inventory.', 'good');
-        } catch (err) { flash('#shareflash', err.message, 'bad'); }
-      });
+        } catch (err) { if (err.status === 404) stratGone('#shareflash'); else flash('#shareflash', err.message, 'bad'); }
+      }).then(standDown);
     };
     const depLive = root.querySelector('#dep-live');
     if (depLive) depLive.onclick = () => { if (!liveWhy) { const f = root.querySelector('#live-confirm'); f.hidden = false; if (f.confirm && f.confirm.focus) f.confirm.focus(); } };
@@ -1074,7 +1088,8 @@ window.TauPage('strategy', (T) => {
       };
       poll(async (cfg) => {
         if (root.querySelector('.busy')) return;
-        const x = await api('/api/strategies/' + s.id, undefined, cfg);
+        let x;
+        try { x = await api('/api/strategies/' + s.id, undefined, cfg); } catch (e) { if (e && e.status === 404) { stratGone(); return; } throw e; }
         const key = liveKey(x);
         if (key === liveDrawn || root.querySelector('.busy')) return;
         liveDrawn = key;
@@ -1102,6 +1117,7 @@ window.TauPage('strategy', (T) => {
   const LIVE_PARTS = ['deployments', 'book_totals', 'past_deployments', 'holdings', 'holdings_books', 'backtest_checks'];
   const STRATEGY_POLL_MS = 60000;
   const STRAT_MOVED = 'Its deployments changed since this page opened, so the Deploy panel may be behind.';
+  const STRAT_GONE = 'This strategy is no longer in your list: it was deleted in another tab or on another device.';
 
   return {viewStrategy};
 });

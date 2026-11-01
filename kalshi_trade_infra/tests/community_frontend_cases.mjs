@@ -332,7 +332,7 @@ export function communityCases({name, frontend}) {
     const f = frontend({fetchImpl: (path, options) => {
       if (path === '/api/strategies') return response({strategies: []});
       if (path === '/api/community/5/react') {
-        assert.deepEqual(JSON.parse(options.body), {emoji: '🔥'});
+        assert.deepEqual(JSON.parse(options.body), {emoji: '🔥', on: true}, 'asks for what the pill showed it would do');
         reactions = [{...reactions[0], count: 3, mine: true}, reactions[1]];
         return response({reactions});
       }

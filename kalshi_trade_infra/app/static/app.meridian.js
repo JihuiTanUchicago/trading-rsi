@@ -673,20 +673,27 @@
     u.email_opt_out = !!n.email_opt_out; u.ui_theme = n.ui_theme || 'tau';
     if (/^\/settings(?:\/theme)?$/.test(location.pathname)) settingsSync();
   }
+  // When the page's polls last read at once on a return (wokeAt): a return to the tab fires visibilitychange and focus.
+  let wokeAt = Date.now();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
     dayRoll();
     askWho();
-    if (hiddenAt && Date.now() - hiddenAt > WAKE_AWAY_MS) wake();
+    if (hiddenAt && Date.now() - hiddenAt > WAKE_AWAY_MS) { wokeAt = Date.now(); wake(); }
     hiddenAt = 0;
   });
   // A tab in view but not focused (two windows side by side) is never hidden, so it never got that visibilitychange:
   // a sign-in to another account in the other window reached it only on its next read, or never on a page with no poll.
   // Focusing the window asks the same once: the same read, one at a time, and none within FOCUS_ASK_MS of the last ask
   // (a return to the tab fires both events, and focus flapping between two windows would ask on every click).
+  // The page's polls read at once too (wake), on the same terms: something done in the other window (a deployment
+  // removed, a strategy deployed or deleted) stood here until the next tick, up to a minute on a strategy page, and a
+  // press on what it still offered found the thing already gone (walk 2026-11-01). Reads only, on the polls' own pace.
   const FOCUS_ASK_MS = 15000;
   window.addEventListener('focus', () => {
-    if (document.hidden || Date.now() - whoAt < FOCUS_ASK_MS) return;
+    if (document.hidden) return;
+    if (Date.now() - wokeAt >= FOCUS_ASK_MS) { wokeAt = Date.now(); wake(); }
+    if (Date.now() - whoAt < FOCUS_ASK_MS) return;
     askWho();
   });
   // A new page in the app names itself in the tab title and puts keyboard focus on its heading, as a
@@ -2171,6 +2178,7 @@
     deploy: 'Tau didn\u2019t confirm the deploy, so it may or may not have gone through. If it did, it shows on Deploy within a few seconds; check there before you deploy again, since a second deploy runs a second copy.',
   };
   const depSaid = (e, act) => (unconfirmed(e) && DEP_UNSURE[act]) || e.message;
+  const depMoved = (e) => e instanceof ApiError && (e.status === 404 || e.status === 409);
   const depWrite = (path, body) => (offline() ? Promise.reject(new ApiError(0, NOT_SENT)) : api(path, body));
   const depSending = new Map();  // deployment id -> the action on its way
   const depWaits = new Map();  // deployment id -> its action's waitNote, so a repainted button keeps the note
@@ -2218,7 +2226,10 @@
               try { await api(`/api/deployments/${id}/${act}`, {}).finally(waited); }
               catch (e) {
                 alert0(depSaid(e, act)); depNoteSay(id, act, depSaid(e, act));
-                if (unconfirmed(e)) Promise.resolve().then(after).catch(() => {});
+                // Refused because the deployment moved on elsewhere (removed or paused in another tab or on another device:
+                // the server's 404 or 409) or unconfirmed: the board reads again now, so the row shows what Tau has, and a
+                // stale Remove or Pause goes with it instead of standing beside the refusal until the next 10s poll.
+                if (unconfirmed(e) || depMoved(e)) Promise.resolve().then(after).catch(() => {});
                 return;
               }
               fresh = await refreshed(after());

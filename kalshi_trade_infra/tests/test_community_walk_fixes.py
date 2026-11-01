@@ -123,3 +123,65 @@ def test_a_pnl_share_carries_the_demo_book_on_its_own_line_never_added_in(monkey
                     "paper_trades": 4, "demo_trades": 3, "live_trades": 0}
     card = community._post_out(_row(kind="pnl", snapshot=dict(snap, private=1)))["snapshot"]
     assert card == snap
+
+
+# -- the feed open in two places at once (walked 2026-11-01 with two pages on one account) ----------------------------
+
+def test_delete_on_a_post_already_taken_down_elsewhere_says_so_and_not_your_own_posts(monkeypatch):
+    """The author deleted a post in one tab; Delete on it in the other tab said "You can only delete your own posts.",
+    of their own post. A post that is gone says it was already deleted; someone else's post still says whose it is."""
+    from app.web.http import ApiError
+    monkeypatch.setattr(repo, "delete_post", lambda cur, pid, uid: False)
+    monkeypatch.setattr(repo, "post_exists", lambda cur, pid: False)
+    with pytest.raises(ApiError) as gone:
+        community.delete_community_post(_ctx(("5",)))
+    assert gone.value.status == 404 and str(gone.value) == "This post was already deleted."
+    monkeypatch.setattr(repo, "post_exists", lambda cur, pid: True)
+    with pytest.raises(ApiError) as theirs:
+        community.delete_community_post(_ctx(("5",)))
+    assert theirs.value.status == 403 and "your own posts" in str(theirs.value)
+    # A reaction or a reply on it says it was deleted, never "No such post."
+    monkeypatch.setattr(repo, "post_exists", lambda cur, pid: False)
+    monkeypatch.setattr(repo, "post_author", lambda cur, pid: None)
+    for call, body in ((community.react_post, {"emoji": "🔥"}), (community.like_post, {}), (community.create_comment, {"body": "hi"})):
+        with pytest.raises(ApiError) as said:
+            call(_ctx(("5",), body=body))
+        assert said.value.status == 404 and str(said.value) == "This post was deleted.", call.__name__
+
+
+def test_a_reaction_press_asks_for_on_or_off_so_a_stale_feed_never_takes_back_one_added_elsewhere(monkeypatch):
+    """The reaction was added in one tab; the other tab's pill (drawn before) pressed to add it took it straight back
+    off, since a press toggled. A press carrying `on` sets that state; one without it toggles, as before."""
+    calls = []
+    monkeypatch.setattr(repo, "post_exists", lambda cur, pid: True)
+    monkeypatch.setattr(repo, "set_reaction", lambda cur, pid, uid, emoji, on: calls.append(("set", pid, uid, emoji, on)) or on)
+    monkeypatch.setattr(repo, "toggle_reaction", lambda cur, pid, uid, emoji: calls.append(("toggle", pid, uid, emoji)) or True)
+    monkeypatch.setattr(repo, "reactions_for", lambda cur, ids, uid: {5: [{"emoji": "🔥", "count": 2, "mine": True,
+                                                                           "names": ["Ann", "Me"], "handles": ["ann", "me"]}]})
+    got = community.react_post(_ctx(("5",), body={"emoji": "🔥", "on": True}))
+    assert got["reactions"][0]["mine"] is True and got["reactions"][0]["count"] == 2
+    community.react_post(_ctx(("5",), body={"emoji": "🔥", "on": False}))
+    community.react_post(_ctx(("5",), body={"emoji": "🔥"}))
+    community.react_post(_ctx(("5",), body={"emoji": "🔥", "on": "yes"}))  # not a yes/no: toggles, as before
+    assert calls == [("set", 5, 7, "🔥", True), ("set", 5, 7, "🔥", False), ("toggle", 5, 7, "🔥"), ("toggle", 5, 7, "🔥")]
+
+
+def test_set_reaction_adds_once_and_takes_off_whatever_it_was():
+    from app.adapters.db import community_repository as cr
+
+    class Cur:
+        def __init__(self, have):
+            self.have, self.sql = have, []
+
+        def execute(self, sql, args):
+            self.sql.append(sql.split()[0])
+
+        def fetchone(self):
+            return {"1": 1} if self.have else None
+    on_already = Cur(True)
+    assert cr.set_reaction(on_already, 5, 7, "🔥", True) is True and on_already.sql == ["SELECT"]
+    off_now = Cur(False)
+    assert cr.set_reaction(off_now, 5, 7, "🔥", True) is True and off_now.sql == ["SELECT", "INSERT"]
+    for have in (True, False):
+        c = Cur(have)
+        assert cr.set_reaction(c, 5, 7, "🔥", False) is False and c.sql == ["DELETE"]

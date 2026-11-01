@@ -166,6 +166,7 @@ def test_the_author_can_take_a_post_down_and_no_one_else_can(monkeypatch):
 
     calls = []
     monkeypatch.setattr(community.repo, "delete_post", lambda cur, pid, uid: calls.append((pid, uid)) or uid == 7)
+    monkeypatch.setattr(community.repo, "post_exists", lambda cur, pid: True)  # still up: someone else's
 
     def ctx(uid):
         return SimpleNamespace(cur=None, uid=uid, body={}, query={}, params=("77",))
