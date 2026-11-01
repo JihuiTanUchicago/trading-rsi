@@ -111,11 +111,14 @@ def reactions_for(cur, post_ids: List[int], viewer_id: int) -> Dict[int, List[Di
     if not post_ids:
         return {}
     marks = ",".join(["%s"] * len(post_ids))
-    # SEPARATOR is the unit-separator char (never in a name); SUBSTRING_INDEX caps the list.
+    # SEPARATOR is the unit-separator char (never in a name); SUBSTRING_INDEX caps the list. Reactions in the same second
+    # are ordered by who made them: on created_at alone their order came back different from one read to the next, so the
+    # feed's unchanged poll answer differed and the whole feed was drawn again every 20s (walk 2026-11-01), and the two
+    # lists could name reactor i and handle i in different orders.
     cur.execute(
         "SELECT r.post_id, r.emoji, COUNT(*) AS n, MAX(r.user_id=%s) AS mine, "
-        "SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(u.name,'') ORDER BY r.created_at SEPARATOR 0x1f), 0x1f, 8) AS names, "
-        "SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(u.username,'') ORDER BY r.created_at SEPARATOR 0x1f), 0x1f, 8) AS handles "
+        "SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(u.name,'') ORDER BY r.created_at, r.user_id SEPARATOR 0x1f), 0x1f, 8) AS names, "
+        "SUBSTRING_INDEX(GROUP_CONCAT(COALESCE(u.username,'') ORDER BY r.created_at, r.user_id SEPARATOR 0x1f), 0x1f, 8) AS handles "
         "FROM app_post_reactions r JOIN app_users u ON u.id=r.user_id "
         "WHERE r.post_id IN (%s) GROUP BY r.post_id, r.emoji "
         "ORDER BY n DESC, r.emoji" % ("%s", marks),

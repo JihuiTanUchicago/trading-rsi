@@ -56,6 +56,22 @@ def test_reactor_names_and_handles_stay_paired_when_a_reactor_has_no_name_or_han
     assert community._reactions_out(rx)[0]["names"] == ["ann", "Trader", "Bob"]
 
 
+def test_reactor_lists_order_same_second_reactions_by_who_made_them_in_both_lists():
+    # Reactions stamped in the same second came back in a different order from one read to the next (a seeded feed of
+    # 40 posts with four reactions each, MariaDB, walk 2026-11-01): the 20s poll's answer never matched the last one, so
+    # the whole feed was drawn again every poll, and the names and handles lists could disagree on who reactor i was.
+    # Both lists go by when, then by whom.
+    import re
+    from app.adapters.db import community_repository as cr
+
+    class Cur:
+        def execute(self, sql, args): self.sql = sql
+        def fetchall(self): return []
+    cur = Cur()
+    cr.reactions_for(cur, [5, 6], 7)
+    assert re.findall(r"ORDER BY ([\w., ]+?) SEPARATOR", cur.sql) == ["r.created_at, r.user_id"] * 2
+
+
 @pytest.mark.parametrize("q", ["dana.private@exa", "example.org", "private", "@example"])
 def test_the_mention_search_never_matches_on_a_name_that_is_an_address(monkeypatch, q):
     # The read matches a name anywhere in it (LIKE %q%); a hit on an address must not come back.

@@ -62,3 +62,30 @@ def test_a_thread_past_one_page_reads_its_newest_replies_first_and_every_older_o
     assert [c["body"] for c in repo.list_comments(cur, noise)] == ["Not in the thread"]
     # A bad `before` reads the newest page, never an error page.
     assert community.post_comments(_ctx(conn, author, pid, {"before": "x"}))["comments"][-1]["body"] == "Reply 121"
+
+
+def test_reactions_made_in_the_same_second_come_back_in_one_order_every_read(conn):
+    # The feed's 20s poll draws again only when its answer changed. Reactions stamped in the same second came back in a
+    # different order from one read to the next (ordered by created_at alone), so the answer never matched and the whole
+    # feed was drawn again every poll (walk 2026-11-01, 40 posts with four reactions each); the names and the handles
+    # lists could also disagree on who reactor i was. Ties go by who reacted, the same in both lists and every read.
+    from datetime import datetime
+    from app import repository as repo
+    from app.adapters.db import community_repository as cr
+
+    cur = conn.cursor()
+    author = _user(cur, "Author")
+    fans = [_user(cur, n) for n in ("Dee", "Cy", "Bea", "Al", "Eve")]
+    at = datetime(2026, 11, 1, 7, 0, 0)
+    pids = [repo.create_post(cur, author["id"], "Reacted to all at once %d." % i, "note", None) for i in range(40)]
+    for pid in pids:
+        for f in reversed(fans):
+            cur.execute("INSERT INTO app_post_reactions (post_id, user_id, emoji, created_at) VALUES (%s,%s,%s,%s)", (pid, f["id"], "🔥", at))
+    conn.commit()
+    want = [f["name"] for f in sorted(fans, key=lambda f: f["id"])]
+    for _ in range(6):
+        got = cr.reactions_for(cur, pids, author["id"])
+        for pid in pids:
+            r = got[pid][0]
+            assert r["count"] == 5 and len(r["handles"]) == 5
+            assert r["names"] == want, "same-second reactions in the order they were made by user, every read"
