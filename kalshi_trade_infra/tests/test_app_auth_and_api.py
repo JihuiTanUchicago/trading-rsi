@@ -1104,6 +1104,31 @@ def test_slug_and_mention_regex():
     assert r.MENTION_RE.findall("hi @tanjihui, email foo@bar.com and @a_b2") == ["tanjihui", "a_b2"]
 
 
+class _HandleCur:
+    def __init__(self, taken=()):
+        self.taken, self.set, self.row = set(taken), None, None
+
+    def execute(self, sql, args):
+        if sql.startswith("SELECT"):
+            self.row = {"id": 9} if args[0] in self.taken else None
+        else:
+            self.set = args[0]
+
+    def fetchone(self):
+        return self.row
+
+
+def test_handle_comes_from_the_name_never_the_email():
+    from app import repository as r
+    # "@danaprivate" showed most of dana.private@gmail.com to every reader: a new handle reads the name.
+    cur = _HandleCur()
+    assert r.assign_username(cur, 1, "dana.private@gmail.com", "Dana Lee") == "danalee" == cur.set
+    assert r.assign_username(_HandleCur({"danalee"}), 2, "d2@x.com", "Dana Lee") == "danalee2"
+    # No name, a name that is an email, or one with no a-z/0-9 letters: "trader", nothing from the email.
+    for name in (None, "", "dana.private@gmail.com", "李娜"):
+        assert r.assign_username(_HandleCur(), 3, "dana.private@gmail.com", name) == "trader", name
+
+
 def test_notify_mentions_excludes_author(monkeypatch):
     notes = []
     monkeypatch.setattr(server.repo, "users_by_usernames", lambda cur, hs: [

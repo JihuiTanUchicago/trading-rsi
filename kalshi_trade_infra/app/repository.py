@@ -191,9 +191,12 @@ def _slug_username(base: str) -> str:
 
 
 def assign_username(cur, user_id: int, email: Optional[str], name: Optional[str]) -> str:
-    """Give the user a unique @handle derived from their email/name. Idempotent-ish:
-    uniqueness is checked against every other row, so a re-run picks a free handle."""
-    base = _slug_username((email.split("@")[0] if email else "") or name or "trader")
+    """Give the user a unique @handle derived from their name, never their email: every signed-in reader sees it,
+    and "@danaprivate" showed most of dana.private@gmail.com (Todd, 2026-11-01: new accounts only, so handles set
+    before stay and old @mentions keep pointing at them). A name that is itself an email address counts as no name.
+    Idempotent-ish: uniqueness is checked against every other row, so a re-run picks a free handle."""
+    del email  # kept in the signature for callers; a handle never reads it
+    base = _slug_username("" if not name or "@" in name else name)
     candidate, n = base, 1
     while True:
         cur.execute("SELECT id FROM app_users WHERE username=%s AND id<>%s", (candidate, user_id))
