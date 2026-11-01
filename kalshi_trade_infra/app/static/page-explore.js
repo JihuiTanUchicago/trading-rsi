@@ -10,7 +10,7 @@ window.TauPage('explore', (T) => {
   const {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
     contractMarket, contractMkt, contractShort, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
-    exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
+    exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
     settleAt, dayAt, shell, sinceMin, smooth, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
@@ -363,6 +363,19 @@ window.TauPage('explore', (T) => {
     // the line under the figures says how old it is. Only the newest read draws: a poll answering after a
     // search doesn't put the old list back.
     let seq = 0, shown = null;
+    // The groups (Weather, Sports) the feed holds a market of, as the server last said (`groups`): only those get a
+    // button, beside All markets and Bitcoin, and whichever the address names. The buttons are drawn again only when that
+    // set changes, so a poll leaves them (and focus on one) alone; focus on a button that went goes to the pressed one.
+    let groups = [];
+    const paintShow = () => {
+      const box = root.querySelector('.xshow'), html = exploreShowButtons(f.show, groups);
+      const keys = (s) => (s.match(/data-show="\w+"/g) || []).join();
+      if (!box || keys(html) === [...box.querySelectorAll('[data-show]')].map((b) => `data-show="${b.dataset.show}"`).join()) return;
+      const a = document.activeElement, had = a && box.contains(a);
+      paint(box, html);
+      bindShow();
+      if (had) { const b = box.querySelector(`[data-show="${a.dataset && a.dataset.show}"]`) || box.querySelector('[aria-pressed="true"]'); if (b) b.focus(); }
+    };
     // The list's Try again: the list drew over the button, and focus fell to the page's body. The list has no heading of
     // its own, so focus goes to the page's (Explore), or to the new Try again when the read failed again.
     const reread = () => load().then(() => retried(body, root.querySelector('main h1')));
@@ -384,6 +397,8 @@ window.TauPage('explore', (T) => {
       }
       if (mine !== seq || !tau && gen !== S.gen) return;
       staleNote.hidden = false;
+      if (Array.isArray(d.groups)) groups = d.groups;
+      paintShow();
       paintFigs(d);
       if (typed && f.q) announce(d.markets.length ? `${num(d.matched)} ${+d.matched === 1 ? 'market matches' : 'markets match'} “${f.q}”.` : `No markets match “${f.q}”.`);
       // A page past the list's end (a link kept from a longer list, or the last page while a refresh shortened the list)
@@ -473,7 +488,8 @@ window.TauPage('explore', (T) => {
     let t; root.querySelector('#xq').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); f.page = 0; sync(); load(undefined, true); }, 220); });
     if (tau) root.querySelectorAll('[data-sort]').forEach((b) => b.onclick = () => { f.sort = b.dataset.sort; f.page = 0; root.querySelectorAll('[data-sort]').forEach((o) => o.setAttribute('aria-pressed', o === b)); sync(); load(); });
     const setShow = (show) => { f.show = exploreShowOf(show); f.page = 0; root.querySelectorAll('[data-show]').forEach((o) => o.setAttribute('aria-pressed', String(o.dataset.show === f.show))); sync(); load(); };
-    root.querySelectorAll('[data-show]').forEach((b) => b.onclick = () => setShow(b.dataset.show));
+    const bindShow = () => root.querySelectorAll('[data-show]').forEach((b) => b.onclick = () => setShow(b.dataset.show));
+    bindShow();
     await load();
     // The rows' closes ("in 3 min", "closed") are worked out afresh on each poll, and the close clock rewrites them (and
     // the hot rail's) every 5s between polls: walked 2026-10-31 with the polls failing, a row and the rail said "in under

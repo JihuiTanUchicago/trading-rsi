@@ -388,9 +388,35 @@ def test_explores_weather_and_sports_filters_keep_their_series_alone_page_over_t
     d = _list(monkeypatch, feed, show="sports", page="1")
     assert d["matched"] == 45 and len(d["markets"]) == 5 and all(m["t"].startswith("KXNFLGAME-") for m in d["markets"])
     assert _list(monkeypatch, feed, show="sports", page="2")["markets"] == []
-    # No weather row in the feed: an empty list for the page to say so.
+    # No weather row in the feed: an empty list for the page to say so, still filtered to Weather (never switched).
     d = _list(monkeypatch, _feed(*LADDER[:2]), show="weather")
-    assert d["markets"] == [] and d["matched"] == 0
+    assert d["markets"] == [] and d["matched"] == 0 and d["show"] == "weather" and d["groups"] == []
+
+
+def test_explore_says_which_groups_the_feed_holds_once_per_copy_of_the_feed(monkeypatch):
+    """`groups` names Weather and Sports only while the cached feed holds a market of theirs (over the whole feed, whatever
+    the filter, search or page), so the page offers only a filter that can show something. It is worked out once per
+    copy of the feed, not per request, and reads nothing (no query, no outside call)."""
+    reads = []
+    _stub(monkeypatch, spot={"at": _now(), "price": 113420.0}, reads=reads)
+    monkeypatch.setattr(explore_routes, "_SHOW_SERIES", {"weather": frozenset({"KXHIGHNY"}), "sports": frozenset({"KXNBAGAME"})})
+    both = _feed("KXHIGHNY-26NOV01-B58.5", "KXNBAGAME-26OCT26MINDEN-MIN", "KXETHD-26OCT2717-T4000")
+    assert _list(monkeypatch, both)["groups"] == ["weather", "sports"]
+    assert _list(monkeypatch, both, show="sports", q="minden", page="3")["groups"] == ["weather", "sports"]
+    assert _list(monkeypatch, _feed("KXNBAGAME-26OCT26MINDEN-MIN", "KXETHD-26OCT2717-T4000"))["groups"] == ["sports"]
+    assert _list(monkeypatch, _feed("KXETHD-26OCT2717-T4000", *LADDER[:2]))["groups"] == []
+    assert _list(monkeypatch, {"at": None, "total": 0, "shown": 0, "markets": []})["groups"] == []
+    reads.clear()
+    calls = []
+    real = explore_routes._in_show
+    monkeypatch.setattr(explore_routes, "_in_show", lambda show, m: calls.append(show) or real(show, m))
+    feed = _feed("KXHIGHNY-26NOV01-B58.5", "KXETHD-26OCT2717-T4000")
+    _list(monkeypatch, feed)
+    first = len(calls)
+    for _ in range(3):
+        assert _list(monkeypatch, feed)["groups"] == ["weather"]
+    assert len(calls) == first, "the same copy of the feed is not scanned again"
+    assert reads == []
 
 
 def test_a_bucket_alone_in_the_feed_gets_no_distance_and_a_gap_in_its_ladder_doesnt_widen_it(monkeypatch):

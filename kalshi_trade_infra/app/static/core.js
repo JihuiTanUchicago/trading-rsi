@@ -1197,7 +1197,11 @@
   // that group alone. One pressed button at a time, in a group named "Show" (aria-pressed), as the sort chips are.
   const EXPLORE_SHOW = [['all', 'All markets'], ['bitcoin', 'Bitcoin'], ['weather', 'Weather'], ['sports', 'Sports']];
   const exploreShowOf = (v) => (EXPLORE_SHOW.some(([k]) => k !== 'all' && k === v) ? v : 'all');
-  const exploreShowChips = (show) => `<div class="chips xshow" role="group" aria-label="Show">${EXPLORE_SHOW.map(([v, l]) => `<button class="chip" type="button" data-show="${v}" aria-pressed="${exploreShowOf(show) === v}">${l}</button>`).join('')}</div>`;
+  // Weather and Sports show only while the feed holds a market of theirs (the server's `groups`): a button that always
+  // came up empty read as broken. The one the address names stays, pressed, so its plain empty state says why it's empty.
+  const exploreShowButtons = (show, groups) => EXPLORE_SHOW.filter(([v]) => v === 'all' || v === 'bitcoin' || v === exploreShowOf(show) || (groups || []).includes(v))
+    .map(([v, l]) => `<button class="chip" type="button" data-show="${v}" aria-pressed="${exploreShowOf(show) === v}">${l}</button>`).join('');
+  const exploreShowChips = (show, groups) => `<div class="chips xshow" role="group" aria-label="Show">${exploreShowButtons(show, groups)}</div>`;
   // What a filtered list counts and calls its markets ("Weather markets 12"); '' for every market.
   const exploreShowNoun = (show) => ({bitcoin: 'Bitcoin', weather: 'weather', sports: 'sports'})[show] || '';
   const exploreShowFig = (show) => { const n = exploreShowNoun(show); return n && `${n.charAt(0).toUpperCase() + n.slice(1)} markets`; };
@@ -1558,7 +1562,7 @@
     depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
-    rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips,
+    rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,

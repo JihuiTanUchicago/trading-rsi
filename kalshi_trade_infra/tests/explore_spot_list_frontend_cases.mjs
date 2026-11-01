@@ -317,8 +317,11 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
   };
   const pressed = (f) => f.root.querySelectorAll('[data-show]').map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
   const byShow = (path) => (path.includes('show=bitcoin') ? {markets: BTC_ROWS, matched: 5, show: 'bitcoin', spot: SPOT} : {markets: ROWS, matched: 6, show: 'all', spot: SPOT});
-  // Which of the four is pressed, as the group reads: exactly one, by its own name.
-  const on = (v) => [['All markets', 'all'], ['Bitcoin', 'bitcoin'], ['Weather', 'weather'], ['Sports', 'sports']].map(([l, k]) => [l, String(k === v)]);
+  // The buttons the group shows and which is pressed, as it reads: All markets and Bitcoin always, Weather and Sports while
+  // the feed holds one of theirs (`present`, the server's `groups`) or the address names it; exactly one pressed.
+  const on = (v, present = []) => [['All markets', 'all'], ['Bitcoin', 'bitcoin'], ['Weather', 'weather'], ['Sports', 'sports']]
+    .filter(([, k]) => k === 'all' || k === 'bitcoin' || k === v || present.includes(k)).map(([l, k]) => [l, String(k === v)]);
+  const BOTH = ['weather', 'sports'];
 
   // Weather and Sports, beside Bitcoin (research reopened on daily highs and games, 2026-11-01): the same choice, read by
   // the server (?show=weather|sports keeps the series its market catalog files under that group), kept in the address, the
@@ -326,16 +329,16 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
   const WX_ROWS = [row('KXHIGHNY-26NOV01-B58.5', {ti: 'Highest temperature in NYC today?', su: '58° to 59°', ct: null}),
     row('KXHIGHCHI-26NOV01-B48.5', {ti: 'Highest temperature in Chicago today?', su: '48° to 49°', ct: null})];
   const SP_ROWS = [ROWS[5], row('KXNFLGAME-26NOV01KCBUF-KC', {ti: 'Kansas City at Buffalo Winner?', su: 'Kansas City', ct: null})];
-  const byGroup = (path) => (path.includes('show=weather') ? {markets: WX_ROWS, matched: 2, show: 'weather'}
-    : path.includes('show=sports') ? {markets: SP_ROWS, matched: 45, show: 'sports'} : byShow(path));
+  const byGroup = (path) => ({...(path.includes('show=weather') ? {markets: WX_ROWS, matched: 2, show: 'weather'}
+    : path.includes('show=sports') ? {markets: SP_ROWS, matched: 45, show: 'sports'} : byShow(path)), groups: BOTH});
 
   test(`${name}: Explore's Weather and Sports choices each show only their markets, kept in the address, the poll, a sort and the pages`, async () => {
     const {f, asked} = await explore('', byGroup);
-    assert.deepEqual(pressed(f), on('all'));
+    assert.deepEqual(pressed(f), on('all', BOTH));
     f.root.querySelector('[data-show="weather"]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=weather');
     assert.equal(f.location.search, '?q=&sort=v24&page=0&show=weather', 'the choice is kept in the address');
-    assert.deepEqual(pressed(f), on('weather'));
+    assert.deepEqual(pressed(f), on('weather', BOTH));
     assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 2);
     assert.match(f.root.querySelector('#xfigs').textContent, /Weather markets\s*2/);
     assert.doesNotMatch(f.root.querySelector('#xfigs').textContent, /Bitcoin/);
@@ -344,7 +347,7 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=weather', 'the poll keeps Weather');
     f.root.querySelector('[data-show="sports"]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=sports');
-    assert.deepEqual(pressed(f), on('sports'));
+    assert.deepEqual(pressed(f), on('sports', BOTH));
     assert.match(f.root.querySelector('#xfigs').textContent, /Sports markets\s*45/);
     assert.match(f.root.querySelector('#xpager').textContent, /Page 1 of 2/);
     f.root.querySelector('#xbody [data-pg="1"]').onclick(); await settle();
@@ -353,23 +356,33 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
     assert.equal(asked().at(-1), '/api/explore?q=&sort=oi&page=0&show=sports', 'a sort keeps Sports and starts at its first page');
     f.root.querySelector('[data-show="all"]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=oi&page=0');
-    assert.deepEqual(pressed(f), on('all'));
+    assert.deepEqual(pressed(f), on('all', BOTH));
     assert.doesNotMatch(f.root.querySelector('#main').textContent, /KXHIGH|KXNFL|show=|Climate and Weather/);
     f.clearTimers();
     // A reload keeps the choice; any other spelling is every market.
     const g = await explore('?q=nyc&sort=oi&page=0&show=weather', byGroup);
     assert.deepEqual(g.asked(), ['/api/explore?q=nyc&sort=oi&page=0&show=weather']);
-    assert.deepEqual(pressed(g.f), on('weather'));
+    assert.deepEqual(pressed(g.f), on('weather', BOTH));
     g.f.clearTimers();
     const h = await explore('?show=Weather', byGroup);
     assert.deepEqual(h.asked(), ['/api/explore?q=&sort=v24&page=0']);
-    assert.deepEqual(pressed(h.f), on('all'));
+    assert.deepEqual(pressed(h.f), on('all', BOTH));
     h.f.clearTimers();
+    // Only the groups the feed holds get a button: with no weather market in it, there is no Weather to press.
+    const k = await explore('', (path) => ({...byShow(path), groups: ['sports']}));
+    assert.deepEqual(pressed(k.f), on('all', ['sports']));
+    assert.equal(k.f.root.querySelector('[data-show="weather"]'), null);
+    k.f.root.querySelector('[data-show="sports"]').onclick(); await settle();
+    assert.equal(k.asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=sports', 'a button drawn after the first read still works');
+    k.f.clearTimers();
   });
 
   test(`${name}: an empty Weather or Sports list says what it is filtered to and how to show every market`, async () => {
     const none = (show) => (path) => (path.includes('show=' + show) ? {markets: [], matched: 0, show} : {markets: ROWS, matched: 6});
     const {f, asked} = await explore('?show=weather', none('weather'));
+    // The feed holds no weather market (no `groups`), but the address names Weather: it stays, pressed, over its empty state.
+    assert.deepEqual(pressed(f), on('weather'));
+    assert.equal(f.location.search, '?show=weather', 'never switched to another filter');
     const empty = f.root.querySelector('#xbody .empty');
     assert.equal(empty.querySelector('h2').textContent, 'No weather markets to show right now');
     assert.equal(empty.querySelector('p').textContent, 'Explore lists the most traded markets Tau tracks, refreshed about once a minute. Daily high-temperature markets show here when they’re in that list.');
@@ -379,7 +392,7 @@ export function exploreSpotListCases({name, frontend, storageFor, railOpenWide})
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0&show=weather', 'Try again asks for Weather again');
     f.root.querySelector('#xbody [data-xall]').onclick(); await settle();
     assert.equal(asked().at(-1), '/api/explore?q=&sort=v24&page=0');
-    assert.deepEqual(pressed(f), on('all'));
+    assert.deepEqual(pressed(f), on('all'), 'with every market back, the absent Weather button goes');
     assert.equal(f.root.querySelectorAll('#xbody tbody tr').length, 6);
     f.clearTimers();
     const s = await explore('?show=sports', none('sports'));

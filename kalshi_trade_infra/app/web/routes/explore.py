@@ -137,6 +137,20 @@ def _in_show(show: str, m: Dict) -> bool:
     return (m.get("s") or t.partition("-")[0]).upper() in _SHOW_SERIES.get(show, ())
 
 
+# The groups (Weather, Sports) the cached feed holds at least one market of, so the page offers only a filter that
+# can show something: the feed has no weather series today, and a Weather button that always came up empty read as
+# broken. Worked out once per copy of the feed (the cache swaps the list when it refetches), never per request.
+_GROUPS_SEEN: Dict[str, Any] = {"v": (None, [])}
+
+
+def _groups_in(markets: List[Dict]) -> List[str]:
+    feed, groups = _GROUPS_SEEN["v"]
+    if feed is not markets:
+        groups = [g for g in EXPLORE_SHOWS if g != "bitcoin" and any(_in_show(g, m) for m in markets)]
+        _GROUPS_SEEN["v"] = (markets, groups)
+    return groups
+
+
 def explore_list(ctx: Ctx):
     data = _explore_feed()
     q = (ctx.query.get("q") or "").strip().lower()
@@ -163,7 +177,8 @@ def explore_list(ctx: Ctx):
     rows, spot = _strike_distances(ctx, [{**{k: v for k, v in m.items() if k != "h"}, "ct": _ticker_close(m.get("t"))}
                                          for m in markets[page * per:(page + 1) * per]], data.get("markets") or [])
     return {"at": data.get("at"), "total": data.get("total"), "shown": data.get("shown"),
-            "matched": matched, "page": page, "per": per, "sort": sort, "show": show, "markets": rows, **spot}
+            "matched": matched, "page": page, "per": per, "sort": sort, "show": show,
+            "groups": _groups_in(data.get("markets") or []), "markets": rows, **spot}
 
 
 def explore_hot(ctx: Ctx):
