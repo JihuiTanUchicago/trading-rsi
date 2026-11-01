@@ -2252,6 +2252,29 @@
       <div class="monitor-footer"><dl class="monitor-counts"><div><dt>Closed / open</dt><dd><span aria-hidden="true">${num(d.closed_trades)} / ${num(d.open_positions || 0)}</span><span class="vh">${num(d.closed_trades)} closed trades, ${num(d.open_positions || 0)} open positions</span></dd></div></dl><div class="monitor-controls">${deploymentActions(d, false)}${deploymentEvidence(d, true)}</div></div>
     </article>`;
   }
+  // Home lists every open position and every deployment: ~7,500 elements on a heavy book, all styled, laid out and
+  // painted before a phone's first frame showed anything, the since strip's figures at the top included (~0.5s on a
+  // mid-range phone). A visit's first draw of #main writes its top alone (since strip, autopilot card, account band)
+  // and, when the band ends at or under the screen's bottom edge, what follows it goes in on the frame after the one
+  // that paints the top: the same markup, built then, after the band. Every later draw (a poll, a cash read) writes it
+  // whole, as does a first draw whose band ends in view, a hidden tab's, a URL with a #fragment's, or one in a
+  // browser with no frame callbacks. Two frame callbacks, no timer; a whole draw in between wins.
+  const DASH_END = '</div></div>';  // closes .dash-layout and .dash
+  const dashSplits = (host) => !!host && !painted.has(host) && typeof requestAnimationFrame === 'function' && !document.hidden && !location.hash;
+  function dashBelow(host, top, below, then) {
+    const band = host.querySelector('.account-band');
+    const put = () => {
+      if (painted.get(host) !== top + DASH_END || !band || !band.isConnected) return;  // drawn whole since, or gone
+      try {
+        const html = below();
+        band.insertAdjacentHTML('afterend', html);
+        painted.set(host, top + html + DASH_END);
+        then();
+      } catch (e) { reportBroken('view', e); }  // outside the view's own try: a page bug is reported as one
+    };
+    if (!band || !band.getBoundingClientRect || band.getBoundingClientRect().bottom < window.innerHeight) return put();
+    requestAnimationFrame(() => requestAnimationFrame(put));
+  }
   function replaceDeploymentContent(host, html) {
     if (!host || painted.get(host) === html) return;
     const was = painted.get(host);
@@ -2795,10 +2818,12 @@
         <div class="pagehead"><div class="overview-heading"><h1 class="page">Dashboard</h1></div><div class="page-actions"><details class="other-accounts" id="other-accounts"${accountsOpen ? ' open' : ''}><summary>Accounts ${ICON.chev}</summary><dl>${hasLive ? paperFigure : cashInBand ? '' : liveFigure}${demoFigure}</dl></details>${agentsBusy ? `<a class="research-activity" href="/research">${agentsBusy}</a>` : ''}</div></div>`;
       const twinned = withTwins(d.deployments);
       const firstPaused = twinned.find((x) => x.status === 'paused');
-      const depRegs = curveRegs(d.deployments);  // the status line's "paused, needs you" jumps here
-      const deps = d.deployments.length
-        ? `<div class="dep-register">${twinned.map((x) => deploymentMonitor(x, x === firstPaused, depRegs, !!(d.demo && +d.demo.before_reload))).join('')}</div>${depsBookNote(d)}`
-        : `<div id="deps-empty" data-on="${S.me.user && S.me.user.autopilot ? 1 : 0}">${depsEmpty(S.me.user && S.me.user.autopilot)}</div>`;
+      // The status line's "paused, needs you" jumps to firstPaused. Built when the section is written (dashBelow).
+      const deps = () => {
+        if (!d.deployments.length) return `<div id="deps-empty" data-on="${S.me.user && S.me.user.autopilot ? 1 : 0}">${depsEmpty(S.me.user && S.me.user.autopilot)}</div>`;
+        const depRegs = curveRegs(d.deployments);
+        return `<div class="dep-register">${twinned.map((x) => deploymentMonitor(x, x === firstPaused, depRegs, !!(d.demo && +d.demo.before_reload))).join('')}</div>${depsBookNote(d)}`;
+      };
       const positionMarket = r => contractMkt(r.ticker);
       const depMarket = (r) => (d.deployments.find((x) => x.id === r.deployment_id) || {}).market;
       // An open position of a removed deployment says why it is still here, as Deploy's does (posRemovedWhy).
@@ -2899,37 +2924,49 @@
       const oneDay = days.length === 1 ? `<p class="hint paper-plot-none">One UTC day of closed paper P&amp;L so far (${esc(paperDay(days[0].d, true))}), so there’s no curve to draw yet. It draws once trades close on a second day.</p>` : '';
       // The curve itself is drawn into its box once the page is in (resizePaperChart, below), at the box's own width.
       // It was drawn here too, at the column's width, and redrawn there at once: two charts built, and a layout read,
-      // for the one a phone's first frame shows.
+      // for the one the page shows.
       const performance = days.length ? `<details class="overview-performance" id="paper-performance"${performanceOpen ? ' open' : ''}><summary><span class="performance-heading"><span class="performance-caption"><h2>Closed P&amp;L</h2>${ICON.chev}</span><strong class="${tone(periodPnl)}" title="Cumulative closed P&L over this period">${usd(periodPnl, true)}</strong></span><span class="performance-meta"><span class="performance-mode"><span class="performance-mode-prefix">Paper${SEP}</span>cumulative, ${PAPER_NET}</span><span class="sect-note" title="${esc(days[0].d)} – ${esc(days[days.length - 1].d)}">${oneDay ? `${esc(paperDay(days[0].d, true))}${SEP}UTC day` : `${esc(periodLabel)}${SEP}UTC days`}</span></span></summary><div class="paper-plot">${oneDay}</div></details>` : '';
-      const main = `${apFirst ? '' : sinceStrip(d, '#dash-paused')}<section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-paused') : ''}<div class="dash${paperWorkspace ? ' paper-workspace' : ''}"><div class="dash-layout">
-        <section class="account-band"><dl class="figures measure dashboard-figures ${hasLive ? 'live-primary' : ''}">${hasLive ? liveSummary : paperFigure + (cashInBand ? liveFigure : '')}</dl><p class="stale-note" id="dash-stale" role="status"></p></section>
+      // #main is written as its top (the since strip, the autopilot card, the account band) and what follows the band
+      // (positions, Closed P&L, deployments). One page either way: dashBelow writes them together, except on a visit's
+      // first draw on a phone, where what follows the band starts under the screen's bottom edge.
+      const mainTop = `${apFirst ? '' : sinceStrip(d, '#dash-paused')}<section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-paused') : ''}<div class="dash${paperWorkspace ? ' paper-workspace' : ''}"><div class="dash-layout">
+        <section class="account-band"><dl class="figures measure dashboard-figures ${hasLive ? 'live-primary' : ''}">${hasLive ? liveSummary : paperFigure + (cashInBand ? liveFigure : '')}</dl><p class="stale-note" id="dash-stale" role="status"></p></section>`;
+      const mainBelow = () => `
         <section class="positions-ledger" id="dash-open"><div class="sect-head"><h2>Open positions <span class="section-count">${openHead.n}</span>${openHead.book}</h2></div>
           ${d.open_positions.length ? positionTable(d.open_positions, false) : '<p class="hint">No open positions.</p>'}
           ${d.recent_closed.length ? `<details class="recent-settlements" id="recent-settlements"${settlementsOpen ? ' open' : ''}><summary>Recently closed <span>${closedHead.n}</span>${closedHead.book}</summary>${positionTable(d.recent_closed, true)}${closedAll > d.recent_closed.length ? closedWhere(d, 'closed-all') : ''}</details>` : ''}
-        </section><div class="dash-analysis">${performance}<section class="sect deployed-monitor${sharedPaperRunning ? ' shared-paper-running' : ''}"><div class="sect-head"><div class="monitor-heading"><h2>Deployed strategies <span class="section-count">${num(stratCount(d.deployments))}</span></h2>${sharedPaperRunning ? '<span class="monitor-context">Paper</span>' : ''}${d.deployments.length ? '<a href="/research?new=1" class="btn">New research</a>' : ''}</div></div><div id="dash-deps">${deps}</div></section></div></div></div>`;
+        </section><div class="dash-analysis">${performance}<section class="sect deployed-monitor${sharedPaperRunning ? ' shared-paper-running' : ''}"><div class="sect-head"><div class="monitor-heading"><h2>Deployed strategies <span class="section-count">${num(stratCount(d.deployments))}</span></h2>${sharedPaperRunning ? '<span class="monitor-context">Paper</span>' : ''}${d.deployments.length ? '<a href="/research?new=1" class="btn">New research</a>' : ''}</div></div><div id="dash-deps">${deps()}</div></section></div>`;
       paint(root.querySelector('#boardbody'), board);  // the 15s poll repaints only what changed
       if (accountsFocused) root.querySelector('#other-accounts > summary').focus({ preventScroll: true });
-      keepApCard(() => replaceDeploymentContent(root.querySelector('#main'), main));
+      const host = root.querySelector('#main');
+      // What needs the sections after the band: the Closed P&L curve (drawn into its box at the box's width), the
+      // focus a repaint puts back in them, and the deployments' Pause/Resume/Stop.
+      const afterBelow = () => {
+        resizePaperChart = days.length > 1 ? () => {
+          const plot = root.querySelector('.paper-plot');
+          if (plot) {
+            const focused = plot.querySelector('.chart-sample:focus')?.dataset.time;
+            paint(plot, paperPlot(plot.clientWidth));
+            if (focused) Array.from(plot.querySelectorAll('.chart-sample')).find(s => s.dataset.time === focused)?.focus({ preventScroll: true });
+          }
+        } : null;
+        if (resizePaperChart) {
+          resizePaperChart();
+          root.querySelector('#paper-performance').ontoggle = resizePaperChart;
+        }
+        if (performanceFocused && performance) root.querySelector('#paper-performance > summary').focus({ preventScroll: true });
+        if (sampleFocused && performance) Array.from(root.querySelectorAll('.chart-sample')).find(s => s.dataset.time === sampleFocused)?.focus({ preventScroll: true });
+        if (settlementsFocused && d.recent_closed.length) root.querySelector('#recent-settlements > summary').focus({ preventScroll: true });
+        const dd = root.querySelector('#dash-deps');
+        if (dd) bindDeploymentActions(dd, load);  // pause/resume/stop from the dashboard, same as Deploy
+      };
+      const split = dashSplits(host);
+      keepApCard(() => replaceDeploymentContent(host, mainTop + (split ? '' : mainBelow()) + DASH_END));
       S.dashPaper = p;
       S.dashPaused = d.deployments.filter((x) => x.status === 'paused').length;
       paintDashAp();
-      resizePaperChart = days.length > 1 ? () => {
-        const plot = root.querySelector('.paper-plot');
-        if (plot) {
-          const focused = plot.querySelector('.chart-sample:focus')?.dataset.time;
-          paint(plot, paperPlot(plot.clientWidth));
-          if (focused) Array.from(plot.querySelectorAll('.chart-sample')).find(s => s.dataset.time === focused)?.focus({ preventScroll: true });
-        }
-      } : null;
-      if (resizePaperChart) {
-        resizePaperChart();
-        root.querySelector('#paper-performance').ontoggle = resizePaperChart;
-      }
-      if (performanceFocused && performance) root.querySelector('#paper-performance > summary').focus({ preventScroll: true });
-      if (sampleFocused && performance) Array.from(root.querySelectorAll('.chart-sample')).find(s => s.dataset.time === sampleFocused)?.focus({ preventScroll: true });
-      if (settlementsFocused && d.recent_closed.length) root.querySelector('#recent-settlements > summary').focus({ preventScroll: true });
-      const dd = root.querySelector('#dash-deps');
-      if (dd) bindDeploymentActions(dd, load);  // pause/resume/stop from the dashboard, same as Deploy
+      if (split) dashBelow(host, mainTop, mainBelow, afterBelow);
+      else afterBelow();
       if (!filled) fillCash(got, afterDemo);  // every fresh answer: the first, a visit's, the poll's
     };
     // /api/dashboard never waits on Kalshi (the shell's read, a visit's and the 15s poll's alike): a live cash

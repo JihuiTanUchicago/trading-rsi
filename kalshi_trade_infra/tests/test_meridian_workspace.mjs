@@ -1542,6 +1542,91 @@ test('Home builds its Closed P&L curve once for its first paint, into its box at
   assert.equal(plot.querySelectorAll('.chart-sample').length, 3);
 });
 
+// A phone's first frame of Home held every open position and deployment card (~7,500 elements on a heavy book), styled,
+// laid out and painted before the since strip's figures at the top showed. A visit's first draw writes the top of #main,
+// and what follows the account band goes in two frames later when the band ends under the screen's bottom edge.
+// The fake DOM's insertAdjacentHTML only keeps markup, and it has no boxes: both are stood in for here, and put back.
+const dashSplitData = () => dashboardData({paper: {daily: [{d: '2026-10-16', pnl: -4}, {d: '2026-10-17', pnl: 0}, {d: '2026-10-18', pnl: 1}]},
+  deployments: [dashboardDeployment('paper')], open_positions: [dashboardPosition(1, {deployment_id: 91}), dashboardPosition(2, {deployment_id: 91})],
+  recent_closed: [dashboardPosition(3)]});
+async function withBoxes(bandBottom, check) {
+  const insertWas = Element.prototype.insertAdjacentHTML, rectWas = Element.prototype.getBoundingClientRect;
+  Element.prototype.insertAdjacentHTML = function (position, html) {
+    if (position !== 'afterend' || !this.parent) return insertWas.call(this, position, html);
+    const holder = new Element('div'); holder.innerHTML = html;
+    const parent = this.parent, next = parent.children[parent.children.indexOf(this) + 1];
+    for (const child of holder.children.slice()) { if (next) parent.insertBefore(child, next); else parent.appendChild(child); }
+  };
+  Element.prototype.getBoundingClientRect = function () { const bottom = this.classes.has('account-band') ? bandBottom : 0; return {top: 0, bottom, height: bottom}; };
+  try { await check(); } finally {
+    Element.prototype.insertAdjacentHTML = insertWas;
+    if (rectWas) Element.prototype.getBoundingClientRect = rectWas; else delete Element.prototype.getBoundingClientRect;
+  }
+}
+const dashSplitFrontend = (frames, reads) => frontend({fetchImpl: path => { assert.equal(path, '/api/dashboard'); reads.n++; return response(dashSplitData()); },
+  globals: {requestAnimationFrame: callback => frames.push(callback)}, win: {innerHeight: 844}});
+const dashBelowParts = ['#dash-open', '.t-positions', '#recent-settlements', '#paper-performance', '.paper-plot', '#dash-deps', '.dep-monitor'];
+
+test('Home on a phone paints its top first: positions, Closed P&L and deployments go in two frames later, as one page', async () => {
+  await withBoxes(1400, async () => {
+    const frames = [], reads = {n: 0}, f = dashSplitFrontend(frames, reads);
+    await f.viewDashboard();
+    const main = f.root.querySelector('#main'), band = main.querySelector('.account-band');
+    // Before the first frame: the since strip, the autopilot card and the band's figures, and nothing under the band:
+    // no positions or deployment markup built or written, no chart drawn, no layout read but the band's.
+    assert.ok(main.querySelector('#dash-ap'));
+    assert.match(band.textContent, /Paper portfolio\$1,111\.25/);
+    for (const part of dashBelowParts) assert.equal(!!main.querySelector(part), false, part + ' waits for the next frame');
+    assert.equal(main.writes, 1); assert.equal(frames.length, 1);
+    frames.shift()();  // the frame that paints the top: still nothing under it
+    for (const part of dashBelowParts) assert.equal(!!main.querySelector(part), false, part + ' is not in the frame that paints the top');
+    assert.equal(frames.length, 1);
+    frames.shift()();
+    // The frame after: the rest of the page, after the band, in the order a whole draw writes it.
+    const kids = main.querySelector('.dash-layout').children.filter((child) => child.tag !== '#text');
+    assert.deepEqual(kids.map((child) => child.className || child.id), ['account-band', 'positions-ledger', 'dash-analysis']);
+    assert.ok(kids[0] === band, 'the band drawn first stays'); assert.equal(main.writes, 1);
+    assert.equal(main.querySelectorAll('.open-position').length, 2); assert.equal(main.querySelectorAll('.settled-position').length, 1);
+    assert.equal(main.querySelectorAll('.dep-monitor').length, 1);
+    const plot = main.querySelector('.paper-plot');
+    assert.equal(plot.writes, 1); assert.equal(plot.querySelector('svg.chart').getAttribute('viewBox'), '0 0 760 180');
+    assert.equal(typeof main.querySelector('#paper-performance').ontoggle, 'function');
+    // What is kept for the poll is the whole page's markup: the same answer writes nothing again, and a whole draw of it
+    // (the poll after a change) holds the same parts as the two frames did.
+    const poll = f.intervals.get(f.S.timers.at(-1));
+    poll(); await flush();
+    assert.equal(main.writes, 1); assert.equal(plot.writes, 1); assert.equal(frames.length, 0); assert.equal(reads.n, 2);
+  });
+});
+
+test('Home\'s first draw is whole when the band ends on screen, and a whole draw before the frames wins', async () => {
+  await withBoxes(600, async () => {
+    const frames = [], f = dashSplitFrontend(frames, {n: 0});
+    await f.viewDashboard();
+    const main = f.root.querySelector('#main');
+    for (const part of dashBelowParts) assert.ok(main.querySelector(part), part + ' drawn with the band in view');
+    assert.equal(frames.length, 0); assert.equal(main.querySelector('.paper-plot').writes, 1);
+  });
+  await withBoxes(1400, async () => {
+    const frames = [], f = dashSplitFrontend(frames, {n: 0});
+    await f.viewDashboard();
+    const main = f.root.querySelector('#main');
+    assert.equal(!!main.querySelector('#dash-open'), false);
+    // A newer answer lands first (the poll, a cash read): it draws the page whole, and the waiting frame adds nothing.
+    f.intervals.get(f.S.timers.at(-1))(); await flush();
+    assert.equal(main.writes, 2); assert.equal(main.querySelectorAll('#dash-open').length, 1);
+    while (frames.length) frames.shift()();
+    assert.equal(main.writes, 2); assert.equal(main.querySelectorAll('#dash-open').length, 1); assert.equal(main.querySelectorAll('.dep-monitor').length, 1);
+  });
+  // A hidden tab draws whole too (its frames wait until it is shown).
+  await withBoxes(1400, async () => {
+    const frames = [], f = dashSplitFrontend(frames, {n: 0});
+    f.document.hidden = true;
+    await f.viewDashboard();
+    assert.ok(f.root.querySelector('#main #dash-open')); assert.equal(frames.length, 0);
+  });
+});
+
 // Chart walk 2026-11-01, 200% text on a 390px phone: the Overview's Closed P&L drew "Oct 24" into "Oct 31", lost the "$"
 // of "$30" off its left edge, and its readout box (148 wide) was narrower than its words. Its labels are set at 24px
 // there: it makes room for them at that size, and at the theme's 12px it is drawn as before.
