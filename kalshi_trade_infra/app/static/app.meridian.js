@@ -539,10 +539,33 @@
   const POLL_READ = { timeoutMs: 15000 }, POLL_MAX_GAP = 120000;
   // Once a poll's last good read is older than about two of its intervals and it is still failing,
   // the figures it painted stay up but say how old they are. The next good read clears the note.
-  const staleAfter = (ms) => Math.max(2 * ms, 10000);
+  // Never past a minute: a strategy page's money, read once a minute, stood as current through up to three minutes of
+  // failed reads (walk 2026-11-01).
+  const staleAfter = (ms) => Math.min(Math.max(2 * ms, 10000), 60000);
   // `refreshing`: a read is out and none has failed yet (back on the tab after a sleep, the figures past their age): it
   // said "retrying" there, where nothing had failed to retry. A read that failed and goes again says "retrying".
   const staleText = (at, refreshing) => `Last updated ${age(Math.max(0, Math.round((Date.now() - at) / 1000)))} ago, ${refreshing ? 'refreshing' : 'retrying'}`;
+  // The quiet "Last updated 2m ago, retrying" lines are role="status", and their age counts up on every tick: a screen
+  // reader heard the line again on each failed poll (39 times in 80s on a running session, each line on Home in turn),
+  // and nothing when the reads came back (walk 2026-11-01). A line now changes in silence (aria-live off; on screen it
+  // reads as before), and the page says the outage once, when its first line goes up retrying, and the recovery once,
+  // when its last one clears. A line that only says "refreshing" (back on the tab, nothing failed yet) is no outage.
+  // Lines go by id: one drawn again (Meridian's hot rail) is the same line, and one whose page has gone drops out.
+  const STALE_SAY = 'Can\u2019t reach Tau right now; retrying. The figures on screen are from its last good read.';
+  const STALE_BACK = 'Tau is back. The figures on screen are up to date.';
+  const staleUp = new Set();
+  function staleLine(id, text, failing) {
+    const el = document.getElementById(id);
+    if (el) {
+      if (text && el.getAttribute('aria-live') !== 'off') el.setAttribute('aria-live', 'off');  // a healthy line's markup is as drawn
+      el.textContent = text;
+    }
+    staleUp.forEach((k) => { if (!document.getElementById(k)) staleUp.delete(k); });
+    const was = staleUp.size;
+    if (el && text && failing) staleUp.add(id); else staleUp.delete(id);
+    if (!was && staleUp.size) announce(STALE_SAY);
+    else if (was && !staleUp.size) announce(STALE_BACK);
+  }
   function paced(read, ms, note) {
     let busy = false, fails = 0, wait = 0, okAt = Date.now(), wokeAt = 0;
     const mark = () => { if (note) note((busy || fails) && Date.now() - okAt > staleAfter(ms) ? okAt : null, !fails); };
@@ -569,7 +592,7 @@
   // the first read after a sleep is out).
   function poll(fn, ms, noteId) {
     const gen = S.gen;
-    const tick = paced(fn, ms, noteId && ((at, refreshing) => { const el = document.getElementById(noteId); if (el) el.textContent = at ? staleText(at, refreshing) : ''; }));
+    const tick = paced(fn, ms, noteId && ((at, refreshing) => staleLine(noteId, at ? staleText(at, refreshing) : '', !refreshing)));
     const id = setInterval(() => { dayRoll(); if (!document.hidden && gen === S.gen) tick(); }, ms);
     S.timers.push(id);
     wakers.add(() => { if (gen !== S.gen) return false; if (!document.hidden) tick(true); });
@@ -3187,7 +3210,7 @@
   const apStale = () => S.apFailing && S.apAt && Date.now() - S.apAt > staleAfter(20000) ? staleText(S.apAt) : '';
   function apPaintStale() {
     const text = apStale();
-    ['apf-stale', 'dash-ap-stale'].forEach((id) => { const el = document.getElementById(id); if (el) el.textContent = text; });
+    ['apf-stale', 'dash-ap-stale'].forEach((id) => staleLine(id, text, true));
   }
 
   // Why the demo book can't trade (the server's demo health: no demo key, or a Kalshi demo account too
@@ -4048,6 +4071,7 @@
         <div class="hot-list">${rows}</div>
         <div class="hot-ft"><a href="/explore">See all markets →</a></div>
       </div>`; });
+    if (hotStaleText()) staleLine('hot-stale', hotStaleText(), true);  // a stale line drawn again with the rail says nothing itself either
     root.querySelectorAll('[data-hot="toggle"]').forEach((b) => b.onclick = () => {
       const next = !hotOpen(); localStorage.setItem('tau_hotrail', next ? '1' : '0');
       document.body.classList.toggle('hot-open', next); renderHotRail(); hotSoon();
@@ -4081,7 +4105,7 @@
     renderHotRail();
     hotSoon();
     if (!hotLoop) { hotLoop = true;
-      const tick = paced(() => refreshHot().then((ok) => { if (!ok) throw new Error('hot markets'); }), HOT_POLL_MS, () => { if (hotStaleText() || document.getElementById('hot-stale')) renderHotRail(); });
+      const tick = paced(() => refreshHot().then((ok) => { if (!ok) throw new Error('hot markets'); }), HOT_POLL_MS, () => { if (hotStaleText() || document.getElementById('hot-stale')) renderHotRail(); staleLine('hot-stale', hotStaleText(), true); });
       // A page that mounts the rail reads a snapshot over 25s old, just before this tick was due: the tick then
       // skips, where it read the same snapshot again a few seconds later.
       setInterval(() => { if (!document.hidden && document.getElementById('hotrail') && hotShown() && !hotFresh()) tick(); }, HOT_POLL_MS);
@@ -4198,7 +4222,7 @@
     BTC_CONTRACT, closeLeft, closeWords, comboTitle, compactCondition, contractMkt, contractShort, EXPLORE_NO_FEED, EXPLORE_WAIT,
     exploreEmpty, exploreNoBtc, exploreNoFeed, exploreShowChips, hourET, kalshiUrl, keepFocus, marketSpot, midOf, MKT_GONE,
     MKT_STATUS, mktLabel, NO_MARK, rulesText, spotListNote, spotSect, strikeIn, sum4, vsHtml,
-    actionLink, adminViewOn, alert0, announce, SEP, sepLine, gloSep, WJ, plain, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apSaid, depSaid, depWrite,
+    actionLink, adminViewOn, alert0, announce, staleLine, SEP, sepLine, gloSep, WJ, plain, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apSaid, depSaid, depWrite,
     apExpanded, apFlash, apFloorText, apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, fundsLinked,
     apMarketNames, apQueued, apNudge, apReloadFailed, apShowFocus, apStale, apStillTrading, apStory, apSwitchOn, apEvery, apWhenSpan,
     apWeek, apOffCost, apSessionLine, apCostWatch, armed, attachMention, authorLine, BEHIND, bellTime, boardTitle, bookName, btCheckLine, bulkDeployable, pageLede,

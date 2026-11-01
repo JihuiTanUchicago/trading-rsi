@@ -83,6 +83,7 @@ import {sessionStateCases} from './session_state_frontend_cases.mjs';
 import {firstSessionCases} from './first_session_frontend_cases.mjs';
 import {checkinCadenceCases} from './checkin_cadence_frontend_cases.mjs';
 import {staleMoneyCases} from './stale_money_frontend_cases.mjs';
+import {outageSpeechCases} from './outage_speech_frontend_cases.mjs';
 
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
@@ -6972,6 +6973,7 @@ demoReloadTruthCases({name: 'Meridian', frontend, dashboard: () => dashboardData
 autopilotCostCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 billingCostCases({name: 'Meridian', frontend, dashboard: dashboardData, billingPage, cardedBilling});
 staleMoneyCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData});
+outageSpeechCases({name: 'Meridian', frontend, detailStrategy, dashboard: dashboardData});
 settingsBillingCases({name: 'Meridian', frontend, billingPage, cardedBilling});
 settingsTruthCases({name: 'Meridian', frontend, current: 'meridian', storageFor: m => m, billingPage, cardedBilling});
 unrealizedCellCases({name: 'Meridian', frontend, dashboard: dashboardData});
