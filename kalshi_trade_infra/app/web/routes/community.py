@@ -313,9 +313,21 @@ def react_post(ctx: Ctx):
     return {"reactions": _reactions_out(repo.reactions_for(ctx.cur, [pid], ctx.uid).get(pid, []))}
 
 
+COMMENTS_PAGE = 100
+
+
 def post_comments(ctx: Ctx):
+    """A thread's newest COMMENTS_PAGE replies, oldest first; ?before=<reply id> reads the page older than that
+    reply. `older` says (from one row past the page) whether replies older than these are left to read."""
     pid = _int_param(ctx)
-    return {"comments": [{"body": c["body"], "author": customer_text.display_name(c["name"], "Trader"), "username": c.get("username"), "picture": c["picture_url"], "created_at": c["created_at"]} for c in repo.list_comments(ctx.cur, pid)]}
+    try:
+        before = max(0, int(ctx.query.get("before") or 0))
+    except ValueError:
+        before = 0
+    rows = repo.list_comments(ctx.cur, pid, limit=COMMENTS_PAGE + 1, before=before)
+    older, rows = len(rows) > COMMENTS_PAGE, rows[-COMMENTS_PAGE:]
+    return {"comments": [{"id": c["id"], "body": c["body"], "author": customer_text.display_name(c["name"], "Trader"), "username": c.get("username"), "picture": c["picture_url"], "created_at": c["created_at"]} for c in rows],
+            "older": older}
 
 
 def create_comment(ctx: Ctx):

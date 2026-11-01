@@ -307,8 +307,8 @@ def test_a_name_that_is_an_email_never_shows_in_the_community(monkeypatch):
     post = {"id": 1, "body": "gm", "kind": "note", "likes_count": 0, "comments_count": 0, "created_at": None,
             "name": OTHER, "username": "someone", "picture_url": None}
     assert community._post_out(post)["author"] == "Trader"
-    monkeypatch.setattr(repo, "list_comments", lambda cur, pid: [
-        {"body": "nice", "name": OTHER, "username": "someone", "picture_url": None, "created_at": None}])
+    monkeypatch.setattr(repo, "list_comments", lambda cur, pid, **k: [
+        {"id": 1, "body": "nice", "name": OTHER, "username": "someone", "picture_url": None, "created_at": None}])
     assert community.post_comments(_ctx(("1",)))["comments"][0]["author"] == "Trader"
     monkeypatch.setattr(repo, "mention_candidates", lambda cur, q: [{"username": "someone", "name": OTHER}])
     assert community.mention_candidates(_ctx(query={"q": "so"}))["users"] == [{"username": "someone", "name": "someone"}]

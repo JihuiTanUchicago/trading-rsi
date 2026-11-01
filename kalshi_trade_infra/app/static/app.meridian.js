@@ -1626,6 +1626,10 @@
       deployments: (kept.deployments || []).map((x) => (x.id in unreal ? { ...x, unrealized_pnl: unreal[x.id] } : x)) };
     if (got.freshness) d.freshness = got.freshness;
     if (got.since_at !== undefined && kept.since) d.since = { ...kept.since, at: got.since_at };
+    // Whether the demo-funds check waits on the demo cash rides each "same" answer, not its version (the demo cash
+    // memo ages out each minute): the kept answer's flag is replaced by the one that came now.
+    if (kept.demo) { d.demo = { ...kept.demo }; delete d.demo.health_pending; if (got.demo_health_pending) d.demo.health_pending = true; }
+    if ('demo_health' in kept) { delete d.demo_health_pending; if (got.demo_health_pending) d.demo_health_pending = true; }
     return d;
   }
   function flash(where, msg, kind) {
@@ -1787,7 +1791,11 @@
     const zeroTick = lo < 0 && hi > 0 && levels.every((v) => Math.abs(y(v) - y(0)) >= 14) ? `<text class="chart-zero" x="${L - 8}" y="${y(0) + 4}" text-anchor="end">$0</text>` : '';
     // The paper chart across a new year names the year on each date ("Dec 30, 2025"): "Jan 4" read as before "Dec 30".
     const years = options.paper && new Date(t0 * 1000).getUTCFullYear() !== new Date(t1 * 1000).getUTCFullYear();
-    const day = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(years ? { year: 'numeric' } : {}), ...(options.paper ? { timeZone: 'UTC' } : {}) });
+    // One date format per chart, made once: toLocaleDateString with options builds a new formatter on every call, and
+    // the chart names every point's day (its readout boxes), so a phone at a quarter of desktop speed spent ~67ms of
+    // the dashboard's first draw on it (walk 2026-11-01). Same words.
+    const dayFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', ...(years ? { year: 'numeric' } : {}), ...(options.paper ? { timeZone: 'UTC' } : {}) });
+    const day = (t) => dayFmt.format(new Date(t * 1000));
     // Its name: the backtest's own end, never the demo replay's (it came last in `vals`, so a strategy page with a
     // replay said the backtest "ends at" the replay's figure). With `options.words` (a strategy page, a backtest
     // re-run) it says the curve's span, start, end, low and high in words (curveWords); a curve inside two days
@@ -2605,6 +2613,8 @@
       const closedAll = ['paper', 'demo', 'live'].reduce((a, m) => a + (+(d[m] || {}).closed_trades || 0), 0);
       const shownN = num(d.recent_closed.length);
       if (closedAll > d.recent_closed.length) closedHead.n = `latest ${closedHead.n === shownN ? shownN : `${shownN}: ${closedHead.n}`}`;
+      // "latest 12" said the list was cut but not where the rest are: under it, a link to the track record, which
+      // lists every closed trade (Tau's Closed lately says the same). Display only.
       const positionTable = (rows, closed) => {
         const onlyPaper = !!paperOnly(rows);
         const widths = closed ? [332, 100, 160, 88, 128] : [300, 92, 112, 80, 96, 128];
@@ -2648,7 +2658,7 @@
         <section class="account-band"><dl class="figures measure dashboard-figures ${hasLive ? 'live-primary' : ''}">${hasLive ? liveSummary : paperFigure + (cashInBand ? liveFigure : '')}</dl><p class="stale-note" id="dash-stale" role="status"></p></section>
         <section class="positions-ledger" id="dash-open"><div class="sect-head"><h2>Open positions <span class="section-count">${openHead.n}</span>${openHead.book}</h2></div>
           ${d.open_positions.length ? positionTable(d.open_positions, false) : '<p class="hint">No open positions.</p>'}
-          ${d.recent_closed.length ? `<details class="recent-settlements" id="recent-settlements"${settlementsOpen ? ' open' : ''}><summary>Recently closed <span>${closedHead.n}</span>${closedHead.book}</summary>${positionTable(d.recent_closed, true)}</details>` : ''}
+          ${d.recent_closed.length ? `<details class="recent-settlements" id="recent-settlements"${settlementsOpen ? ' open' : ''}><summary>Recently closed <span>${closedHead.n}</span>${closedHead.book}</summary>${positionTable(d.recent_closed, true)}${closedAll > d.recent_closed.length ? '<a class="closed-all" href="#track-record">Every closed trade, with net P&amp;L, is in the track record \u2193</a>' : ''}</details>` : ''}
         </section><div class="dash-analysis">${performance}<section class="sect deployed-monitor${sharedPaperRunning ? ' shared-paper-running' : ''}"><div class="sect-head"><div class="monitor-heading"><h2>Deployed strategies <span class="section-count">${num(d.deployments.length)}</span></h2>${sharedPaperRunning ? '<span class="monitor-context">Paper</span>' : ''}${d.deployments.length ? '<a href="/research?new=1" class="btn">New research</a>' : ''}</div></div><div id="dash-deps">${deps}</div></section></div></div></div>`;
       paint(root.querySelector('#boardbody'), board);  // the 15s poll repaints only what changed
       if (accountsFocused) root.querySelector('#other-accounts > summary').focus({ preventScroll: true });
@@ -2673,7 +2683,7 @@
       if (settlementsFocused && d.recent_closed.length) root.querySelector('#recent-settlements > summary').focus({ preventScroll: true });
       const dd = root.querySelector('#dash-deps');
       if (dd) bindDeploymentActions(dd, load);  // pause/resume/stop from the dashboard, same as Deploy
-      if (!filled && !got.same) fillCash(got, afterDemo);  // every fresh answer: the first, a visit's, the poll's
+      if (!filled) fillCash(got, afterDemo);  // every fresh answer: the first, a visit's, the poll's
     };
     // /api/dashboard never waits on Kalshi (the shell's read, a visit's and the 15s poll's alike): a live cash
     // the server hadn't read in the last minute comes pending, drawn as Checking\u2026 (never $0; an older figure
@@ -2682,16 +2692,17 @@
     // waited on the demo cash is read again once that cash is back (the autopilot's idle line does the same in
     // refreshAutopilot). A newer poll answer supersedes all of it.
     const fillCash = (first, afterDemo) => {
-      if (!first || first.same) return;
+      if (!first) return;
       const asks = [];
-      if (first.live && first.live.pending) {
+      if (!first.same && first.live && first.live.pending) {
         asks.push(cashRead(first.live, 'live').then((live) => {
           if (gen !== S.gen || kept !== first) return;
           // The key went in the meantime: read it all afresh. Otherwise only the cash changed.
           return (live.connected ? load(null, { ...first, live }) : load()).catch(() => {});
         }));
       }
-      if (!(first.demo && first.demo.health_pending) || afterDemo) return;
+      // A "same" answer says its demo check waits on the demo cash as demo_health_pending (services.page_poll).
+      if (!(first.same ? first.demo_health_pending : first.demo && first.demo.health_pending) || afterDemo) return;
       asks.push(demoCashRead());
       Promise.all(asks).then(() => {
         if (gen === S.gen && kept && kept.v === first.v) load(undefined, undefined, true).catch(() => {});
@@ -2824,8 +2835,9 @@
       // isn't kept comes demo_health_pending (a line from a figure read under two minutes ago stands meanwhile).
       // The page asks the demo cash (shared with the dashboard's and the autopilot's asks; on a first load, the
       // read boot.js started), then reads the board again, once.
-      if (!got.same && got.demo_health_pending && !afterDemo) {
-        demoCashRead().then(() => { if (gen === S.gen && kept === got) loadBoard(undefined, true).catch(() => {}); });
+      // A "same" answer carries the flag too (services.page_poll), so an unchanged board doesn't download itself twice.
+      if (d.demo_health_pending && !afterDemo) {
+        demoCashRead().then(() => { if (gen === S.gen && kept && kept.v === got.v) loadBoard(undefined, true).catch(() => {}); });
       }
       bindDeploymentActions(root.querySelector('#deps'), loadBoard);
       const depMarket = (p) => (d.deployments.find((x) => x.id === p.deployment_id) || {}).market;

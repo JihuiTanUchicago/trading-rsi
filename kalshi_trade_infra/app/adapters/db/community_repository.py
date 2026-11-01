@@ -178,14 +178,17 @@ def add_comment(cur, post_id: int, user_id: int, body: str) -> int:
     return cur.lastrowid
 
 
-def list_comments(cur, post_id: int, limit: int = 100) -> List[Dict]:
+def list_comments(cur, post_id: int, limit: int = 100, before: int = 0) -> List[Dict]:
+    """A post's newest `limit` replies (older than reply id `before`, when given), oldest first. It read the
+    oldest 100: a thread past 100 replies never showed its newest ones, a reply just sent among them (walk
+    2026-11-01, "121 replies" listing up to the 106th)."""
     cur.execute(
         """SELECT c.id, c.body, c.created_at, u.name, u.username, u.picture_url
            FROM app_post_comments c JOIN app_users u ON u.id=c.user_id
-           WHERE c.post_id=%s ORDER BY c.id LIMIT %s""",
-        (post_id, limit),
+           WHERE c.post_id=%s AND (%s = 0 OR c.id < %s) ORDER BY c.id DESC LIMIT %s""",
+        (post_id, before, before, limit),
     )
-    return cur.fetchall()
+    return list(reversed(cur.fetchall()))
 
 
 def recent_posts_count(cur, user_id: int, since: datetime) -> int:
