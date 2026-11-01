@@ -325,17 +325,30 @@ def fix_list(cards: List[Dict], limit: int = 15) -> List[Dict]:
     return sorted(seen.values(), key=lambda r: -r["count"])[:limit]
 
 
+# What a card's day rollup (_rollup) reads, and its created_at: enough to group the cards by another calendar later
+# (the web board groups them by the reader's own day, from the one board it keeps for every zone).
+DAY_FIELDS = ("created_at", "explored", "developed", "dropped", "gated", "passed", "holdout_passed",
+              "deploy_candidates", "cost_usd", "spec_failed_runs", "deaths", "death_kinds")
+
+
+def days(cards: List[Dict], day_of: Optional[Callable[[Dict], str]] = None) -> List[Dict]:
+    """Each day's rollup (oldest first) over run cards: the UTC day each was created on ("2026-10-30"), or the
+    day `day_of` names for it (an ISO date)."""
+    by_day: Dict[str, List[Dict]] = defaultdict(list)
+    for c in cards:
+        by_day[day_of(c) if day_of is not None else c["created_at"][:10]].append(c)
+    return [dict(day=k, **_rollup(v)) for k, v in sorted(by_day.items())]
+
+
 def scoreboard(cards: List[Dict]) -> Dict:
     """Totals, per family and per day (oldest first) over run cards, so a trend is visible."""
     by_family: Dict[str, List[Dict]] = defaultdict(list)
-    by_day: Dict[str, List[Dict]] = defaultdict(list)
     for c in cards:
         by_family[c["family"]].append(c)
-        by_day[c["created_at"][:10]].append(c)
     return {
         "total": _rollup(cards),
         "families": {k: _rollup(v) for k, v in sorted(by_family.items())},
-        "days": [dict(day=k, **_rollup(v)) for k, v in sorted(by_day.items())],
+        "days": days(cards),
         "fix_list": fix_list(cards),
         "trend": trend(cards),
     }

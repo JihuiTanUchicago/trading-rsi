@@ -265,7 +265,7 @@ def test_the_dashboard_shell_carries_what_each_endpoint_answers_alone_in_fewer_s
     user = repo.session_user(conn.cursor(), token)
     shared = {}
     account = server.me(server.Ctx(conn, user, (), {}, {}, handler, shared=shared))
-    first, _ = shell_reads.first_reads("/", "", {}, lambda p, q: server.Ctx(conn, user, p, q, {}, handler, shared=shared))
+    first, _ = shell_reads.first_reads("/", "", {"tau_tz": "0"}, lambda p, q: server.Ctx(conn, user, p, q, {}, handler, shared=shared))
     got = {"me": json.dumps(account, default=server._json_default, sort_keys=True)}
     got.update({r["url"]: json.dumps(r["body"], default=server._json_default, sort_keys=True) for r in first})
     assert got == want

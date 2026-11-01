@@ -15,6 +15,7 @@ York (on the day its clocks went back), Kolkata and Auckland, read at 02:00 UTC 
 Display only: what settles and every sum's rows are unchanged. Opt in as for test_app_engine_db.py (APP_TEST_MYSQL=1).
 """
 import csv
+import json
 import io
 import os
 import uuid
@@ -174,6 +175,65 @@ def test_a_zone_cookie_naming_another_zone_than_the_offset_goes_by_the_offset(co
     dash = server.dashboard(ctx)
     assert dash["day_start"] == datetime(2026, 11, 1, 5, 0)  # UTC-5's midnight: the reader moved, the offset wins
     assert dash["paper"]["today_pnl"] == _since(pnl, "paper", datetime(2026, 11, 1, 5, 0))
+
+
+def test_researchs_per_day_bars_are_the_readers_own_days_on_one_kept_board(conn, monkeypatch):
+    # Research's per-day bars were grouped by UTC day and said "(UTC)". Sessions on either side of yesterday's midnight
+    # in each zone (timed off the real clock, which the board's window reads: UTC_TIMESTAMP()), each with its own
+    # count of ideas (a power of two), so each day's sum names exactly the sessions it took. Each reader's bars are
+    # their own days, from one board worked out once for every zone; every other figure is the same for all of them.
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    from app import repository as repo
+    from app import server
+    from app.adapters.db import agent_run_repository as agent_runs
+    from app.research import rsi
+
+    cur = conn.cursor()
+    uid = repo.upsert_google_user(cur, "test:" + uuid.uuid4().hex, "readerdays@example.invalid", "Ria", None)["id"]
+    user = repo.get_user(cur, uid)
+    cur.execute("SELECT UTC_TIMESTAMP() AS t")
+    now = cur.fetchone()["t"]
+    zones = ["America/New_York", "Asia/Kolkata", "Pacific/Auckland"]
+
+    def midnight(zone):  # yesterday's midnight there (naive UTC): always in the past, within the board's 14 days
+        at = (now - timedelta(days=1)).replace(tzinfo=timezone.utc)
+        loc = at.astimezone(ZoneInfo(zone)) if zone else at
+        return loc.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+
+    times = sorted({midnight(z) + timedelta(minutes=d) for z in zones + [None] for d in (-20, 20)})
+    ideas = {}
+    for j, at in enumerate(times):
+        rid = agent_runs.create_run(cur, uid, "research", "nfl_game", None, "Idea %d" % j)
+        cur.execute("UPDATE app_agent_runs SET status='succeeded', created_at=%s, started_at=%s, finished_at=%s, "
+                    "hypotheses_tried=%s WHERE id=%s", (at, at, at + timedelta(minutes=5), 2 ** j, rid))
+        ideas[at] = 2 ** j
+    built = []
+    real = rsi.load_scoreboard
+    monkeypatch.setattr(rsi, "load_scoreboard", lambda *a, **k: built.append(1) or real(*a, **k))
+    server._SHARED.clear()
+    boards = {}
+    for zone in zones + [None]:
+        if zone is None:
+            cookies = {}
+        else:
+            off = -int(now.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(zone)).utcoffset().total_seconds()) // 60
+            cookies = {"tau_tz": str(off), "tau_tzn": quote(zone, safe="")}
+        ctx = server.Ctx(conn, user, (), {"days": "14"}, {}, SimpleNamespace(cookies=lambda c=cookies: dict(c)))
+        board = boards[zone] = server.research_scoreboard(ctx)
+        want = {}
+        for at, n in ideas.items():
+            d = at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(zone)).date() if zone else at.date()
+            want[d.isoformat()] = want.get(d.isoformat(), 0) + n
+        assert {d["day"]: d["explored"] for d in board["days"]} == want, zone
+        assert board.get("days_local", False) is (zone is not None) and "day_cards" not in json.dumps(board, default=str)
+    assert len(built) == 1  # one board for every zone
+    assert len({tuple(d["day"] for d in b["days"]) for b in boards.values()}) > 1  # and the zones' days differ
+    for b in boards.values():
+        assert {k: v for k, v in b.items() if k not in ("days", "days_local")} == \
+            {k: v for k, v in boards[None].items() if k not in ("days", "days_local")}
+        assert sum(d["explored"] for d in b["days"]) == b["total"]["explored"] == sum(ideas.values())
 
 
 @pytest.mark.parametrize("zone", ["America/New_York", "Asia/Kolkata", None])

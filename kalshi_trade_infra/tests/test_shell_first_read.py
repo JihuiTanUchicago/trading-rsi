@@ -46,7 +46,7 @@ def web(monkeypatch):
     webperf._ROWS.extend(rows)
 
 
-def _shell(port, path, cookie="rsid=abc"):
+def _shell(port, path, cookie="rsid=abc; tau_tz=240"):  # a device that has loaded a page before (boot.js wrote tau_tz)
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     conn.request("GET", path, headers={"Cookie": cookie} if cookie else {})
     r = conn.getresponse()
@@ -138,6 +138,12 @@ def test_an_app_page_shell_carries_its_first_read_under_the_url_the_page_asks(we
     ("/explore", "rsid=abc"),
     ("/community", "rsid=abc"),
     ("/settings", "rsid=abc"),
+    # A device's first load (no tau_tz yet: a sign-in link opened in a new browser): the dashboard and the autopilot
+    # status count the reader's day, which the shell can't know, so the page asks them once boot.js has set the cookie.
+    ("/", "rsid=abc"),
+    ("/dashboard", "rsid=abc"),
+    ("/", "rsid=abc; tau_tz=abc"),
+    ("/", "rsid=abc; tau_tz=99999"),
 ])
 def test_shells_with_no_read_they_can_name_carry_only_the_bell(web, monkeypatch, path, cookie):
     # The masthead's bell is on every signed-in page, whatever its query: its list is carried all the same.
@@ -459,7 +465,7 @@ def test_the_shell_names_a_follow_up_once_across_its_reads(monkeypatch):
     pending = {"connected": True, "pending": True, "balance": None}
     monkeypatch.setattr(shell_reads, "dashboard", lambda ctx, **kw: {"live": pending, "demo": {"health_pending": True}})
     monkeypatch.setattr(shell_reads, "autopilot_status", lambda ctx, **kw: {"idle_pending": True})
-    reads, _ = shell_reads.first_reads("/", "", {}, lambda params, q: SimpleNamespace(set_cookies=[]))
+    reads, _ = shell_reads.first_reads("/", "", {"tau_tz": "240"}, lambda params, q: SimpleNamespace(set_cookies=[]))
     assert [x.get("then") for x in reads] == [["/api/funds/cash?book=live", "/api/funds/cash?book=demo"], None]
 
 
@@ -728,10 +734,10 @@ def test_the_dashboard_url_carries_the_since_the_page_works_out_from_its_visit_c
     _record(monkeypatch, "autopilot_status", {"mode": "off"})
     now = int(server.time.time())
     # Back within half an hour: the visit goes on from its own start.
-    _, html = _shell(web, "/", "rsid=abc; tau_visit=%d.%d" % (now - 4000, now - 60))
+    _, html = _shell(web, "/", "rsid=abc; tau_tz=240; tau_visit=%d.%d" % (now - 4000, now - 60))
     assert _first(html)[0]["url"] == "/api/dashboard?since=%d" % (now - 4000) and calls[-1][1] == {"since": str(now - 4000)}
     # After a longer gap the last visit ended when it was last seen.
-    _, html = _shell(web, "/", "rsid=abc; tau_visit=%d.%d" % (now - 90000, now - 7200))
+    _, html = _shell(web, "/", "rsid=abc; tau_tz=240; tau_visit=%d.%d" % (now - 90000, now - 7200))
     assert _first(html)[0]["url"] == "/api/dashboard?since=%d" % (now - 7200)
 
 
@@ -754,8 +760,11 @@ def test_only_the_named_pages_have_first_requests():
     assert shell_reads.first_requests("/billing", "", {}) == []
     assert [r[0] for r in shell_reads.first_requests("/billing", "", {"tau_tz": "-60"})] == ["/api/billing?tz=-60"]
     assert [r[0] for r in shell_reads.first_requests("/research/12", "", {})] == ["/api/runs/12?after=0"]
-    assert [r[0] for r in shell_reads.first_requests("/", "", {})] == ["/api/dashboard", "/api/autopilot/status"]
-    assert [r[0] for r in shell_reads.first_requests("/research", "", {})] == ["/api/runs", "/api/research/scoreboard?days=14"]
+    assert [r[0] for r in shell_reads.first_requests("/", "", {"tau_tz": "300"})] == ["/api/dashboard", "/api/autopilot/status"]
+    assert [r[0] for r in shell_reads.first_requests("/research", "", {"tau_tz": "-330"})] == ["/api/runs", "/api/research/scoreboard?days=14"]
+    # Without the zone (a device's first load) the reads that count the reader's day are the page's own to ask.
+    assert shell_reads.first_requests("/", "", {}) == shell_reads.first_requests("/dashboard", "", {"tau_tz": ""}) == []
+    assert [r[0] for r in shell_reads.first_requests("/research", "", {})] == ["/api/runs"]
     assert [r[0] for r in shell_reads.first_requests("/funds", "", {})] == ["/api/funds"]
     assert [r[0] for r in shell_reads.first_requests("/settings/account", "", {})] == ["/api/funds"]
 

@@ -8,6 +8,19 @@
    the shell carries those too (window.__TAU_FIRST__). It keeps the browser's UTC offset in the tau_tz
    cookie, so a later shell can name Billing's first read too, and its time zone's name in tau_tzn. */
 (function () {
+  // The zone first, before any read this page makes (the reads a carried read names next start just below, and
+  // the app's own after this script): every figure that counts the reader's own day (Home's "today", the research
+  // card's per-day bars: app/services/reader_day.py) reads it from these cookies, and on a device's first load a
+  // read that went out before them counted the UTC day ("Today (UTC)").
+  // Billing asks for /api/billing?tz=<getTimezoneOffset()> (its statement's days are yours). Only the
+  // browser knows that offset: kept in a cookie, a later page shell can carry Billing's read (shell_reads.py).
+  // Beside it the zone's name (tau_tzn), so the statement counts a day before a clock change by the offset it had.
+  try {
+    var ck = '; Path=/; Max-Age=34560000; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+    document.cookie = 'tau_tz=' + new Date().getTimezoneOffset() + ck;
+    var zone = typeof Intl === 'object' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
+    if (zone) document.cookie = 'tau_tzn=' + encodeURIComponent(zone) + ck;
+  } catch (e) { /* cookies blocked: Billing asks as before */ }
   // A signed-in shell carries the account (/api/me's reply) in a JSON data block; the app takes it
   // from here once, at its first render, instead of starting with a round trip to read it.
   try {
@@ -34,15 +47,6 @@
       }
     }
   } catch (e) { /* the page asks for them itself */ }
-  // Billing asks for /api/billing?tz=<getTimezoneOffset()> (its statement's days are yours). Only the
-  // browser knows that offset: kept in a cookie, a later page shell can carry Billing's read (shell_reads.py).
-  // Beside it the zone's name (tau_tzn), so the statement counts a day before a clock change by the offset it had.
-  try {
-    var ck = '; Path=/; Max-Age=34560000; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
-    document.cookie = 'tau_tz=' + new Date().getTimezoneOffset() + ck;
-    var zone = typeof Intl === 'object' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
-    if (zone) document.cookie = 'tau_tzn=' + encodeURIComponent(zone) + ck;
-  } catch (e) { /* cookies blocked: Billing asks as before */ }
   var b = document.getElementById('tau-boot');
   if (!b) return;
   // Only Tau has the Terms and Privacy pages; Meridian used to bounce them to the dashboard.
