@@ -115,8 +115,24 @@ def test_the_bundles_focus_words_match_the_servers():
     src = (Path(__file__).resolve().parents[1] / "app" / "static" / "core.js").read_text(encoding="utf-8")
     body = re.search(r"const FOCUS_WORDS = \{(.*?)\};", src, re.S).group(1)
     pairs = dict(re.findall(r"'?([\w-]+)'?: '([^']*)'", body))
-    # The bundle starts a line with it, so a family's name is capitalised there; the words are otherwise the same.
-    assert pairs == {k: v[:1].upper() + v[1:] for k, v in agent.FOCUS_WORDS.items()}
+    # The same words: the bundle capitalises the first word of its "Focus:" line itself, so a family named later in
+    # the list reads as the chat says it ("Crypto, daily high temperatures and sports", walk 2026-11-01).
+    assert pairs == agent.FOCUS_WORDS
+
+
+def test_a_focus_of_several_families_reads_as_one_list_in_the_story_and_the_idle_line():
+    # Walk 2026-11-01: a focus widened from crypto to weather and sports read "It sticks to the focus you set:
+    # crypto, daily high temperatures, sports.", three names like three stored keys. The list says "and"; the
+    # stored tokens, the chat's own "Market focus set to" line and the refusal are unchanged.
+    focus = ["crypto", "weather-high", "sports"]
+    story = server._autopilot_story({"autopilot": True, "focus": focus})
+    assert "It sticks to the focus you set: crypto, daily high temperatures and sports." in story
+    assert not any("weather-high" in line for line in story)
+    assert "It sticks to the focus you set: Bitcoin and Ethereum." in server._autopilot_story({"autopilot": True, "focus": ["btc", "eth"]})
+    idle = server._idle_reason({"autopilot": True, "focus": ["weather-high", "sports"]}, [], [], None, [
+        {"id": 5, "title": "Late fade", "market": "btc15m", "in_focus": False, "candidate": False, "retired": False}])
+    assert "your focus is daily high temperatures and sports, and your passed strategy" in idle["line"]
+    assert agent.focus_words(focus) == "crypto, daily high temperatures, sports"  # the chat's words, unchanged
 
 
 def test_focus_endpoint_validates_and_stores(monkeypatch):

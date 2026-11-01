@@ -1454,8 +1454,9 @@
     return d && +d.checkin_every_min > 0 && !d.reviewing ? ` <small${cls ? ` class="${cls}"` : ''}>usually every ${num(+d.checkin_every_min)} min</small>` : '';
   }
   // A coin or family in words, as the server's chat lines say it (agent.FOCUS_WORDS): "Focus: Btc, eth" read the raw tokens.
+  // A family's name is lower case, as it reads inside a list; the "Focus:" line capitalises its own first word.
   const FOCUS_WORDS = { btc: 'Bitcoin', eth: 'Ethereum', sol: 'Solana', xrp: 'XRP', doge: 'Dogecoin', hype: 'Hyperliquid', near: 'NEAR',
-    zec: 'Zcash', tao: 'Bittensor', 'crypto-perpetuals': 'Crypto perpetuals', 'weather-high': 'Daily high temperatures' };
+    zec: 'Zcash', tao: 'Bittensor', 'crypto-perpetuals': 'crypto perpetuals', 'weather-high': 'daily high temperatures' };
   // The autopilot's last 7 days (d.week). Credits are spend and paper P&L is not, so they are two
   // labelled figures, never added together. Research counts every session; paper counts only the
   // strategies the autopilot put on paper itself (the server attributes them by their deploy record).

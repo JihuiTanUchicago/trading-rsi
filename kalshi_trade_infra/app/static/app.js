@@ -3395,9 +3395,14 @@
     const preset = AP_FOCUS.find(([v]) => v && v === f.join(','));
     if (preset) return preset[1].replace(/ only$/, '');
     const keys = new Set(((S.me && S.me.markets) || []).map((m) => m.key));
-    return f.map((t) => FOCUS_WORDS[t] || (keys.has(t) ? marketShort(t) : t.charAt(0).toUpperCase() + t.slice(1).replace(/[-_]/g, ' '))).join(', ');
+    // One list, as the story says it: "Crypto, daily high temperatures and sports". "Crypto, Daily high temperatures,
+    // Sports" read like three stored keys (walk 2026-11-01, a focus widened from crypto to weather and sports).
+    const words = f.map((t) => FOCUS_WORDS[t] || (keys.has(t) ? marketShort(t) : t.replace(/[-_]/g, ' ')));
+    const list = words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0];
+    return list.charAt(0).toUpperCase() + list.slice(1);
   }
-  const apFocusLine = (focus, attr) => `Focus: ${esc(apFocusText(focus))} <button type="button" ${attr}>Change</button>`;
+  // Its button says what it changes: tabbed to, a screen reader read a bare "Change, button".
+  const apFocusLine = (focus, attr) => `Focus: ${esc(apFocusText(focus))} <button type="button" ${attr} aria-label="Change focus">Change</button>`;
   function apBindFocus(host) {
     const b = host.querySelector('[data-apcard="focus"]');
     if (b) b.onclick = () => { apOpen(); apShowFocus(document.getElementById('autopilot-float')); };
@@ -3469,8 +3474,8 @@
     return parts.length ? `<p class="apcard-still">Already running, and still trading with it off: ${parts.join(SEP)}. <a href="/deploy">Deploy</a> pauses or removes ${parts.length === 1 && /^1\u00a0/.test(parts[0]) ? 'it' : 'them'}.</p>` : '';
   };
   // Beside the week's spend: what is left, how long it lasts at that pace (the Billing page's runway),
-  // and the only limit there is. Autopilot has no spending budget of its own: it researches until the
-  // balance is under what a session needs to start, then pauses. Once it has paused (the status's
+  // and the limits there are: its research cap per 24 hours, when the server has one, and the balance: it researches
+  // until the balance is under what a session needs to start, then pauses. Once it has paused (the status's
   // billing_blocked, the worker's own gate) the line says so, without the pace: nothing is being
   // spent. The next status read after credits land puts the running copy back.
   function apCreditsLeft(w, d) {
@@ -3499,7 +3504,14 @@
     const ar = d && d.reload_failed ? null : me.auto_reload;
     const cap = ar ? `each time your balance falls to ${usd(ar.threshold)}, auto-reload charges your card${reloadIn ? '' : ` ${usd(ar.charge)} for ${usd(ar.amount)} more`} and research carries on.${me.min_run_balance != null ? ` With auto-reload off, it pauses when your balance is under ${usd(me.min_run_balance)}.` : ''}`
       : `it uses credits${me.min_run_balance != null ? ` until your balance is under ${usd(me.min_run_balance)}, then pauses` : ''}.`;
-    return `<p class="ap-week-left">Credits left: <b>${usd(w.credits_left)}</b>${pace}.${est ? ' ' + est : ''} It has no daily spending cap: ${cap}${d && d.reload_failed ? ` <b>Auto-reload failed.</b> ${esc(d.reload_failed)} <a href="/billing">Update your card</a>.` : ''} <a href="/billing">Billing</a> lists every charge.</p>`;
+    // Its research cap (the status's research_cap: the cap and the last 24 hours' research spend, your own sessions
+    // included) is a daily limit: "It has no daily spending cap" stood under a $240 cap (walk 2026-11-01). Without
+    // one (no cap, or an older server) the line is as before.
+    const rc = d && d.research_cap && +d.research_cap.usd > 0 ? d.research_cap : null;
+    const limit = !rc ? `It has no daily spending cap: ${cap}`
+      : `${rc.reached ? `Its research reached its cap of ${usd(rc.usd)} per 24 hours: <b>${usd(rc.spent_24h)}</b> spent in the last 24 hours, your own sessions included, so it starts no new research until earlier spend rolls off`
+        : `Its research is capped at ${usd(rc.usd)} per 24 hours: <b>${usd(rc.spent_24h)}</b> spent in the last 24 hours, your own sessions included. At the cap it starts no new research until earlier spend rolls off`}; research you start yourself isn’t limited. Within the cap, ${cap}`;
+    return `<p class="ap-week-left">Credits left: <b>${usd(w.credits_left)}</b>${pace}.${est ? ' ' + est : ''} ${limit}${d && d.reload_failed ? ` <b>Auto-reload failed.</b> ${esc(d.reload_failed)} <a href="/billing">Update your card</a>.` : ''} <a href="/billing">Billing</a> lists every charge.</p>`;
   }
   // What a research session on the autopilot's model usually costs and how far the credits go at that rate
   // (core's apSessionCost, on the research form's own figure from /api/research/estimate), said where it is

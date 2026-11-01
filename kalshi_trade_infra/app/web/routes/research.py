@@ -692,6 +692,15 @@ def _board_ledger_spend(cur, uid: int, board: Dict) -> None:
         return
     spent = repo.runs_spent(cur, uid, ids)
     total["cost_usd"] = credit_usd(sum((Decimal(str(v)) for v in spent.values()), Decimal(0)))
+    # Each market family's Spend the same way, from the same read, so the card's per-family lines are each
+    # family's own sessions' Costs, and Billing's.
+    by_family: Dict[str, Decimal] = {}
+    for c in board.get("cards") or []:
+        if c.get("run_id") in spent:
+            by_family[c.get("family")] = by_family.get(c.get("family"), Decimal(0)) + Decimal(str(spent[c["run_id"]]))
+    for fam, row in (board.get("families") or {}).items():
+        if isinstance(row, dict):
+            row["cost_usd"] = credit_usd(by_family.get(fam, Decimal(0)))
 
 
 def _research_scoreboard(cur, uid: int, days: int) -> Dict:

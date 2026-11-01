@@ -26,7 +26,18 @@ class _Parts(dict):
         return val
 
 
-def pulse_from_parts(cur, uid, since, review=False, engine=False, full=False):
+def _tokens_by_model(rows):
+    """repo.research_token_rows summed per model, in model order (the pulse's research_24h)."""
+    by = {}
+    for r in rows:
+        t = by.setdefault(r.get("model"), [0, 0])
+        t[0] += int(r.get("input_tokens") or 0)
+        t[1] += int(r.get("output_tokens") or 0)
+    return sorted(({"model": m, "input_tokens": i, "output_tokens": o} for m, (i, o) in by.items()),
+                  key=lambda x: str(x["model"] or ""))
+
+
+def pulse_from_parts(cur, uid, since, review=False, engine=False, full=False, day_since=None):
     """repo.autopilot_pulse from the single reads. `full` adds the chat's version and the deployments'
     strategies (two more reads on a real cursor); without it they are None, which the panel reads as
     unknown: it reads the last move itself and lets the book memo read the deployments."""
@@ -56,12 +67,13 @@ def pulse_from_parts(cur, uid, since, review=False, engine=False, full=False):
                                   for r in repo.list_runs(cur, uid, limit=50) if r.get("status") in ("queued", "running")],
         "review": lambda: repo.active_agent_run(cur, uid, "review") if review else None,
         "engine_age": lambda: repo.engine_last_tick_age_seconds(cur) if engine else None,
+        "research_24h": lambda: _tokens_by_model(repo.research_token_rows(cur, uid, day_since)) if day_since is not None else None,
     })
 
 
-def pulse_reference(cur, uid, since, review=False, engine=False):
+def pulse_reference(cur, uid, since, review=False, engine=False, day_since=None):
     """Every part of pulse_from_parts(full=True), read now (the real-MySQL reference)."""
-    p = pulse_from_parts(cur, uid, since, review, engine, full=True)
+    p = pulse_from_parts(cur, uid, since, review, engine, full=True, day_since=day_since)
     return {k: p[k] for k in p._reads}
 
 

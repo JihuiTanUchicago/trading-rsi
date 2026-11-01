@@ -322,6 +322,36 @@ def _research_cents(credits: Dict) -> float:
     return credit_usd(credit_cents(split["research"]) + credit_cents(split["autopilot_research"]))
 
 
+def _focus_list(tokens: List[str]) -> str:
+    """The focus as a list a customer reads ("crypto, daily high temperatures and sports"), each token in
+    agent.focus_words' words. Its own "a, b, c" read like three stored keys under the panel's "Focus:" line
+    (walk 2026-11-01, a focus widened from crypto to weather and sports). Display only."""
+    words = [agent.focus_words([t]) for t in tokens or []]
+    return words[0] if len(words) == 1 else "%s and %s" % (", ".join(words[:-1]), words[-1]) if words else ""
+
+
+def _research_cap(pulse: Dict) -> Optional[Dict]:
+    """The autopilot's research cap (agent.AUTOPILOT_RESEARCH_USD_PER_DAY) beside what research cost in the
+    last 24 hours, priced as the cap prices it (agent.research_spend: every research session created since,
+    the user's own included), from the pulse's research_24h. The panel said "It has no daily spending cap"
+    under a $240 cap. Display only: the worker and act() keep their own check. None with no cap."""
+    cap, rows = float(agent.AUTOPILOT_RESEARCH_USD_PER_DAY), pulse.get("research_24h")
+    if cap <= 0 or rows is None:
+        return None
+    from app.research import rsi
+    spent = sum(rsi.run_cost_usd(r) for r in rows)
+    return {"usd": cap, "spent_24h": cents(spent), "reached": spent >= cap}
+
+
+def _research_cap_line(cap: Optional[Dict]) -> str:
+    """The story's line once the research cap stops new autopilot research, else ''."""
+    if not cap or not cap.get("reached"):
+        return ""
+    return ("It has reached its research cap: ${:,.2f} spent in the last 24 hours, and the cap is ${:,.2f} per 24 hours, "
+            "so it starts no new research until earlier spend rolls off. Research you start yourself isn’t "
+            "limited.".format(float(cap["spent_24h"]), float(cap["usd"])))
+
+
 def _plural(n: int, one: str, many: str = "") -> str:
     return "{:,} {}".format(n, one if n == 1 else (many or one + "s"))
 
@@ -346,8 +376,11 @@ def _autopilot_story(d: Dict) -> List[str]:
     research = d.get("research") or {}
     idle = (d.get("idle") or {}).get("code")
     lines = [_autopilot_now(d)]
+    cap_line = _research_cap_line(d.get("research_cap"))
+    if cap_line:
+        lines.append(cap_line)
     if d.get("focus"):
-        lines.append("It sticks to the focus you set: %s." % agent.focus_words(d["focus"]))  # "Bitcoin", never "btc"
+        lines.append("It sticks to the focus you set: %s." % _focus_list(d["focus"]))  # "Bitcoin", never "btc"
     tested, passed = int(research.get("tested_7d") or 0), int(research.get("passed_7d") or 0)
     # passed_7d counts only passes cleared to trade; one a later check left uncleared (Missed final test,
     # Held back) is said apart, as the session rows and the Strategies list say it.
@@ -842,7 +875,7 @@ def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age,
         k = len(passed)
         return _idle("focus", "Nothing is on paper: your focus is %s, and %s outside it, so it won’t deploy %s. "
                               "It researches inside the focus to find new ones." % (
-                                  agent.focus_words(focus), ("your passed strategy, %s, is" % passed[0]["title"]) if k == 1
+                                  _focus_list(focus), ("your passed strategy, %s, is" % passed[0]["title"]) if k == 1
                                   else "both your passed strategies are" if k == 2 else "all %d of your passed strategies are" % k, "it" if k == 1 else "them"),
                      {"label": "Change focus", "do": "focus"})
     ready = [x for x in inside if x["candidate"]]
@@ -904,7 +937,9 @@ def autopilot_status(ctx: Ctx):
     since = repo.now_utc() - timedelta(days=7)
     # The small reads in one statement (repo.autopilot_pulse), the positions' version among them, so it
     # is read before any read kept against it. The engine's beat only when the idle line can use it.
-    pulse = _pulse(cur, ctx.uid, since, review=on, engine=on and running > 0)
+    # With autopilot on, the last 24 hours' research tokens ride the same statement, for its research cap.
+    pulse = _pulse(cur, ctx.uid, since, review=on, engine=on and running > 0,
+                   day_since=repo.now_utc() - timedelta(hours=24) if on else None)
     memo = book_memo.BookMemo(cur, ctx.uid, version=pulse["positions"], strategies=pulse["dep_strategies"])
     kalshi_connected = pulse["kalshi_key"]  # read once: the live gate and the badge
     gates_ok = bool(engine.LIVE_TRADING_ENABLED and kalshi_connected)
@@ -977,6 +1012,8 @@ def autopilot_status(ctx: Ctx):
         "review_wait": review_wait if review_wait["overdue"] else None,
         "model": u.get("autopilot_model") or catalog.DEFAULT_KEY,  # the model the autopilot's own runs use
         "focus": agent.focus_tokens(u),  # the user's binding market focus ([] = any market)
+        # Its research cap and the last 24 hours' research spend against it (None while off, or with no cap).
+        "research_cap": _research_cap(pulse) if on else None,
         "billing_blocked": billing_blocked,
         "billing_reason": (("card" if _needs_card(ctx, reads) else "credits") if billing_blocked else None),
         # Warn before the pause, not after: days of credit left when that's under three.
@@ -1018,15 +1055,16 @@ def autopilot_status(ctx: Ctx):
     return out
 
 
-def _pulse(cur, uid: int, since, review: bool, engine: bool) -> Dict:
+def _pulse(cur, uid: int, since, review: bool, engine: bool, day_since=None) -> Dict:
     """repo.autopilot_pulse; when the engine's beat can't be read (its table isn't there before the
     first schema run), everything else is read without it and the beat is unknown."""
+    day = {"day_since": day_since} if day_since is not None else {}
     try:
-        return repo.autopilot_pulse(cur, uid, since, review=review, engine=engine)
+        return repo.autopilot_pulse(cur, uid, since, review=review, engine=engine, **day)
     except Exception:  # noqa: BLE001 - only the engine's beat may fail; anything else fails again below
         if not engine:
             raise
-    return dict(repo.autopilot_pulse(cur, uid, since, review=review), engine_age=_UNKNOWN)
+    return dict(repo.autopilot_pulse(cur, uid, since, review=review, **day), engine_age=_UNKNOWN)
 
 
 def _autopilot_week(cur, uid: int, research: Dict, reads: Optional[billing.Reads] = None,

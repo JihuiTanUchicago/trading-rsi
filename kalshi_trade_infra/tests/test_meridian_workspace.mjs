@@ -52,6 +52,7 @@ import {moneyPagesWalkCases} from './money_pages_walk_frontend_cases.mjs';
 import {moneyAuditCases} from './money_audit_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
+import {multiFamilyCases} from './multi_family_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
 import {midnightCases} from './midnight_frontend_cases.mjs';
@@ -3925,12 +3926,12 @@ test('the Overview autopilot card and panel say where it may trade, with a Chang
   await f.viewDashboard(); await flush();
   f.S.ap = status; f.paintDashAp();
   const card = f.root.querySelector('#dash-ap');
-  assert.match(card.querySelector('.ap-focus').innerHTML, /^Focus: Crypto <button type="button" data-apcard="focus">Change<\/button>$/);
+  assert.match(card.querySelector('.ap-focus').innerHTML, /^Focus: Crypto <button type="button" data-apcard="focus" aria-label="Change focus">Change<\/button>$/);
   await card.querySelector('[data-apcard="focus"]').onclick(); await flush();
   const box = f.root.parent.querySelector('#autopilot-float'), prefs = box.querySelector('.apf-prefs');
   assert.equal(prefs.open, true);  // the control sits in "Model and markets"
   const line = box.querySelector('#apf-focusline');
-  assert.equal(line.hidden, false); assert.match(line.innerHTML, /^Focus: Crypto <button type="button" data-ap="focus">Change<\/button>$/);
+  assert.equal(line.hidden, false); assert.match(line.innerHTML, /^Focus: Crypto <button type="button" data-ap="focus" aria-label="Change focus">Change<\/button>$/);
   prefs.open = false; line.querySelector('[data-ap="focus"]').onclick();
   assert.equal(prefs.open, true);
   for (const [focus, text] of [[[], 'any market'], [['sports'], 'Sports'], [['weather-low'], 'Weather low']]) {
@@ -6955,6 +6956,7 @@ chatPanelCases({name: 'Meridian', frontend, storageFor: m => m});
 a11yCases({name: 'Meridian', frontend, storageFor: m => m, billingPage, cardedBilling, source, strategyFrontend, detailStrategy,
   dashboard: dashboardData, fundsData: funds, apStatus});
 creditsCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, apStatus});
+multiFamilyCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});
 timeTruthCases({name: 'Meridian', billingPage, cardedBilling});
 midnightCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, storageFor: m => m});
 dayClockCases({name: 'Meridian', frontend, fundsData: funds, storageFor: m => m});
