@@ -1008,7 +1008,9 @@ window.TauPage('strategy', (T) => {
       if (delBlock) { flash('#delflash', delBlock, 'bad'); return; }
       if (gone) { stratGone('#delflash'); return; }
       armed(delStrat, 'Confirm delete', () => busy(delStrat, async () => {
-        try { await api(`/api/strategies/${s.id}/delete`, {}); go('/strategies'); } catch (e) { if (e.status === 404) stratGone('#delflash'); else flash('#delflash', e.message, 'bad'); }
+        // The deleted strategy's page gives its place in history to the list: pushed, Back went to the gone page, which
+        // asked for it again and drew "Not found" (a 404 on every Back after a delete, walk 2026-11-01).
+        try { await api(`/api/strategies/${s.id}/delete`, {}); go('/strategies', true); } catch (e) { if (e.status === 404) stratGone('#delflash'); else flash('#delflash', e.message, 'bad'); }
       }).then(standDown));
     };
     const shareForm = root.querySelector('#share-form');

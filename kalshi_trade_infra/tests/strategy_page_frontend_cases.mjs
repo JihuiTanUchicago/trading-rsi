@@ -1115,4 +1115,25 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     assert.ok(hasFocus(f, now), 'focus is on the new copy of the link');
     if (f.clearTimers) f.clearTimers();
   });
+
+  // Walk 2026-11-01: Delete pushed /strategies over the deleted strategy's page, so Back went to the gone page, which asked
+  // for it again (a 404) and drew "Not found". The list takes the deleted page's place in history instead.
+  test(`${name}: deleting a strategy replaces its page in history, so Back never asks for the gone strategy`, async () => {
+    const pushed = [], replaced = [];
+    let deleted = 0;
+    const f = frontend({fetchImpl: (path) => {
+      if (path === '/api/strategies/42') return response(detailStrategy({status: 'passed', deployments: [], delete_block: null}));
+      if (path === '/api/strategies/42/dev-curve') return response({dev_curve: []});
+      if (path === '/api/strategies/42/delete') { deleted++; return response({ok: true}); }
+      return response({strategies: [], counts: {}});
+    }, globals: {history: {pushState: (_s, _t, p) => pushed.push(p), replaceState: (_s, _t, p) => replaced.push(p)}}});
+    await f.viewStrategy(42); await flush();
+    const del = f.root.querySelector('#del-strat');
+    del.onclick(); f.elapse(500); del.onclick();
+    for (let i = 0; i < 6; i++) await flush();
+    assert.equal(deleted, 1);
+    assert.deepEqual(replaced, ['/strategies']);
+    assert.deepEqual(pushed, []);
+    if (f.clearTimers) f.clearTimers();
+  });
 }
