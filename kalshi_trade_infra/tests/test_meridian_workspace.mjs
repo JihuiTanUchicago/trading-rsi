@@ -3857,9 +3857,11 @@ test("boot.js keeps the browser's UTC offset in the tau_tz cookie, the one Billi
     Object.defineProperty(document, 'cookie', {set: (v) => { if (blocked) throw new Error('Synthetic blocked cookies'); written.push(v); }});
     const context = {window: {}, location: {pathname: '/', protocol}, localStorage: {getItem: () => null, setItem() {}}, document};
     vm.runInNewContext(readFileSync(new URL('../app/static/boot.js', import.meta.url), 'utf8'), context);
-    const tz = vm.runInNewContext('new Date().getTimezoneOffset()');
-    // The same digits as the page's '/api/billing?tz=' + new Date().getTimezoneOffset() (shell_reads.billing_tz reads them).
-    assert.deepEqual(written, blocked ? [] : [`tau_tz=${tz}; Path=/; Max-Age=34560000; SameSite=Lax${protocol === 'https:' ? '; Secure' : ''}`]);
+    const tz = vm.runInNewContext('new Date().getTimezoneOffset()'), zone = vm.runInNewContext('Intl.DateTimeFormat().resolvedOptions().timeZone');
+    const ck = `; Path=/; Max-Age=34560000; SameSite=Lax${protocol === 'https:' ? '; Secure' : ''}`;
+    // The same digits as the page's '/api/billing?tz=' + new Date().getTimezoneOffset() (shell_reads.billing_tz reads them),
+    // and the zone's name, encoded, for the statement's days across a clock change (billing._statement_tz reads it).
+    assert.deepEqual(written, blocked ? [] : [`tau_tz=${tz}${ck}`, `tau_tzn=${encodeURIComponent(zone)}${ck}`]);
     assert.equal(context.window.__TAU_UI__, 'tau', 'the theme choice runs either way');
   }
 });

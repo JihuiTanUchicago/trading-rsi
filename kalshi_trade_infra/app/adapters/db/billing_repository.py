@@ -104,29 +104,44 @@ def credit_totals(cur, user_id: int, since) -> Dict[str, Dict[str, float]]:
                         "n_since": int(r["n_since"])} for r in cur.fetchall()}
 
 
-def credit_statement(cur, user_id: int, since, tz_minutes: int = 0, limit: int = 300) -> List[Dict]:
+def _day_shift(tz) -> Tuple[str, Tuple]:
+    """credit_statement's minutes behind UTC for a row, as SQL over l.created_at and its parameters: one offset
+    (an int), or [(from, minutes)] oldest first (the first from None), the offset in force from each naive UTC
+    instant on, so a row before a clock change counts on the viewer's day by the offset it fell under."""
+    if isinstance(tz, (list, tuple)) and len(tz) > 1:
+        params: List = []
+        for (start, _), (_, before) in zip(tz[1:], tz[:-1]):
+            params += [start, int(before)]
+        return ("(CASE " + " ".join(["WHEN l.created_at < %s THEN %s"] * (len(tz) - 1)) + " ELSE %s END)",
+                tuple(params) + (int(tz[-1][1]),))
+    return "%s", (int(tz[0][1] if isinstance(tz, (list, tuple)) else tz),)
+
+
+def credit_statement(cur, user_id: int, since, tz_minutes=0, limit: int = 300) -> List[Dict]:
     """The ledger since `since` as statement lines, newest first: a usage row is one model call, so
     a session's calls on one day (the viewer's day, `tz_minutes` behind UTC as a browser's
-    getTimezoneOffset says) with one model are one line, with their count, total, first and last
+    getTimezoneOffset says, or the offsets in force over the window as _day_shift reads them) with one
+    model are one line, with their count, total, first and last
     time and the run they billed; every other row (credits bought, auto-reloads, grants) is its own
     line with its Stripe reference. Amounts are the ledger's own sums. One statement."""
-    tz = int(tz_minutes)
+    shift, tz = _day_shift(tz_minutes)
+    day = "DATE(l.created_at - INTERVAL " + shift + " MINUTE)"
     cur.execute(
         "SELECT g.kind, g.run_id, g.day, g.n, g.amount, g.first_at, g.last_at, g.memo, g.stripe_ref, "
         "r.kind AS run_kind, r.brief AS run_brief, r.prompt AS run_prompt, r.market AS run_market, "
         "r.direction AS run_direction FROM ("
-        "(SELECT 'usage' AS kind, l.run_id, DATE(l.created_at - INTERVAL %s MINUTE) AS day, COUNT(*) AS n, "
+        "(SELECT 'usage' AS kind, l.run_id, " + day + " AS day, COUNT(*) AS n, "
         "SUM(l.amount_usd) AS amount, MIN(l.created_at) AS first_at, MAX(l.created_at) AS last_at, l.memo, "
         "NULL AS stripe_ref, MAX(l.id) AS last_id FROM app_credit_ledger l "
         "WHERE l.user_id=%s AND l.kind='usage' AND l.created_at >= %s "
-        "GROUP BY l.run_id, DATE(l.created_at - INTERVAL %s MINUTE), l.memo) "
+        "GROUP BY l.run_id, " + day + ", l.memo) "
         "UNION ALL "
-        "(SELECT l.kind, l.run_id, DATE(l.created_at - INTERVAL %s MINUTE), 1, l.amount_usd, l.created_at, "
+        "(SELECT l.kind, l.run_id, " + day + ", 1, l.amount_usd, l.created_at, "
         "l.created_at, l.memo, l.stripe_ref, l.id FROM app_credit_ledger l "
         "WHERE l.user_id=%s AND l.kind<>'usage' AND l.created_at >= %s) "
         "ORDER BY last_at DESC, last_id DESC LIMIT %s) g LEFT JOIN app_agent_runs r ON r.id = g.run_id "
         "ORDER BY g.last_at DESC, g.last_id DESC",
-        (tz, user_id, since, tz, tz, user_id, since, int(limit)),
+        tz + (user_id, since) + tz + tz + (user_id, since, int(limit)),
     )
     return cur.fetchall()
 
