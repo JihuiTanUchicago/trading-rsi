@@ -353,6 +353,10 @@
       if (S.gen > 1) window.__TAU_EARLY__ = null;
       else if (window.__TAU_EARLY__[path]) { early = window.__TAU_EARLY__[path]; delete window.__TAU_EARLY__[path]; }
     }
+    // A write pressed while the phone says it has no network never leaves it: it says so (NOT_SENT), not that Tau
+    // "didn't confirm" it and to reload, which offline lost the page (Funds' Add, Start session; walk 2026-11-01).
+    // Deploy's buttons already said this (depWrite). Nothing is retried: the reader presses again once back online.
+    if (body !== undefined && offline()) throw new ApiError(0, NOT_SENT);
     const gen = S.gen, scoped = body === undefined && !(cfg && cfg.keep);
     const opts = { credentials: 'same-origin', headers: {} };
     if (body !== undefined) {
@@ -593,14 +597,20 @@
     else if (was && !staleUp.size) announce(STALE_BACK);
   }
   function paced(read, ms, note) {
-    let busy = false, fails = 0, wait = 0, okAt = Date.now(), wokeAt = 0;
-    const mark = () => { if (note) note((busy || fails) && Date.now() - okAt > staleAfter(ms) ? okAt : null, !fails); };
+    // `missed`: ticks since the last good read that read nothing new (failed, sat out a back-off, or found one still
+    // out). The age alone marked a 30s poll (Funds' cash) only at its third tick, 90s on: its second tick sits out the
+    // back-off a hair under 60s after the last good read landed, so the line stayed blank a minute and a half after Tau
+    // went away (walk 2026-11-01). Two intervals' worth of ticks marks it, as does the age (a sleep ticks nothing).
+    let busy = false, fails = 0, wait = 0, okAt = Date.now(), wokeAt = 0, missed = 0;
+    const late = () => missed >= Math.ceil(staleAfter(ms) / ms) || Date.now() - okAt > staleAfter(ms);
+    const mark = () => { if (note) note((busy || fails) && late() ? okAt : null, !fails); };
     // wake (the browser came back online) skips what is left of the back-off.
     return (wake) => {
       if (wake === true && !busy) wait = 0;
       // Back on the tab it read at once (wake): the interval's next tick, due within half an interval, would
       // ask the same again a second or two later, so it sits that one out.
       if (wake !== true && wokeAt && !busy && !fails && Date.now() - wokeAt < ms / 2) { wokeAt = 0; mark(); return null; }
+      if (wake !== true) missed++;
       if (busy || wait > 0) { if (!busy) wait--; mark(); return null; }
       busy = true; wokeAt = wake === true ? Date.now() : 0;
       // A read that starts on figures already past their age (back from a laptop lid, hours later) says so while it
@@ -609,7 +619,7 @@
       // The read starts now, not a microtask later: a page left in between must not start it.
       let run; try { run = Promise.resolve(read(POLL_READ)); } catch (e) { run = Promise.reject(e); }
       return run.then(
-        () => { fails = 0; okAt = Date.now(); },
+        () => { fails = 0; missed = 0; okAt = Date.now(); },
         (e) => { if (!(e instanceof ApiError)) freshBuild(); fails++; wait = Math.min(2 ** fails, Math.ceil(POLL_MAX_GAP / ms)) - 1; },
       ).finally(() => { busy = false; mark(); });
     };
