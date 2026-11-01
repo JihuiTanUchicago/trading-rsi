@@ -7,7 +7,7 @@ window.TauPage('research', (T) => {
   const {
     alert0, announce, api, ApiError, apNudge, apWhenSpan, armed, boardTitle, busy, clearTimers, errText, loadFail, clipWords, esc, EXAMPLE_NOTE, exampleLine,
     failText, feedMd, fig, fillLiveRow, flash, gl, glo, GLOSSARY, go, ICON, liveOpen, loading, logTime, marketPicker, marketShort,
-    markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
+    markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, pastWords, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
     runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, usdShare, waitSpan, ageAt,
     dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay, dayZone,
     whyFailedHtml, wireMarketPicker
@@ -1776,7 +1776,11 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         : s.autopilot_next ? `The autopilot puts it on paper at its next check-in${apWhenSpan()}`
         : `<a href="/strategies/${s.id}">Open it to deploy on paper</a>`)
         : why.length ? `${esc(why[0].label)}${why.length > 1 ? `${SEP}${why.length - 1} more check${why.length > 2 ? 's' : ''}` : ''}` : '';
-      return `<li><span class="hx-stamp ${cls}">${label}</span><button type="button" class="ri-title" data-goto="${s.id}">${esc(s.title)}</button>${said ? `<span class="ri-why">${said}</span>` : ''}</li>`;
+      // What its removed deployments made, and any positions they still hold, as its Strategies row says them: a
+      // removed pass read only "Open it to deploy on paper" here while the list said "Removed from paper: +$0.27 ·
+      // 1 trade" (audit 2026-11-01). Each book on its own, never added to the book it runs in now.
+      const past = pastWords(s.past).map((t) => `<span class="ri-past">${said ? SEP : ''}${t}</span>`).join('');
+      return `<li><span class="hx-stamp ${cls}">${label}</span><button type="button" class="ri-title" data-goto="${s.id}">${esc(s.title)}</button>${said || past ? `<span class="ri-why">${said}${past}</span>` : ''}</li>`;
     };
     const SHOW = 6;
     return `<section class="run-ideas"><div class="section-head"><h2>Ideas tested</h2><p>${num(list.length)} listed${gap}${SEP}tap one for its story</p></div>

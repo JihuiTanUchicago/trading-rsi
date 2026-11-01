@@ -352,13 +352,17 @@ def _attach_past_records(cur, uid: int, cards: List[Dict], removed_ids: List[int
     Books are never added together. One read, and only when the page has such a strategy.
     A paper book whose closed trades were partly or all instant fills carries `instant_fills` (its trades
     less those through the simulated venue, `sim_trades` of the same read): the track record leaves those
-    out, while "Removed from paper: 3 trades" didn't say so. Display only."""
+    out, while "Removed from paper: 3 trades" didn't say so. A book whose removed deployments still hold
+    positions carries `open` (how many, from the same read), as the track record's "1 +2 open" counts
+    them: the line read as a book that was done while Home and Deploy listed what it held. Display only."""
     if not removed_ids:
         return
     past: Dict[int, Dict[str, Dict]] = {}
     for r in repo.removed_totals_by_strategy(cur, uid, removed_ids):
         book = past.setdefault(int(r["strategy_id"]), {})[r["mode"]] = {
             "pnl": cents(r["pnl"]), "trades": int(r["trades"] or 0), "deployments": int(r["deployments"] or 0)}
+        if int(r.get("open_positions") or 0) > 0:
+            book["open"] = int(r["open_positions"])
         instant = book["trades"] - int(r.get("sim_trades") or 0) if r["mode"] == "paper" and "sim_trades" in r else 0
         if instant > 0:
             book["instant_fills"] = instant

@@ -829,7 +829,11 @@ def test_removed_totals_by_strategy_sums_each_book_apart():
     assert "d.status='stopped'" in cur.sql and "GROUP BY d.strategy_id, d.mode" in cur.sql
     assert "p.status='closed'" in cur.sql and "FORCE INDEX (idx_pos_dep)" in cur.sql
     # The paper rows through the simulated venue ride the same read (the rest are instant fills).
-    assert "COUNT(CASE WHEN p.mode='paper' AND p.order_ref LIKE %s THEN 1 END) AS sim_trades" in cur.sql
+    assert "COUNT(CASE WHEN p.status='closed' AND p.mode='paper' AND p.order_ref LIKE %s THEN 1 END) AS sim_trades" in cur.sql
+    # Trades and P&L count closed rows only; the positions still open ride the same pass (audit 2026-11-01).
+    assert "COUNT(CASE WHEN p.status='closed' THEN 1 END) AS trades" in cur.sql
+    assert "SUM(CASE WHEN p.status='closed' THEN p.pnl END)" in cur.sql
+    assert "COUNT(CASE WHEN p.status='open' THEN 1 END) AS open_positions" in cur.sql
     assert cur.params == ["sim:%", 7, 2, 3]
 
 

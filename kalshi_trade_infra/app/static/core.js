@@ -857,10 +857,16 @@
     return k >= n ? `, ${n === 1 ? 'an instant fill' : 'all instant fills'}, left out of the track record`
       : `, ${num(k)} of them ${k === 1 ? 'an instant fill' : 'instant fills'}, left out of the track record`;
   };
-  const pastFig = (past) => past && typeof past === 'object' ? ['live', 'paper', 'demo'].filter((m) => past[m]).map((m) => {
+  // The positions its removed deployments still hold (the server's `open`; they run to settlement): "Removed from paper:
+  // +$0.27 · 1 trade" read as a book that was done while Home, Deploy and the track record ("1 +2 open") listed the
+  // two positions it held (audit 2026-11-01).
+  const pastOpen = (p) => (+p.open > 0 ? `\u00a0· ${num(+p.open)} still open` : '');
+  // Each book's line in words, unwrapped: a research session's row says them inline; pastFig sets each on its own line.
+  const pastWords = (past) => past && typeof past === 'object' ? ['live', 'paper', 'demo'].filter((m) => past[m]).map((m) => {
     const p = past[m], n = +p.trades || 0;
-    return `<div class="sub-fig real-fig past-fig">Removed from ${m}: ${n ? `${money(+p.pnl || 0)}\u00a0· ${realTrades(n)}${pastInstant(m, p, n)}` : 'no closed trades'}</div>`;
-  }).join('') : '';
+    return `Removed from ${m}: ${n ? `${money(+p.pnl || 0)}\u00a0· ${realTrades(n)}${pastInstant(m, p, n)}` : 'no closed trades'}${pastOpen(p)}`;
+  }) : [];
+  const pastFig = (past) => pastWords(past).map((t) => `<div class="sub-fig real-fig past-fig">${t}</div>`).join('');
   // Paper money since deploying, beside the backtest (walk 2026-10-30, "is the autopilot making money?"): the list's
   // rows led with the backtest figure and kept the paper result at the far end of the Status cell, and a strategy page
   // led with green backtest figures over its "Since deploying" record further down. A row whose shown book is paper
@@ -1684,7 +1690,7 @@
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine, neverCleared,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine, neverCleared,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
