@@ -9,7 +9,7 @@ window.TauPage('autopilot', (T) => {
     apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, apMarketNames, apQueued, apReloadFailed, apShowFocus,
     apEvery, apOffCost, apStale, apStillTrading, apStory, apSwitchOn, apWeek, busy, clock, esc, failText, feedMd, gl, go, ICON, mdLite, num,
     liveIdleCount, liveIdleShort, liveOpen, paced, paintDashAp, paperCount, PAPER_COUNT_WHY, PAPER_NET, pausesIn, pnlWin, refreshAutopilot, repaintKeep, S, SEP, settleAt, sinceMin, ageAt, slipEstGl, theme, usd, waitNote, waitSpan,
-    wakers, dayWatch, dayRoll, utcDayWord, stampAt
+    wakers, dayWatch, dayRoll, utcDayWord, stampAt, dayZone, neverCleared
   } = T;
   // Tau's panel has a dot by its title and by the idle pulse, a line under the feed's title, and says when it's idle that reviews run on a schedule.
   const tau = theme === 'tau';
@@ -19,9 +19,8 @@ window.TauPage('autopilot', (T) => {
   // never wipes the chat/composer. apChatTimer polls chat (3s) only while expanded.
   let apChatLastId = 0, apChatTimer = null, apFeedFirst = true, apFeedDay = '';
   // The feed's day line: the rail's times are the reader's clock, so each day starts with its date and zone.
-  // The zone is the one in force on that day (`at`, its noon): on the day the clocks changed, the days before it read
+  // The zone is the one in force on that day (dayZone, its noon): on the day the clocks changed, the days before it read
   // "times in CST" over times that were CDT, beside the bell's "Oct 30, 23:25 CDT" (walk 2026-11-01).
-  const tzShort = (at) => { try { return (new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(at ? new Date(at) : new Date()).find((p) => p.type === 'timeZoneName') || {}).value || ''; } catch (e) { return ''; } };
   // Its words go by the reader's day now, so a feed open past midnight says them again (apDays): its evening's
   // check-ins stayed under "Today" after midnight, and the next one started a second "Today" (walk 2026-11-01).
   const apDayText = (iso) => {
@@ -29,7 +28,7 @@ window.TauPage('autopilot', (T) => {
     const yest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
     const label = d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === yest.toDateString() ? 'Yesterday'
       : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    const zone = tzShort(Number.isFinite(d.getTime()) ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime() : 0);
+    const zone = dayZone(iso);
     return label + (zone ? `${SEP}times in ` + zone : '');
   };
   function apDayLi(iso) {
@@ -635,7 +634,7 @@ window.TauPage('autopilot', (T) => {
       repaintKeep(stats, () => short.map((c, i) => `<div${short.length % 2 && i === short.length - 1 ? ' class="apf-tail"' : ''}>${c}</div>`).join('') + `
       ${budgetShown ? `<div class="apf-wide apf-budget"><dt>Loss budget</dt><dd>Counts live losses booked since 00:00 UTC. Live also stops if your Kalshi account falls ${usd(d.daily_loss_limit)} in a day, open positions included.</dd></div>` : ''}
       ${d.research && !(d.story || []).length ? `<div class="apf-wide"><dt>Research</dt><dd>${apMarketNames(d).length ? 'Researching ' + esc(apMarketNames(d).join(SEP)) : apQueued(d) ? (apQueued(d) === 1 ? 'A session queued to start' : `${num(apQueued(d))} sessions queued to start`) : 'Not researching right now'}${SEP}${Number(d.research.tested_7d).toLocaleString('en-US')} ideas tested in the last 7 days, ${d.research.passed_7d} passed${+d.research.not_cleared_7d ? `, ${Number(d.research.not_cleared_7d).toLocaleString('en-US')} not cleared` : ''}${+d.research.cost_7d >= 0.005 ? ', ' + usd(d.research.cost_7d) + ' spent' : (+d.research.cost_7d > 0 || d.research.cost_7d_under_cent) ? ', under $0.01 spent' : ''}</dd></div>` : ''}
-      ${d.paper_progress ? `<div class="apf-wide"><dt>Furthest on paper</dt><dd><a href="/strategies/${d.paper_progress.strategy_id}">${esc(d.paper_progress.title || 'Paper strategy')}</a>${SEP}${paperCount(d.paper_progress)}${SEP}${usd(d.paper_progress.net_pnl, true)} net on them. <small>${gl(PAPER_COUNT_WHY_SAID, 'instantfill')}</small></dd></div>` : ''}`);
+      ${d.paper_progress ? `<div class="apf-wide"><dt>Furthest on paper</dt><dd><a href="/strategies/${d.paper_progress.strategy_id}">${esc(d.paper_progress.title || 'Paper strategy')}</a>${SEP}${paperCount(d.paper_progress)}${SEP}${usd(d.paper_progress.net_pnl, true)} net on them.${d.paper_progress.cleared_never ? ` ${neverCleared(d.paper_progress.cleared_never)}.` : ''} <small>${gl(PAPER_COUNT_WHY_SAID, 'instantfill')}</small></dd></div>` : ''}`);
     }
     staleLine('apf-stale', apStale(), true);
     // The feed's idle pulse reads the status too; repaint it now rather than on the next chat poll.

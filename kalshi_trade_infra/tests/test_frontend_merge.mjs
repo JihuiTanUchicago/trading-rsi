@@ -41,6 +41,7 @@ import {browserCostCases} from './browser_cost_frontend_cases.mjs';
 import {phoneSpeedCases} from './phone_speed_frontend_cases.mjs';
 import {kalshiWaitCases} from './kalshi_wait_frontend_cases.mjs';
 import {heavyAccountCases} from './heavy_account_frontend_cases.mjs';
+import {returningTruthCases} from './returning_truth_frontend_cases.mjs';
 import {settingsCases} from './settings_frontend_cases.mjs';
 import {firstHourCases} from './first_hour_frontend_cases.mjs';
 import {firstTenMinutesCases} from './first_ten_minutes_frontend_cases.mjs';
@@ -308,6 +309,7 @@ researchFormCases({name: 'Tau', frontend});
 spendTrustCases({name: 'Tau', frontend});
 kalshiWaitCases({name: 'Tau', frontend, detailStrategy});
 heavyAccountCases({name: 'Tau', frontend});
+returningTruthCases({name: 'Tau', frontend});
 phoneSpeedCases({name: 'Tau', frontend, source, railOpenWide: [['tau_hotrail', '1']],
   storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 exploreSpotListCases({name: 'Tau', frontend, railOpenWide: [['tau_hotrail', '1']],

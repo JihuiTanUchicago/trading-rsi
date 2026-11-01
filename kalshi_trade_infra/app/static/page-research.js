@@ -9,7 +9,7 @@ window.TauPage('research', (T) => {
     failText, feedMd, fig, fillLiveRow, flash, gl, glo, GLOSSARY, go, ICON, liveOpen, loading, logTime, marketPicker, marketShort,
     markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
     runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, usdShare, waitSpan, ageAt,
-    dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay,
+    dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay, dayZone,
     whyFailedHtml, wireMarketPicker
   } = T;
   // Each theme lays the pages out its own way. Tau's list is cards under the form, a line of words and figures over
@@ -1080,6 +1080,10 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // clock times being today's. The words are dayAt's, said again when the day turns (dayTimes), and the lines are
     // worked out again then too (days(), the page's dayWatch): a log open past midnight gains its "Yesterday". A run of
     // a session that spans days read "23:53 … 00:05 … 01:02" with nothing to say which day each was (walk 2026-11-01).
+    // The zone the clock times are in, by the zone in force on each day (dayZone), as the autopilot feed's day lines
+    // name it: "Times are CST." stood over every day of a log across the November clock change, the days before it in
+    // CDT (walk 2026-11-01). A log whose days all fall in one zone says that zone over it (that one, not today's) and its
+    // day lines don't; one over two zones says each day's on its day line ("Sat, Oct 31 · times in CDT").
     const rowTime = (li) => Array.from(li.children || []).find((c) => c.tagName === 'TIME' && !c.removed);
     const dayLine = (li) => Array.from(li.children || []).find((c) => c.classList && c.classList.contains('log-day') && !c.removed);
     function markDays() {
@@ -1088,18 +1092,23 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       const keys = at.map((iso) => (iso ? localDay(iso) : ''));
       const today = localDay(new Date(Date.now()).toISOString());
       const need = keys.some((k) => k && k !== today);
+      const zones = at.map((iso, i) => (keys[i] ? dayZone(iso) : '')), many = new Set(zones.filter(Boolean)).size > 1;
       let prev = '';
       rows.forEach((li, i) => {
-        const k = keys[i], has = dayLine(li), want = need && !!k && k !== prev;
+        const k = keys[i], has = dayLine(li), want = need && !!k && k !== prev, zone = many ? zones[i] : '';
         if (k) prev = k;
-        if (has && (!want || has.dataset.key !== k)) has.remove();
-        if (want && !(has && has.dataset.key === k)) {
+        if (has && (!want || has.dataset.key !== k || (has.dataset.zone || '') !== zone)) has.remove();
+        if (want && !(has && has.dataset.key === k && (has.dataset.zone || '') === zone)) {
           const d = document.createElement('div');
           d.className = 'log-day'; d.dataset.key = k;
-          d.innerHTML = dayAt(at[i], 'day');
+          if (zone) d.dataset.zone = zone;
+          d.innerHTML = dayAt(at[i], 'day') + (zone ? `${SEP}times in ${esc(zone)}` : '');
           li.insertBefore(d, li.children[0] || null);
         }
       });
+      const tz = root.querySelector('.log-tz'), one = zones.find(Boolean);
+      const said = many ? 'Each day says its time zone.' : one ? `Times are ${one}.` : '';
+      if (tz && said && tz.textContent !== said) tz.textContent = said;
     }
     // Puts the held rows back above what is on screen, which stays where it was.
     function showEarlier(focus) {
@@ -1778,7 +1787,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       <div id="rsibox"></div>
       <div id="rsiobs" class="rsiobs"></div>
       <section><div class="section-head"><h2>Agent log</h2></div>
-        <p class="hint" style="margin:2px 0 10px">Watch the agent reason in real time — each idea, its backtest and its verdict as they happen. Every strategy links to its full result once its outcome is in; see them all on the <a href="/strategies">Strategies</a> page.${tzName() ? ` Times are ${esc(tzName())}.` : ''}</p>
+        <p class="hint" style="margin:2px 0 10px">Watch the agent reason in real time — each idea, its backtest and its verdict as they happen. Every strategy links to its full result once its outcome is in; see them all on the <a href="/strategies">Strategies</a> page.${tzName() ? ` <span class="log-tz">Times are ${esc(tzName())}.</span>` : ''}</p>
         <div class="runfeed" id="runfeed"><p class="log-span" hidden></p><ol class="log stream" id="log" aria-label="Agent reasoning log"><li class="log-empty" data-empty>Waiting for the first event.</li></ol><button class="jumplatest" id="jumplatest" type="button" hidden>new ↓</button><div class="runpulse" id="runpulse" hidden></div></div><div id="runend"></div></section>`);
     } else {
       shell('/research', '<div class="run-header"><div id="runboard">' + boardTitle('Research run') + '</div><span id="runact"></span></div><dl class="figures measure" id="runfigs" style="margin-top:14px"></dl><div id="runnext"></div><p class="stale-note" id="run-stale" role="status"></p>', `
@@ -1786,7 +1795,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       <section class="run-artifacts" id="run-artifacts" hidden></section><div id="runend"></div>
       <div id="rsibox"></div>
       <div id="rsiobs" class="rsiobs"></div>
-      <details class="run-history" id="run-history" open><summary class="section-head"><h2>Agent log</h2>${ICON.chev}</summary>${tzName() ? `<p class="hint" style="margin:0 0 8px">Times are ${esc(tzName())}.</p>` : ''}
+      <details class="run-history" id="run-history" open><summary class="section-head"><h2>Agent log</h2>${ICON.chev}</summary>${tzName() ? `<p class="hint log-tz" style="margin:0 0 8px">Times are ${esc(tzName())}.</p>` : ''}
         <div class="runfeed" id="runfeed"><p class="log-span" hidden></p><ol class="log stream" id="log" aria-label="Agent reasoning log"><li class="log-empty" data-empty>Waiting for the first event.</li></ol><button class="jumplatest" id="jumplatest" type="button" hidden>new ↓</button></div><div id="runend-log"></div></details>`);
     }
     let after = 0, tried = 0, dropped = 0, runActive = true, loaded = false, outOfCredits = false;

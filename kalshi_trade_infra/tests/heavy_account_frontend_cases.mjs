@@ -158,9 +158,12 @@ export function heavyAccountCases({name, frontend}) {
       f.location.pathname = '/';
       await f.viewDashboard(); await settle();
       const html = f.root.querySelector('#main').innerHTML + (f.root.querySelector('#boardbody') || {innerHTML: ''}).innerHTML;
-      const link = /<a class="[^"]*" href="#track-record">Every closed trade, with net P&amp;L, is in the track record/;
+      // Where they are: each book's trades CSV and, for paper, Funds' paper history. Never the track record, which lists
+      // no trade (walk 2026-11-01).
+      const link = /<p class="[^"]*">Every closed trade, with net P&amp;L, is in its book’s trades CSV \(Download trades, by the book’s figure above\); each paper one is also in your <a href="\/funds">Funds<\/a> paper history\.<\/p>/;
       if (says) assert.match(html, link, `${total} closed trades, 12 listed: it says where the rest are`);
       else if (name === 'Meridian') assert.doesNotMatch(html, link, 'every closed trade is listed: nothing to point to');
+      assert.doesNotMatch(html, /is in the track record/);
       f.clearTimers();
     }
   });

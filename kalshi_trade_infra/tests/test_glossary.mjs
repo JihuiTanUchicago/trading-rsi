@@ -98,10 +98,11 @@ test('the Deploy table and the strategy page carry the new markers in both theme
 // bubble; both carry the instant-fill one now, glued to the note's last word (gl), in both themes.
 test('the autopilot card and panel give the instant-fill note its bubble in both themes', () => {
   for (const f of ['app.js', 'app.meridian.js']) {
-    assert.match(read(f), /\$\{paperCount\(prog\)\}<\/a> <small>\$\{gl\(PAPER_COUNT_WHY, 'instantfill'\)\}<\/small>/, f);
+    // (A strategy that can no longer be cleared says so between them: walk 2026-11-01.)
+    assert.match(read(f), /\$\{paperCount\(prog\)\}<\/a>\$\{prog\.cleared_never \? ` <small>\$\{neverCleared\(prog\.cleared_never\)\}\.<\/small>` : ''\} <small>\$\{gl\(PAPER_COUNT_WHY, 'instantfill'\)\}<\/small>/, f);
   }
   // The panel is one file both themes load (page-autopilot.js).
-  assert.match(read('page-autopilot.js'), /net on them\. <small>\$\{gl\(PAPER_COUNT_WHY_SAID, 'instantfill'\)\}<\/small>/);
+  assert.match(read('page-autopilot.js'), /net on them\.\$\{d\.paper_progress\.cleared_never \? ` \$\{neverCleared\(d\.paper_progress\.cleared_never\)\}\.` : ''\} <small>\$\{gl\(PAPER_COUNT_WHY_SAID, 'instantfill'\)\}<\/small>/);
 });
 
 // A new account's walk (2026-10-30): "≈ after typical live slippage" and "Stake not set" had no bubble, a focused
