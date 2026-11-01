@@ -581,8 +581,8 @@ export function explorePageCases({name, frontend}) {
     assert.doesNotMatch(f.root.innerHTML, /[A-Za-z]'/, 'no straight apostrophe after a letter anywhere on the page');
     const html = f.root.innerHTML;
     assert.match(html, /bid 55¢ \/ ask 57¢/);
-    assert.match(html, /as of [^<·]* (?:[A-Z]{2,5}|GMT[+-]\d{1,2}(?::\d\d)?)<\/dd>/, 'the read time keeps its zone');
-    assert.match(html, /Closes(?:<\/span>)?<\/dt><dd><span class="fig ">[^<]*\d (?:[A-Z]{2,5}|GMT[+-]\d{1,2}(?::\d\d)?)<\/span>/, 'the close keeps its zone');
+    assert.match(html, /as of <time datetime="[^"]+" data-day="kz">[^<·]* (?:[A-Z]{2,5}|GMT[+-]\d{1,2}(?::\d\d)?)<\/time><\/dd>/, 'the read time keeps its zone');
+    assert.match(html, /Closes(?:<\/span>)?<\/dt><dd><span class="fig "><time datetime="[^"]+" data-day="kz">[^<]*\d (?:[A-Z]{2,5}|GMT[+-]\d{1,2}(?::\d\d)?)<\/time><\/span>/, 'the close keeps its zone');
   });
 
   // Explore walk 2026-10-31 (both themes, 1280 and 390, stubbed feed).

@@ -38,7 +38,7 @@ export function fundsWalkCases({name, frontend, fundsData}) {
     assert.doesNotMatch(rows[3], /kalshi-ref/);
     // When: a clock with its zone (and the day), never a bare date.
     for (const [i, iso] of [[0, '2026-10-26T21:00:00Z'], [2, '2026-10-24T16:00:00Z']]) {
-      assert.match(rows[i], new RegExp(`<time datetime="${iso}">[^<]*\\d\\d:\\d\\d [A-Z+\\-0-9:]+</time>`), rows[i]);
+      assert.match(rows[i], new RegExp(`<time datetime="${iso}" data-day="at">[^<]*\\d\\d:\\d\\d [A-Z+\\-0-9:]+</time>`), rows[i]);
     }
     f.clearTimers();
   });
