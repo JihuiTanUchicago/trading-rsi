@@ -10,7 +10,7 @@
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
     logTime, settleAt, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
-    PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, slipEstGl, glo, gloSep, gl,
+    PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
@@ -569,7 +569,7 @@
   function poll(fn, ms, noteId) {
     const gen = S.gen;
     const tick = paced(fn, ms, noteId && ((at, refreshing) => { const el = document.getElementById(noteId); if (el) el.textContent = at ? staleText(at, refreshing) : ''; }));
-    const id = setInterval(() => { if (!document.hidden && gen === S.gen) tick(); }, ms);
+    const id = setInterval(() => { dayRoll(); if (!document.hidden && gen === S.gen) tick(); }, ms);
     S.timers.push(id);
     wakers.add(() => { if (gen !== S.gen) return false; if (!document.hidden) tick(true); });
   }
@@ -578,6 +578,28 @@
   // page is gone.
   const wakers = new Set();
   const wake = () => wakers.forEach((w) => { if (w() === false) wakers.delete(w); });
+  // A day a page names ("Today", "Yesterday", "Today (UTC)") is the day it drew on. When the reader's day or the UTC
+  // day turns while the page is open, each dayWatch draws again from what the page already holds, with no read: a tab
+  // left open past midnight said "Today" over yesterday's lines until a read changed something, and for good while its
+  // reads failed (walk 2026-11-01). Checked on the timers already running (each poll's tick, the autopilot's status and
+  // chat ticks) and on a return to the tab; a check on the same day does nothing. A dayWatch returns false once its
+  // page is gone.
+  const dayWatch = new Set();
+  const dayKey = () => { const n = Date.now(); return new Date(n).toDateString() + ' ' + Math.floor(n / 864e5); };
+  let dayWas = dayKey();
+  function dayRoll() {
+    const k = dayKey();
+    if (k === dayWas) return;
+    dayWas = k;
+    dayWatch.forEach((w) => { if (w() === false) dayWatch.delete(w); });
+  }
+  // The autopilot's figures (its panel and the dashboard's card) say their day by when the status was read (S.apAt).
+  dayWatch.add(() => {
+    if (!S.me || !S.me.user || !S.ap) return;
+    const b = document.getElementById('autopilot-float');
+    if (b) renderAutopilot(b, S.ap);
+    paintDashAp();
+  });
   // The phone says it has no network (a tunnel, a lift): a line above the page says so at once. A page
   // only said so a poll or two later ("Last updated 30s ago, retrying"), or as "Something went wrong"
   // on the next tap. It goes by itself once the network is back.
@@ -625,6 +647,7 @@
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
+    dayRoll();
     askWho();
     if (hiddenAt && Date.now() - hiddenAt > WAKE_AWAY_MS) wake();
     hiddenAt = 0;
@@ -2300,13 +2323,18 @@
     const gen = S.gen;
     const visitAt = visitStart();
     let kept = null;  // the last full answer, whose version the poll sends back (pollAnswer)
+    // When the day figures drawn were read (their UTC day, pnlWin), and the answer drawn, which `redraw` draws again.
+    let readAt = 0, drawn = null;
     // `filled`: the kept answer with its pending cash filled in (fillCash); else /api/dashboard is read.
     // `afterDemo`: this read follows a demo cash read (fillCash), so a demo check still pending waits for the poll.
-    const load = async (cfg, filled, afterDemo) => {
+    // `redraw`: `filled` is the answer drawn last, drawn again as it is (the day turned, dayWatch), with no read.
+    const load = async (cfg, filled, afterDemo, redraw) => {
       const q = [visitAt ? 'since=' + visitAt : '', kept && kept.v ? 'v=' + encodeURIComponent(kept.v) : ''].filter(Boolean).join('&');
       const got = filled || await api('/api/dashboard' + (q ? '?' + q : ''), undefined, cfg);
-      const d = withMarkAge(followLive(pollAnswer(kept, got)));
-      if (!got.same) kept = got;
+      if (!filled) readAt = Date.now();
+      const d = redraw ? filled : withMarkAge(followLive(pollAnswer(kept, got)));
+      if (!got.same && !redraw) kept = got;
+      drawn = d;
       setVisit(visitAt, Math.floor(Date.now() / 1000));  // still here: this visit's last-seen moves on
       S.dashNoSessions = !!(d.since && d.since.own_sessions === false);
       if (apFirst == null) apFirst = S.dashNoSessions && !(S.me.user && S.me.user.autopilot);
@@ -2324,7 +2352,7 @@
       // Realized P&L (all-time + today) and open count for one money bucket; a tasteful
       // zero line when the bucket has no activity so an empty card never looks broken.
       // The figure above it is Kalshi's cash for the whole account; this line is Tau's own trades.
-      const mSub = (b, zero) => (b.open_positions || b.running || b.realized_pnl) ? `Tau trades: ${num(b.open_positions)} open${b.open_positions ? ' (not in cash)' : ''}${SEP}${usd(b.realized_pnl, true)} realized all time${SEP}${usd(b.today_pnl, true)} realized today (UTC)` : zero;
+      const mSub = (b, zero) => (b.open_positions || b.running || b.realized_pnl) ? `Tau trades: ${num(b.open_positions)} open${b.open_positions ? ' (not in cash)' : ''}${SEP}${usd(b.realized_pnl, true)} realized all time${SEP}${usd(b.today_pnl, true)} realized ${utcDayWord(readAt)} (UTC)` : zero;
       const hasLive = d.deployments.some((x) => x.mode === 'live' && x.status !== 'stopped');
       // Demo is Kalshi's sandbox, not paper: with a demo deployment on, "Paper money only" mislabelled it.
       const hasDemo = d.deployments.some((x) => x.mode === 'demo' && x.status !== 'stopped');
@@ -2334,7 +2362,7 @@
       // The paper book's realized today (UTC), the server's today_pnl, on its own line under its all-time figure, as
       // Meridian's "Today (UTC): paper realized" sits beside its: Tau's dashboard had no figure for the day. Paper only.
       // A day with no paper trade closed yet says so (closedToday): "$0.00 realized" read as a day that broke even.
-      const paperToday = (b) => b.today_pnl == null ? '' : `<span class="fig-today">${pnlWin('today')} ${!+b.today_pnl && closedToday(d.recent_closed, 'paper', b.closed_trades) === false ? 'no trades closed yet' : `<span class="amt">${money(b.today_pnl)}</span> realized, ${PAPER_NET}`}</span>`;
+      const paperToday = (b) => b.today_pnl == null ? '' : `<span class="fig-today">${pnlWin('today', readAt)} ${!+b.today_pnl && closedToday(d.recent_closed, 'paper', b.closed_trades, readAt) === false ? 'no trades closed yet' : `<span class="amt">${money(b.today_pnl)}</span> realized, ${PAPER_NET}`}</span>`;
       // Collector lag is the operator's to fix, so only the admin view shows it (red "needs you" told
       // every user something was wrong that they couldn't act on). It stays red there: no Bitcoin spot candles, or
       // none for 45 minutes, means the collector is down and new backtests run on missing prices. It names the feed it
@@ -2373,7 +2401,7 @@
         <section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-deps') : ''}
         <dl class="figures measure">
           ${fig('<span class="mk live">Real</span> Kalshi cash', lv.connected ? (liveCf ? liveCf[0] : lv.balance == null ? 'Unavailable' : usd(lv.balance)) : 'Not connected', { small: (lv.connected ? (liveCf ? [liveCf[1], mSub(lv, '')].filter(Boolean).join(SEP) : lv.balance == null ? ['Couldn\u2019t read your Kalshi balance just now', mSub(lv, '')].filter(Boolean).join(SEP) : [cashAt(lv), mSub(lv, LIVE_IDLE())].filter(Boolean).join(SEP)) : ['Connect your Kalshi account on <a href="/funds#connect-kalshi">Funds</a> ' + (liveOpen() ? 'to trade real money' : 'to see your real cash at Kalshi. Live trading isn\u2019t open yet, so Tau places no live trades'), mSub(lv, '')].filter(Boolean).join(SEP)) + tradesCsv('live', lv) })}
-          ${(demoKeyless(d.demo) ? fig(`<span class="mk dep">Demo</span> ${DEMO_BOOK}`, 'No demo key', { small: DEMO_NO_KEY }) : fig(`<span class="mk dep">Demo</span> ${DEMO_BOOK}`, usd(d.demo.equity), { v: d.demo.realized_pnl, small: `${d.demo.health ? demoHealthLine(d.demo.health) + '<br>' : ''}${(d.demo.open_positions || d.demo.running || d.demo.realized_pnl || d.demo.closed_trades) ? `${demoCapital(d.demo)}${SEP}${num(d.demo.open_positions)} open${SEP}${demoPnl(d.demo, d.demo.realized_pnl)}` : `${demoCapital(d.demo)}${SEP}no demo strategies yet`}${SEP}${DEMO_WHAT}${tradesCsv('demo', d.demo)}${demoToday(d.demo, d.recent_closed)}` }))}
+          ${(demoKeyless(d.demo) ? fig(`<span class="mk dep">Demo</span> ${DEMO_BOOK}`, 'No demo key', { small: DEMO_NO_KEY }) : fig(`<span class="mk dep">Demo</span> ${DEMO_BOOK}`, usd(d.demo.equity), { v: d.demo.realized_pnl, small: `${d.demo.health ? demoHealthLine(d.demo.health) + '<br>' : ''}${(d.demo.open_positions || d.demo.running || d.demo.realized_pnl || d.demo.closed_trades) ? `${demoCapital(d.demo)}${SEP}${num(d.demo.open_positions)} open${SEP}${demoPnl(d.demo, d.demo.realized_pnl)}` : `${demoCapital(d.demo)}${SEP}no demo strategies yet`}${SEP}${DEMO_WHAT}${tradesCsv('demo', d.demo)}${demoToday(d.demo, d.recent_closed, readAt)}` }))}
           ${fig('<span class="mk">Paper</span> Simulation', usd(p.equity), { v: p.realized_pnl, small: paperUsed ? `${usd(p.cash)} cash${hasOpen(p) ? `${SEP}${openCost(p)}${inBalance(p) ? ', ' + inBalance(p) : ''}` : ''}${SEP}${hasClosed(p) ? `${pnlWin('all')} <span class="amt">${usd(p.realized_pnl, true)}</span> ${gl('realized', 'realized')}, ${tradesCsv('paper', p, 'paperfills', PAPER_NET)}${slipEstGl(p.slippage_estimate)}${paperToday(p)}` : PAPER_NO_CLOSE}` : `${usd(p.cash)} of practice money${SEP}no paper strategies yet` })}
         </dl><p class="stale-note" id="dash-stale" role="status"></p>${d.live.connected && d.live.open_positions ? `<p class="recon ${(d.reconcile && d.reconcile.length) ? 'warn' : 'ok'}">${(d.reconcile && d.reconcile.length) ? reconWarn(d.reconcile) : `${ICON.check} Live book reconciled with Kalshi`}</p>` : ''}`;
       const regs = curveRegs(d.deployments);
@@ -2441,6 +2469,8 @@
     };
     await load();
     poll(load, 15000, 'dash-stale');
+    // Past midnight UTC the day figures say whose day they are ("Yesterday (UTC)") until a read brings today's.
+    dayWatch.add(() => { if (gen !== S.gen) return false; if (drawn) load(undefined, drawn, undefined, true).catch(() => {}); });
     closeClock();  // an open position's "settles" line turns to "closed, result pending" at its close
     dashTrackRecord(trFirst);
   }
@@ -2800,7 +2830,7 @@
       const tick = paced((cfg) => refreshAutopilot(document.getElementById('autopilot-float'), true, cfg).then((ok) => { if (!ok) throw new Error('Autopilot status read failed'); }), 20000, apPaintStale);
       // A page that mounts the panel reads a status over 18s old, just before this tick was due: the tick then
       // skips (apFresh), where it read the status again a second or two later.
-      setInterval(() => { if (document.getElementById('autopilot-float') && !document.hidden && !apFresh()) tick(); }, 20000);
+      setInterval(() => { dayRoll(); if (document.getElementById('autopilot-float') && !document.hidden && !apFresh()) tick(); }, 20000);
       wakers.add(() => { if (document.getElementById('autopilot-float') && !document.hidden) tick(true); });
       document.addEventListener('visibilitychange', () => {
         const b = document.getElementById('autopilot-float');
@@ -3136,7 +3166,7 @@
     // A paper book that has never closed a trade has no P&L yet: "$0.00" read as a result to a new account.
     const paperNone = pnl != null && !+S.dashPaper.closed_trades && !+pnl;
     const cells = [
-      liveFig ? ['Live realized today (UTC)', `${money(d.today_live_pnl || 0)} <small>real money, after Kalshi fees</small>`] : [`${pnlWin('all')} ${gl('paper P&amp;L, realized', 'realized')}`, pnl == null ? '—' : paperNone ? 'None yet <small>no paper trade has closed</small>' : `${money(pnl)} <small>${PAPER_NET}</small>${slipEstGl(S.dashPaper.slippage_estimate)}`],
+      liveFig ? [`Live realized ${utcDayWord(S.apAt)} (UTC)`, `${money(d.today_live_pnl || 0)} <small>real money, after Kalshi fees</small>`] : [`${pnlWin('all')} ${gl('paper P&amp;L, realized', 'realized')}`, pnl == null ? '—' : paperNone ? 'None yet <small>no paper trade has closed</small>' : `${money(pnl)} <small>${PAPER_NET}</small>${slipEstGl(S.dashPaper.slippage_estimate)}`],
       // With strategies paused (the dashboard's deployments, S.dashPaused) it says so: "None yet" read as nothing ever
       // having run beside the header's "2 paused, needs you" (walk 2026-10-31).
       ['Strategies running', `${running || (S.dashPaused ? `None${SEP}${num(S.dashPaused)} paused` : 'None yet')}${liveIdle ? ` <small>${liveIdleCount(liveIdle)}</small>` : ''}`],
@@ -3988,7 +4018,7 @@
     recoverFails, refreshed, registry, render, researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind,
     runTag, runWaitLine, runwayLabel, S, sessionEstimate, sessionNo, sessionTitle, settleAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark,
     strategySlip, strategyTable, stripeFail, syncMeBilling, theme: 'tau', tone, topupCharge, tradePrice, trDay, tzName,
-    usd, waitNote, waitSpan, wakers, localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker
+    usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord, localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker
   }, { get: (all, k) => { if (!(k in all)) throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); return all[k]; } }));
   // A page file calls this as it runs: make(shared()) returns the file's views. Once per name.
   window.TauPage = (name, make) => { if (!PAGES[name]) PAGES[name] = make(shared()); };

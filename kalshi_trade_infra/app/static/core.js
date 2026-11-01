@@ -368,7 +368,17 @@
   // figures on one screen (the last 24 hours, all time, and today in UTC) with nothing saying why they differed.
   // Display only: every figure is the server's, as before.
   const PNL_WINDOW = { day: 'Last 24 hours', visit: 'Since your last visit', week: 'Last 7 days', today: 'Today (UTC)', all: 'Since you started' };
-  const pnlWin = (k) => `<span class="pnl-win">${PNL_WINDOW[k]}:</span>`;
+  // A day figure (the server's today_pnl, today_paper_pnl, today_live_pnl) is the UTC day it was read on: `at`, when
+  // its read landed. Read before midnight UTC, it is that day's, and says so ("Yesterday (UTC)", or the date when
+  // older): a tab left open past midnight kept "Today (UTC)" over the day before's figure until a read landed, and for
+  // good while the reads failed (walk 2026-11-01). Never relabelled as today's; the next read brings today's figure.
+  const utcDaysAgo = (at, now = Date.now()) => (at ? Math.floor(now / 864e5) - Math.floor(at / 864e5) : 0);
+  const UTC_MON_DAY = { month: 'short', day: 'numeric', timeZone: 'UTC' };
+  const utcDayWord = (at) => { const n = utcDaysAgo(at); return n <= 0 ? 'today' : n === 1 ? 'yesterday' : 'on ' + dateFmt(new Date(at), UTC_MON_DAY); };
+  const pnlWin = (k, at) => {
+    const n = k === 'today' ? utcDaysAgo(at) : 0;
+    return `<span class="pnl-win">${n <= 0 ? PNL_WINDOW[k] : n === 1 ? 'Yesterday (UTC)' : dateFmt(new Date(at), UTC_MON_DAY) + ' (UTC)'}:</span>`;
+  };
   // On the dashboard (its money band, the autopilot card, its week and its panel's day) the estimate carries the
   // slippage bubble (slipText from the core), glued to its last word. The other pages keep slipEst as it was.
   const slipEstGl = (e) => (slipText(e) ? `<span class="slip-est">${gl(slipText(e), 'slippage')}</span>` : '');
@@ -1203,8 +1213,9 @@
   // −$1.76" with nothing saying which counted what (walk 2026-10-31). The server keeps no reload time, so the day can't
   // be cut at the reload; it says where it counts from instead.
   const DEMO_DAY_SPAN = 'from midnight UTC, not from the reload';
-  const demoToday = (dm, recent) => (!dm || dm.today_pnl == null || demoNoClose(dm)) ? ''
-    : `<span class="fig-today">${pnlWin('today')} ${!+dm.today_pnl && closedToday(recent, 'demo', dm.closed_trades) === false ? 'no trades closed yet' :`<span class="amt">${money(dm.today_pnl)}</span> realized, ${FEES_NET}${+dm.before_reload ? `${SEP}${DEMO_DAY_SPAN}` : ''}`}</span>`;
+  // `at`: when the figure was read (pnlWin), its day the one "no trades closed yet" goes by.
+  const demoToday = (dm, recent, at) => (!dm || dm.today_pnl == null || demoNoClose(dm)) ? ''
+    : `<span class="fig-today">${pnlWin('today', at)} ${!+dm.today_pnl && closedToday(recent, 'demo', dm.closed_trades, at || undefined) === false ? 'no trades closed yet' :`<span class="amt">${money(dm.today_pnl)}</span> realized, ${FEES_NET}${+dm.before_reload ? `${SEP}${DEMO_DAY_SPAN}` : ''}`}</span>`;
   // A demo deployment's realized P&L counts every closed trade it made, from its first demo trade: a reload doesn't
   // reset it. Beside a reloaded book's "since reload" figure (the dashboard's demo card) a row's bare figure read as
   // that book's: "+$3.49 realized since reload" over a Late-rush fade demo row at "−$11.66" (walk 2026-10-31). The
@@ -1405,7 +1416,7 @@
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
     logTime, settleAt, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
-    PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, slipEstGl, glo, gloSep, gl,
+    PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,

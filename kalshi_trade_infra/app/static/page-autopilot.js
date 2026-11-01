@@ -9,7 +9,7 @@ window.TauPage('autopilot', (T) => {
     apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, apMarketNames, apQueued, apReloadFailed, apShowFocus,
     apEvery, apOffCost, apStale, apStillTrading, apStory, apSwitchOn, apWeek, busy, clock, esc, failText, feedMd, gl, go, ICON, mdLite, num,
     liveIdleCount, liveIdleShort, liveOpen, paced, paintDashAp, paperCount, PAPER_COUNT_WHY, PAPER_NET, pausesIn, pnlWin, refreshAutopilot, repaintKeep, S, SEP, settleAt, sinceMin, slipEstGl, theme, usd, waitNote, waitSpan,
-    wakers
+    wakers, dayWatch, dayRoll, utcDayWord
   } = T;
   // Tau's panel has a dot by its title and by the idle pulse, a line under the feed's title, and says when it's idle that reviews run on a schedule.
   const tau = theme === 'tau';
@@ -20,15 +20,31 @@ window.TauPage('autopilot', (T) => {
   let apChatLastId = 0, apChatTimer = null, apFeedFirst = true, apFeedDay = '';
   // The feed's day line: the rail's times are the reader's clock, so each day starts with its date and zone.
   const tzShort = () => { try { return (new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName') || {}).value || ''; } catch (e) { return ''; } };
-  function apDayLi(iso) {
-    const d = new Date(iso), li = document.createElement('li'), today = new Date();
+  // Its words go by the reader's day now, so a feed open past midnight says them again (apDays): its evening's
+  // check-ins stayed under "Today" after midnight, and the next one started a second "Today" (walk 2026-11-01).
+  const apDayText = (iso) => {
+    const d = new Date(iso), today = new Date(Date.now());
     const yest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
     const label = d.toDateString() === today.toDateString() ? 'Today' : d.toDateString() === yest.toDateString() ? 'Yesterday'
       : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    return label + (tzShort() ? `${SEP}times in ` + tzShort() : '');
+  };
+  function apDayLi(iso) {
+    const li = document.createElement('li');
     li.className = 'ap-day';
-    li.textContent = label + (tzShort() ? `${SEP}times in ` + tzShort() : '');
+    li.dataset.at = iso;
+    li.textContent = apDayText(iso);
     return li;
   }
+  // The feed's day lines said again from the times they hold, no read: on each chat read, and when the day turns.
+  function apDays(msgs) {
+    if (!msgs) return;
+    msgs.querySelectorAll('.ap-day').forEach((li) => {
+      const t = li.dataset.at && apDayText(li.dataset.at);
+      if (t && li.textContent !== t) li.textContent = t;
+    });
+  }
+  dayWatch.add(() => { const box = document.getElementById('autopilot-float'); if (box) apDays(box.querySelector('#apf-messages')); });
   // A send or a decision that failed says why just above the composer. alert0 put it at the top of the
   // page, under the panel, and a phone's full-screen sheet hid it altogether.
   // A send Tau didn't confirm (no reply, or the edge's 5xx) may have landed. Reloading isn't the check: the
@@ -172,6 +188,7 @@ window.TauPage('autopilot', (T) => {
   // a sent message and its answer landed below the fold, under a sheet still showing the controls.
   async function apLoadChat(box, full, cfg, follow) {
     const msgs = box.querySelector('#apf-messages'); if (!msgs) return;
+    apDays(msgs);
     let d; try { d = await api('/api/chat?after=' + (full ? 0 : apChatLastId), undefined, { keep: true, ...cfg }); }
     catch (e) {
       // Nothing painted yet: say the feed didn't load rather than leave it blank. The poll retries.
@@ -433,7 +450,7 @@ window.TauPage('autopilot', (T) => {
       return b && apLoadChat(b, false, cfg).then((ok) => { if (ok === false) throw new Error('Chat read failed'); });
     }, 3000);
     apChatWake = () => chatTick(true);
-    apChatTimer = setInterval(() => { const b = document.getElementById('autopilot-float'); if (b && apExpanded()) { if (!document.hidden) chatTick(); } else apStopChat(); }, 3000);
+    apChatTimer = setInterval(() => { const b = document.getElementById('autopilot-float'); if (b && apExpanded()) { dayRoll(); if (!document.hidden) chatTick(); } else apStopChat(); }, 3000);
     // Market focus: binding on research, deploys and the paper funnel (server enforces it).
     (() => {
       const sel = box.querySelector('#apf-focus'); if (!sel) return;
@@ -592,7 +609,7 @@ window.TauPage('autopilot', (T) => {
       // A paper book with no trade closed today (UTC) says so, as the dashboard's paper figure does: the server sends no
       // today_paper_slippage_estimate until a paper trade closes today, and the panel read "$0.00" beside a dashboard that
       // said "no trades closed yet", as if the day had broken even (walk 2026-10-31). A break-even day keeps its $0.00.
-      `<dt>${liveInPlay ? 'Live realized today (UTC)' : `${pnlWin('today')} ${gl('paper realized', 'realized')}`}</dt><dd class="${pnl < 0 ? 'neg' : (pnl > 0 ? 'pos' : '')}">${!liveInPlay && !pnl && !+d.paper_running ? 'Nothing on paper' : !liveInPlay && !pnl && 'today_paper_slippage_estimate' in d && d.today_paper_slippage_estimate == null ? 'No trades closed yet' : `${usd(pnl, true)} <small class="apf-note">${liveInPlay ? 'real money, after Kalshi fees' : 'paper, ' + PAPER_NET}</small>${liveInPlay ? '' : slipEstGl(d.today_paper_slippage_estimate)}`}</dd>`,
+      `<dt>${liveInPlay ? `Live realized ${utcDayWord(S.apAt)} (UTC)` : `${pnlWin('today', S.apAt)} ${gl('paper realized', 'realized')}`}</dt><dd class="${pnl < 0 ? 'neg' : (pnl > 0 ? 'pos' : '')}">${!liveInPlay && !pnl && !+d.paper_running ? 'Nothing on paper' : !liveInPlay && !pnl && 'today_paper_slippage_estimate' in d && d.today_paper_slippage_estimate == null ? 'No trades closed yet' : `${usd(pnl, true)} <small class="apf-note">${liveInPlay ? 'real money, after Kalshi fees' : 'paper, ' + PAPER_NET}</small>${liveInPlay ? '' : slipEstGl(d.today_paper_slippage_estimate)}`}</dd>`,
     ].concat(budgetShown ? [`<dt>Loss budget left</dt><dd>${usd(d.loss_headroom)} / ${usd(d.daily_loss_limit)}</dd>`] : [])
       // A queued or running review is not a finished one: right after switching on, "Last reviewed just now" claimed a review that hadn't run.
       // Named as on the dashboard's autopilot card ("Last check-in"): the panel said "Last reviewed" beside it.

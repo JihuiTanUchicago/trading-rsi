@@ -7,7 +7,7 @@ window.TauPage('billing', (T) => {
     alert0, api, apCostWatch, apSessionLine, armed, BEHIND, boardTitle, busy, cardFormFail, CLOCK, CLOCK_ZONE, dateFmt, esc, fig, flash,
     halfUp, holdFocus, ICON, KIND_LABEL, loadFail, loading, loadStripe, num, paceDay, paceTooSoon, paceWords, paint, poll, refreshed,
     retried, root, runwayLabel, S, SEP, sessionTitle, settleAt, shell, stripeFail, syncMeBilling, topupCharge, usd, waitNote, WJ,
-    localDay, WEEKDAY_DAY
+    localDay, WEEKDAY_DAY, dayWatch
   } = T;
   const CARDS_UNREAD_BUY = 'Your saved cards didn\u2019t load, so buying credits waits until they do.';
 
@@ -269,6 +269,13 @@ window.TauPage('billing', (T) => {
     };
     await load();
     poll(refresh, 30000, 'bill-stale');
+    // Past the reader's midnight the statement's "Today" is the day's date: drawn again from the lines it holds, no
+    // read. It changed only when the balance did, so the morning's lines sat under "Today" after midnight (walk 2026-11-01).
+    dayWatch.add(() => {
+      if (gen !== S.gen) return false;
+      const ledger = root.querySelector('#bledger');
+      if (shown && shown.ledger && ledger) paint(ledger, ledgerTable(shown));
+    });
   }
   // What a ledger line is, under its name: usage is one model call (the memo names the model), and credits
   // bought show the credits, while the card paid those plus the purchase fee. Amounts are the server's.
@@ -316,7 +323,7 @@ window.TauPage('billing', (T) => {
   const ledgerDay = (day) => {
     const [y, m, dd] = String(day).split('-').map(Number), d = new Date(y, m - 1, dd);
     if (!Number.isFinite(d.getTime())) return esc(day);
-    return d.toDateString() === new Date().toDateString() ? 'Today' : dateFmt(d, WEEKDAY_DAY);
+    return d.toDateString() === new Date(Date.now()).toDateString() ? 'Today' : dateFmt(d, WEEKDAY_DAY);
   };
   // How the balance came to be over the statement's days (/api/billing math): the balance then, plus
   // credits bought, plus other credits, minus agent usage, is the balance now. The server sends cents
