@@ -15,7 +15,9 @@ browser knows. boot.js keeps it in the tau_tz cookie on every load and the shell
 from that. No cookie yet (a first load on this device), no read; an offset that changed since (a clock
 change, a trip) names a URL the page doesn't ask, and the page asks as before. It is carried only for an
 account Stripe has no cards to list for: the saved-card list waits on Stripe, and a slow Stripe must
-never hold the whole shell blank (the page's own read keeps it behind a skeleton instead).
+never hold the whole shell blank (the page's own read keeps it behind a skeleton instead). The same cookie
+gates the reads that count the reader's own day (the dashboard, the autopilot status, the research card's
+board): without it the page asks them itself, once boot.js has set it (first_requests).
 
 Funds is carried by the same rule, always: its read never asks Kalshi (nor do the dashboard's and the
 autopilot's, whether the shell, an in-app visit or a poll asks them; only /api/funds/cash does).
@@ -55,6 +57,7 @@ import sys
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from app.services import reader_day
 from app.web.http import ApiError, Ctx
 from app.web.routes.account import notifications
 from app.web.routes.billing import asks_stripe, billing_state
@@ -143,16 +146,25 @@ def billing_tz(cookie: Optional[str]) -> Optional[int]:
 
 
 def first_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Request]:
-    """The reads an app page asks for first, as the page will ask them; [] when the shell can't name them."""
+    """The reads an app page asks for first, as the page will ask them; [] when the shell can't name them.
+
+    A read that counts the reader's own day (the dashboard's and the autopilot's "today", the research card's
+    per-day bars: app.services.reader_day) is carried only once the browser has told us its zone (tau_tz, which
+    boot.js writes as it starts). Without it (a device's first load: a sign-in link opened in a new browser)
+    the shell's read counted the UTC day, and the first paint said "Today (UTC)" until the next poll. Left
+    out, the page asks for it itself, after boot.js has set the cookie, and its first paint is the reader's day."""
     if query:
         return []
+    zoned = reader_day.offset_minutes(cookies.get(reader_day.TZ_COOKIE)) is not None
     if path in ("/", "/dashboard"):
+        if not zoned:
+            return []
         at = dashboard_since(cookies.get("tau_visit"))
         return [(("/api/dashboard?since=%d" % at if at else "/api/dashboard"), dashboard, (), ({"since": str(at)} if at else {})),
                 ("/api/autopilot/status", autopilot_status, (), {})]
     if path == "/research":
-        return [("/api/runs", list_runs, (), {}),
-                ("/api/research/scoreboard?days=%d" % LOOP_DAYS, kept_loop_board, (), {"days": str(LOOP_DAYS)})]
+        return [("/api/runs", list_runs, (), {})] + (
+            [("/api/research/scoreboard?days=%d" % LOOP_DAYS, kept_loop_board, (), {"days": str(LOOP_DAYS)})] if zoned else [])
     if path == "/strategies":
         return [("/api/strategies?page=0", list_strategies, (), {"page": "0"})]
     if path == "/deploy":

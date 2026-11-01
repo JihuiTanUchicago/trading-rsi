@@ -146,7 +146,7 @@ def shell_web(production, outside, monkeypatch):
 
 def _get(port, path):
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-    conn.request("GET", path, headers={"Cookie": "rsid=abc; tau_ui=tau"})
+    conn.request("GET", path, headers={"Cookie": "rsid=abc; tau_ui=tau; tau_tz=240"})  # a device that has loaded before
     r = conn.getresponse()
     body = r.read().decode("utf-8")
     conn.close()

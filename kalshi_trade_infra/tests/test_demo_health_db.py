@@ -190,7 +190,7 @@ def test_an_empty_demo_account_refuses_every_order_silently_and_every_page_now_s
         raise AssertionError("the shell's read asked Kalshi")
     monkeypatch.setattr(demo_twins, "_read_balance", no_read)
     c = _ctx(conn, uid)
-    shell = {url: fn for url, fn, _, _ in shell_reads.first_requests("/", "", {})}  # the dashboard's carried reads
+    shell = {url: fn for url, fn, _, _ in shell_reads.first_requests("/", "", {"tau_tz": "0"})}  # the dashboard's carried reads (a device that has loaded before)
     dashboard, autopilot = shell["/api/dashboard"], shell["/api/autopilot/status"]
     assert dashboard(c)["demo"]["health"] == seen["dashboard"]
     assert autopilot(c)["idle"] == seen["autopilot"]

@@ -153,6 +153,33 @@ export function countFormatCases({name, frontend, detailStrategy, strategyFronte
     f.clearTimers();
   });
 
+  // Since the server groups the bars by the reader's own day (days_local, app/web/routes/research.py _readers_days), a
+  // bar says its day bare, as every other day the reader's calendar names: "(UTC)" on a reader's own day was wrong.
+  test(`${name}: Research's per-day bars grouped by the reader's own day say the day without "(UTC)"`, async () => {
+    const board = {total: {runs: 3, explored: 7, gated: 2, gate_reach_rate: 0.29, passed: 1, holdout_passed: 0, cost_usd: 2,
+      pipeline_death_share: 0.2}, days: [{day: '2026-10-30', explored: 4, gated: 1}, {day: '2026-10-31', explored: 3, gated: 1}],
+      days_local: true, trend: null, playbooks: [], scout: [], fix_list: [], data_requests: [], paper: null};
+    const f = frontend({fetchImpl: (path) => {
+      if (path.startsWith('/api/runs')) return response({runs: [], counts: {research_running: 0, research_queued: 0, research_paused: 0},
+        policy: null, totals: {tried: 7, passed: 1}, v: 'v1'});
+      if (path.startsWith('/api/research/scoreboard')) return response(board);
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path === '/api/research/context') return response({markets: []});
+      if (path === '/api/autopilot/status') return response({autopilot: false, mode: 'off'});
+      return response({});
+    }});
+    f.S.me.user.autopilot = false;
+    f.location.pathname = '/research';
+    await f.viewResearch(); await settle();
+    const card = f.root.querySelector('#rsimo').innerHTML;
+    // The day is the calendar date the server named, in any zone this runs under (its weekday is that date's).
+    assert.match(card, /class="loop-day" title="(?:Fri, Oct 30|Oct 30, 2026): 4 ideas, 1 reached the gate"/);
+    assert.match(card, /class="loop-day" title="(?:Sat, Oct 31|Oct 31, 2026): 3 ideas, 1 reached the gate"/);
+    assert.doesNotMatch(card, /\(UTC\)/);
+    assert.match(f.root.querySelector('#rsimo .loop-days').getAttribute('aria-label'), /^Ideas per day and how many reached the gate\. (?:Fri, Oct 30|Oct 30, 2026): 4 ideas/);
+    f.clearTimers();
+  });
+
   test(`${name}: a day with one idea says "1 idea" on its bar and in the chart's name`, async () => {
     const board = {total: {runs: 2, explored: 3, gated: 0, gate_reach_rate: 0, passed: 0, holdout_passed: 0, cost_usd: 1,
       pipeline_death_share: 0}, days: [{day: '2026-10-30', explored: 1, gated: 0}, {day: '2026-10-31', explored: 2, gated: 0}],

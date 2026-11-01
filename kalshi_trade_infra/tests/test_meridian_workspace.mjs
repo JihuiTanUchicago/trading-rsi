@@ -3965,6 +3965,19 @@ test("boot.js keeps the browser's UTC offset in the tau_tz cookie, the one Billi
   }
 });
 
+// A device's first load: every figure that counts the reader's own day reads the zone from these cookies, so they are
+// written before any read the page makes, the reads a carried read names next included (boot.js starts those itself).
+test("boot.js writes the zone cookies before the first read it starts", () => {
+  const events = [], dataset = {ui: 'tau', tauJs: '/static/app.js?v=t', tauVer: 't', merJs: '/static/app.meridian.js?v=m', merVer: 'm', merCss: '/static/app.meridian.css?v=m'};
+  const node = {textContent: JSON.stringify([{url: '/api/funds', body: {}, then: ['/api/funds/cash?book=live']}]), remove() {}};
+  const document = {getElementById: id => id === 'tau-first' ? node : id === 'tau-boot' ? {dataset} : null, createElement: () => ({}), body: {appendChild() {}}};
+  Object.defineProperty(document, 'cookie', {set: (v) => events.push('cookie ' + v.split('=')[0])});
+  const context = {window: {}, location: {pathname: '/funds', protocol: 'https:'}, localStorage: {getItem: () => null, setItem() {}}, document,
+    fetch: (url) => { events.push('fetch ' + url); return Promise.resolve({url}); }};
+  vm.runInNewContext(readFileSync(new URL('../app/static/boot.js', import.meta.url), 'utf8'), context);
+  assert.deepEqual(events, ['cookie tau_tz', 'cookie tau_tzn', 'fetch /api/funds/cash?book=live']);
+});
+
 test('a research session that does not exist links to the list instead of offering Try again', async () => {
   const f = frontend({fetchImpl: path => (path.startsWith('/api/runs/9') ? {ok: false, status: 404, json: async () => ({error: 'No such research session.'})} : {ok: true, status: 200, json: async () => ({})})});
   f.location.pathname = '/research/9';

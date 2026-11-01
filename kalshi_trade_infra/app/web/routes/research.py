@@ -4,7 +4,7 @@ scoreboard. Moved verbatim from app.server, which re-imports every name for its 
 from __future__ import annotations
 
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,7 +12,7 @@ from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.research import agent, dreaming
-from app.services import customer_text, gate_explain, paper_checks, research_list, run_stop
+from app.services import customer_text, gate_explain, paper_checks, reader_day, research_list, run_stop
 from app.services import markets as market_service
 from app.trading.markets import MARKETS
 from app.web.caches import _shared, _shared_kept
@@ -671,8 +671,39 @@ def research_scoreboard(ctx: Ctx):
     uid = ctx.uid
     # 4.4s p50 on prod (every run's verdict events re-read and re-classified per request), so the
     # board is memoized per (user, days) and refreshed in the background: at most a minute stale.
-    return _shared(_board_key(uid, days), SCOREBOARD_TTL_S,
-                   lambda cur: _research_scoreboard(cur, uid, days), ctx.cur)
+    board = _shared(_board_key(uid, days), SCOREBOARD_TTL_S,
+                    lambda cur: _research_scoreboard(cur, uid, days), ctx.cur)
+    return _readers_days(board, reader_day.reader_zone(ctx))
+
+
+class KeptBoard(dict):
+    """The research board as the server keeps it: the answer, plus each card's day inputs (rsi.DAY_FIELDS) as an
+    attribute, which goes nowhere a JSON answer goes (the cards themselves are cut to the newest 50)."""
+    __slots__ = ("day_cards",)
+
+
+def _readers_days(board: Dict, zone) -> Dict:
+    """The kept board as this reader gets it: its per-day bars grouped by the reader's own calendar day (the zone
+    their browser keeps in its cookies, app.services.reader_day), "days_local" saying so; the kept board itself, its
+    days UTC's as before, without a zone. The bars were grouped by UTC day and their hover said "(UTC)": to a reader in
+    New York a session started at 9pm sat under tomorrow. The kept board is one for every zone (no zone in its key, so
+    no cold board per zone), and holds each card's day inputs (KeptBoard.day_cards) to group them again here, in
+    memory: no read. The kept board is never written; a reader's days go on a copy of its top level."""
+    cards = getattr(board, "day_cards", None)
+    if zone is None or not isinstance(cards, list):
+        return board
+    out = dict(board)
+
+    def day_of(c: Dict) -> str:
+        try:
+            return reader_day.local_date(datetime.fromisoformat(str(c["created_at"])), zone).isoformat()
+        except (TypeError, ValueError):
+            return str(c.get("created_at") or "")[:10]
+
+    from app.research import rsi
+    out["days"] = rsi.days(cards, day_of)
+    out["days_local"] = True
+    return out
 
 
 SCOREBOARD_TTL_S = 60.0
@@ -753,6 +784,10 @@ def _research_scoreboard(cur, uid: int, days: int) -> Dict:
     except Exception:  # noqa: BLE001 - informational
         board["autopilot"] = None
     _board_ledger_spend(cur, uid, board)
+    # Every card's day inputs, before the cards are cut to the newest 50, so each reader's days can be grouped
+    # again by their own calendar (_readers_days); kept beside the answer, never sent.
+    board = KeptBoard(board)
+    board.day_cards = [{k: c.get(k) for k in rsi.DAY_FIELDS} for c in board["cards"]]
     board["cards"] = board["cards"][-50:]
     board["playbooks"] = rsi_playbook.summary(cur, uid)
     from app import rsi_scout

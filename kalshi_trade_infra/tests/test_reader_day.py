@@ -5,6 +5,7 @@ Every page that counts a day (Home, the autopilot panel, Home's paper days, Bill
 reads the reader's zone here, once. These pin how: the named zone wins only when it agrees with the page's offset,
 a day that crossed a clock change still starts at the reader's own midnight, and without a zone it is the UTC day.
 """
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -84,3 +85,63 @@ def test_billings_statement_days_read_the_same_zone_as_before(monkeypatch):
     assert billing_routes._statement_tz(ctx, NOW - timedelta(days=30)) == [(None, 240), (datetime(2026, 11, 1, 6, 0), 300)]
     ctx = SimpleNamespace(query={"tz": "-330"}, handler=SimpleNamespace(cookies=lambda: {"tau_tzn": "Asia%2FKolkata"}))
     assert billing_routes._statement_tz(ctx, NOW - timedelta(days=30)) == -330
+
+
+def _card(at, explored, gated=0):
+    return {"run_id": explored, "family": "sports", "market": "nfl_game", "created_at": str(at), "cost_usd": 0.5,
+            "explored": explored, "developed": explored, "dropped": 0, "gated": gated, "passed": 0, "holdout_passed": 0,
+            "deploy_candidates": 0, "spec_failed_runs": 0, "deaths": {}, "death_kinds": {}, "pipeline_deaths": []}
+
+
+# Sessions on either side of New York's, Kolkata's and UTC's midnight, each with its own count of ideas (a power of
+# two), so a day's sum names exactly the sessions it took.
+RUNS = [_card(datetime(2026, 11, 1, 3, 40), 1),    # 23:40 EDT Oct 31 | 09:10 IST Nov 1  | Nov 1 UTC
+        _card(datetime(2026, 11, 1, 4, 20), 2),    # 00:20 EDT Nov 1
+        _card(datetime(2026, 11, 1, 18, 10), 4),   # 23:40 IST Nov 1  | 13:10 EST Nov 1
+        _card(datetime(2026, 11, 1, 18, 50), 8),   # 00:20 IST Nov 2
+        _card(datetime(2026, 11, 1, 23, 40), 16),  # 18:40 EST Nov 1  | 05:10 IST Nov 2  | Nov 1 UTC
+        _card(datetime(2026, 11, 2, 0, 20), 32)]   # 19:20 EST Nov 1 (a 9pm reader's today) | Nov 2 UTC
+
+
+@pytest.mark.parametrize("cookies, want, local", [
+    ({}, {"2026-11-01": 1 + 2 + 4 + 8 + 16, "2026-11-02": 32}, False),
+    ({"tau_tz": "300", "tau_tzn": "America%2FNew_York"}, {"2026-10-31": 1, "2026-11-01": 2 + 4 + 8 + 16 + 32}, True),
+    ({"tau_tz": "-330", "tau_tzn": "Asia%2FKolkata"}, {"2026-11-01": 1 + 2 + 4, "2026-11-02": 8 + 16 + 32}, True),
+    ({"tau_tz": "300"}, {"2026-10-31": 1 + 2, "2026-11-01": 4 + 8 + 16 + 32}, True),  # the offset alone: UTC-5's days
+])
+def test_the_research_cards_per_day_bars_are_the_readers_own_days_from_one_kept_board(monkeypatch, cookies, want, local):
+    # Research's per-day bars were grouped by UTC day and their hover said "(UTC)": to a reader in New York at 9pm the
+    # evening's sessions sat under tomorrow. They are the reader's days now, grouped again from the one board the
+    # server keeps for every zone (its key has no zone, so no cold board per zone), with no read.
+    from app.research import rsi
+    from app.web import caches
+    from app.web.routes import research
+
+    monkeypatch.setattr(reader_day.repo, "now_utc", lambda: NOW)
+    monkeypatch.setattr(caches, "_SHARED", {})
+    built = []
+
+    def board(cur, uid, days):
+        b = research.KeptBoard(rsi.scoreboard(RUNS), days_back=days, cards=RUNS[-1:])
+        b.day_cards = [{k: c.get(k) for k in rsi.DAY_FIELDS} for c in RUNS]
+        built.append(uid)
+        return b
+    monkeypatch.setattr(research, "_research_scoreboard", board)
+    for _ in range(2):
+        ctx = SimpleNamespace(uid=7, query={"days": "14"}, cur=None, handler=SimpleNamespace(cookies=lambda: dict(cookies)))
+        got = research.research_scoreboard(ctx)
+        assert {d["day"]: d["explored"] for d in got["days"]} == want
+        assert got.get("days_local", False) is local and "day_cards" not in json.dumps(got)  # the day inputs are never sent
+        # Every other figure is the board's, whatever the zone.
+        assert got["total"]["explored"] == 63 and got["cards"] == RUNS[-1:]
+    assert built == [7]  # worked out once: the second read takes the kept board
+    kept = caches._SHARED[research._board_key(7, 14)]["val"]
+    assert [d["day"] for d in kept["days"]] == ["2026-11-01", "2026-11-02"] and "days_local" not in kept  # never written
+
+
+def test_the_boards_kept_day_inputs_are_what_a_days_rollup_reads():
+    # A field rsi._rollup reads that the kept day inputs leave out would raise (or count 0) on the reader's days.
+    from app.research import rsi
+
+    slim = [{k: c.get(k) for k in rsi.DAY_FIELDS} for c in RUNS]
+    assert rsi.days(slim) == rsi.days(RUNS) == rsi.scoreboard(RUNS)["days"]

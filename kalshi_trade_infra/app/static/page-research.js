@@ -19,15 +19,19 @@ window.TauPage('research', (T) => {
   const tau = theme === 'tau';
 
   // ---------- research ----------
-  // A per-day bar's day, on its hover: the server groups sessions by their UTC day and sends it raw ("2026-10-30"), which
-  // the tooltip showed as is (audit 2026-11-01). It reads as the log's day lines do ("Fri, Oct 30", the year when it isn't
-  // this year's), and says UTC, since the day can't be regrouped into the reader's. Formats are constants (dateFmt's store).
+  // A per-day bar's day, on its hover: the server sends it raw ("2026-10-30"), which the tooltip showed as is (audit
+  // 2026-11-01). It reads as the log's day lines do ("Fri, Oct 30", the year when it isn't this year's). The server
+  // groups the sessions by the reader's own day (the zone boot.js keeps in its cookies) and says so (days_local): a
+  // session started at 9pm in New York sat under tomorrow's UTC bar. Without it (an older answer, no zone known) the
+  // days are UTC's and say so. The date is formatted as a calendar date (its own midnight at UTC, in UTC), so it names
+  // the day it is whichever zone grouped it. Formats are constants (dateFmt's store).
   const UTC_WEEKDAY_DAY = { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' };
   const UTC_YEAR_DAY = { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' };
-  const loopDay = (day) => {
+  const loopDay = (day, local) => {
     const d = new Date(/^\d{4}-\d\d-\d\d$/.test(String(day || '')) ? day + 'T00:00:00Z' : NaN);
     if (!Number.isFinite(d.getTime())) return String(day || '');
-    return dateFmt(d, d.getUTCFullYear() === new Date(Date.now()).getUTCFullYear() ? UTC_WEEKDAY_DAY : UTC_YEAR_DAY) + ' (UTC)';
+    const now = new Date(Date.now()), year = local ? now.getFullYear() : now.getUTCFullYear();
+    return dateFmt(d, d.getUTCFullYear() === year ? UTC_WEEKDAY_DAY : UTC_YEAR_DAY) + (local ? '' : ' (UTC)');
   };
   // The RSI loop made legible on the index: the engine rewrites its own search policy and keeps
   // the new one only if it beats the old on the user's own history. Same card language as the run
@@ -116,7 +120,7 @@ window.TauPage('research', (T) => {
     const maxIdeas = Math.max(1, ...(b.days || []).map((d) => d.explored));
     // The bars are one image, so a screen reader heard only its name and never a bar's hover: its name says each day's
     // figures too, in the hover's words.
-    const dayWords = (d) => `${loopDay(d.day)}: ${num(d.explored)} idea${+d.explored === 1 ? '' : 's'}, ${num(d.gated)} reached the gate`;
+    const dayWords = (d) => `${loopDay(d.day, b.days_local === true)}: ${num(d.explored)} idea${+d.explored === 1 ? '' : 's'}, ${num(d.gated)} reached the gate`;
     const days = (b.days || []).length > 1 ? `<div class="loop-days" role="img" aria-label="${esc(`Ideas per day and how many reached the gate. ${b.days.slice(-14).map(dayWords).join('; ')}.`)}">${b.days.slice(-14).map((d) => `<span class="loop-day" title="${esc(dayWords(d))}"><i class="all" style="height:${Math.max(4, Math.round(40 * d.explored / maxIdeas))}px"></i><i class="hit" style="height:${d.gated ? Math.max(3, Math.round(40 * d.gated / maxIdeas)) : 0}px"></i></span>`).join('')}</div><p class="loop-legend"><i class="all"></i>ideas per day <i class="hit"></i>reached the gate</p>` : '';
     const pt = b.paper && b.paper.total, byPb = (b.paper && b.paper.by_playbook) || {};
     // Live trading closed (liveOpen), a strategy that clears every check waits on paper, as its bell notice says: "ready for live" read as if it could go.
