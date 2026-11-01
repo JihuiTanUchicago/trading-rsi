@@ -2699,6 +2699,9 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   .research-compose .dispatch:has(> .notice) > label.field:first-of-type, .research-compose .dispatch:has(> .notice) > .dispatch-tune, .research-compose .dispatch:has(> .notice) > .mkt-field, .research-compose .dispatch:has(> .notice) > .dispatch-go, .research-compose .dispatch:has(> .notice) > #dflash { grid-column: 1; grid-row: auto; }
 }
 @container research-work (max-width: 759px) {
+  /* On a phone an opened form (New session, or Research from a market page: ?new=1) comes before the session at work and
+     the research card: under them Start sat about a screen down at 390px (sports walk 2026-11-01). */
+  .research-page:has(> .research-create[open]) > .research-work { order: 1; }
   .active-research { grid-template-columns: minmax(0, 1fr); }
   .active-head, .active-meta { grid-column: 1; }
   .active-open { grid-column: 1; grid-row: 3; justify-self: start; }

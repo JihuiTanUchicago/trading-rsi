@@ -409,6 +409,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // message on a hidden field, so Start did nothing. Unfold Options so the browser points at it.
     form.addEventListener('invalid', () => { const o = form.querySelector('#ropts'); if (o && !o.open) o.open = true; }, true);
     const ta = form.querySelector('textarea[name=prompt]');
+    // From a game's market page the box's example was a Bitcoin one ("…before the 5pm close"), over an NBA market picked
+    // below it (sports walk 2026-11-01): a sports market picked from the link gets a sports example. Only the hint changes.
+    if (pickMkt && wantRow && wantRow.category === 'Sports' && ta) ta.setAttribute('placeholder', 'Write your own — e.g. “Back the home team when its price drifts down in the hour before the game starts.”');
     const draft = keepDraft(ta);
     // "Run it yourself" fills the box with the example's idea and says plainly that it's a new, paid
     // session (with the usual cost beside Start when there's one); the demo link opens the finished one.

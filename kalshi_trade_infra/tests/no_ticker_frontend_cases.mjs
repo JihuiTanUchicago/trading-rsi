@@ -144,7 +144,7 @@ export function noTickerCases({name, frontend, strategyFrontend, detailStrategy,
     await f.viewFunds(); await settle();
     const rows = f.root.querySelector('.t-ledger').innerHTML;
     noTicker(rows, 'Funds');
-    assert.match(rows, /NBA: NYK vs BKN on Oct 29, NYK to win settled VOID/);
+    assert.match(rows, /NBA: Knicks vs Nets on Oct 29, Knicks to win settled VOID/);
     if (f.clearTimers) f.clearTimers();
   });
 

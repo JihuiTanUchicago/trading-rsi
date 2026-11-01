@@ -19,6 +19,7 @@ window.TauPage('explore', (T) => {
   // Context column and the Yes bid and ask), and says a market page short of history in its own words; the reads,
   // the polls, the pages, the way back and the market page are the same in both.
   const tau = theme === 'tau';
+  const EXPLORE_NO_SPORTS = 'No sports markets are open in this list right now. Games show here once Kalshi opens them and they’re among the most traded.';
   // A downloaded file's name from a market's words, lower case and dashed ("Bitcoin above $60,000" ->
   // "bitcoin-above-60-000"); "kalshi-market" when they leave nothing.
   const csvName = (words) => String(words || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '') || 'kalshi-market';
@@ -92,7 +93,7 @@ window.TauPage('explore', (T) => {
       const book = (d.mine.books || {})[mode], openCost = book && book.open_cost != null ? book.open_cost : sum4(op.map((p) => p.cost));
       const sum = [op.length ? `${num(op.length)} open at cost + fees ${usd(openCost)}${marked.length ? `${SEP}unrealized ${markFig(oldest, money(marked.reduce((a, p) => a + p.unrealized, 0)))}${part ? ` on ${part}` : ''} (est. at the current bid${markOld(oldest) ? ', ' + markedAt(oldest, 'marked') : lastMark ? ', marked ' + when(lastMark) : ''})${part ? `${SEP}${num(op.length - marked.length)} ${NOT_MARKED.toLowerCase()}` : ''}` : `${SEP}${NOT_MARKED.toLowerCase()}`}` : '',
         cl.length ? `${num(cl.length)} closed${SEP}realized ${money(sum4(cl.map((p) => p.pnl)))}` : ''].filter(Boolean).join(SEP);
-      const rows = xs.map((p) => `<tr><td class="name" data-lab="Strategy">${p.strategy_id && p.title ? `<a href="/strategies/${+p.strategy_id}">${esc(p.title)}</a>` : esc(p.title || 'Deleted strategy')}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost)}</td><td class="num" data-lab="${p.status === 'open' ? 'Unrealized' : 'Realized'}">${p.status === 'open' ? (p.unrealized == null ? NO_MARK : markFig(p.mark_ts, money(p.unrealized)) + (markOld(p.mark_ts) ? `<div class="sub-fig">${markedAt(p.mark_ts)}</div>` : '')) : money(+p.pnl || 0)}</td><td data-lab="Status">${p.status === 'open' ? liveClose(p.market_close_time, 'pos') : `Closed (${esc(exitWord(p.close_reason))}) @ ${cents(+p.exit_price)}`}</td></tr>`).join('');
+      const rows = xs.map((p) => `<tr><td class="name" data-lab="Strategy">${p.strategy_id && p.title ? `<a href="/strategies/${+p.strategy_id}">${esc(p.title)}</a>` : esc(p.title || 'Deleted strategy')}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost)}</td><td class="num" data-lab="${p.status === 'open' ? 'Unrealized' : 'Realized'}">${p.status === 'open' ? (p.unrealized == null ? NO_MARK : markFig(p.mark_ts, money(p.unrealized)) + (markOld(p.mark_ts) ? `<div class="sub-fig">${markedAt(p.mark_ts)}</div>` : '')) : money(+p.pnl || 0)}</td><td data-lab="Status">${p.status === 'open' ? liveClose(p.market_close_time, 'pos') : exitWord(p.close_reason, p.exit_price) === 'cancelled by Kalshi' ? `Cancelled by Kalshi, paid ${cents(+p.exit_price)} a contract` : `Closed (${esc(exitWord(p.close_reason, p.exit_price))}) @ ${cents(+p.exit_price)}`}</td></tr>`).join('');
       return `<div class="mk-book"><p class="mk-book-h">${BOOK[mode][0]} ${BOOK[mode][1]}</p><p class="hint">${sum}</p><div class="sheet"><table class="table stack"><thead><tr><th>Strategy</th><th>Position</th><th class="num">Cost + fee</th><th class="num">P&amp;L</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
     }).join('');
   }
@@ -173,7 +174,11 @@ window.TauPage('explore', (T) => {
     const quote = bid > 0 && ask > 0 ? `bid\u00a0${cents(bid)}\u00a0/ ask\u00a0${cents(ask)}` : ask > 0 ? `no bid\u00a0/ ask\u00a0${cents(ask)}` : bid > 0 ? `bid\u00a0${cents(bid)}\u00a0/ no ask` : mid == null ? '' : 'no bid or ask';
     // A price under half a cent read "≈ 0% chance of Yes" and one over 99.5¢ "≈ 100%", odds Kalshi's book doesn't give.
     const chance = (p) => { const n = Math.round(p * 100); return n < 1 ? 'under\u00a01%' : n > 99 ? 'over\u00a099%' : `≈\u00a0${n}%`; };
-    const priceSub = [mid == null ? 'No trades yet' : `${chance(mid)} chance of Yes${bid > 0 && ask > 0 ? '' : ', from the last trade'}`, quote,
+    // A game's Yes is one side winning (Kalshi's yes subtitle names it, "Los Angeles L"; "Tie" a draw): "≈ 41% chance of Yes"
+    // under "Los Angeles L at Boston Winner? · Los Angeles L" left a newcomer to work out what Yes was (sports walk 2026-11-01).
+    const yesIs = /\swinner\??$/i.test(String(d.title || '').trim()) && String(d.sub || '').trim()
+      ? (/^(?:tie|draw)$/i.test(d.sub.trim()) ? 'the game ends in a draw' : `${d.sub.trim()} wins`) : '';
+    const priceSub = [mid == null ? 'No trades yet' : `${chance(mid)} chance of Yes${yesIs ? ` (${esc(yesIs)})` : ''}${bid > 0 && ask > 0 ? '' : ', from the last trade'}`, quote,
       d.as_of ? (d.snapshot ? `Explore snapshot, ${sinceMin(d.as_of)}` : `as\u00a0of\u00a0${dayAt(d.as_of, 'kz')}`) : ''].filter(Boolean).join(SEP);
     const settled = d.result === 'yes' || d.result === 'no';
     // Settled with no Yes or No (Kalshi voided it, or its record says settled and sends no result): the page read
@@ -194,7 +199,13 @@ window.TauPage('explore', (T) => {
     // A market Kalshi closed before its scheduled time (a game that ended early) read "Closed 17:00 EDT" at 15:00, a close
     // still to come: it says it closed early and when it was due.
     const closedEarly = closedNow && d.close_time && closeLeft(d.close_time, closeSkew) > 0;
+    // A game's close is a backstop days out (Kalshi closes it once the game ends, can_close_early): its page read "Closes
+    // Nov 14, 22:30 EST" for a game tonight, with the result expected at 22:30 tonight (sports walk 2026-11-01). A market
+    // whose result is due over an hour before its close leads with when the result is due, on the close clock (today,
+    // tomorrow), and says the close is the latest it can run to. A Bitcoin close, its result minutes after, is as it was.
+    const earlyResult = !closedNow && d.close_time && d.settles_at && Date.parse(d.settles_at) < Date.parse(d.close_time) - 3600000;
     const closesFig = !d.close_time ? fig('Closes', '—') : closedEarly ? fig('Closed', 'Early', { small: `was due ${dayAt(d.close_time, 'kz')}` })
+      : earlyResult ? fig('Result expected', liveClose(d.settles_at, 'settleTime', { skew: closeSkew }), { small: `Kalshi stops trading once the result is in, ${dayAt(d.close_time, 'kz')} at the latest` })
       : closedNow ? fig('Closed', dayAt(d.close_time, 'kz'))
       : fig(liveClose(d.close_time, 'lab', { skew: closeSkew }), dayAt(d.close_time, 'kz'), { small: liveClose(d.close_time, 'in', { skew: closeSkew }) });
     const kalshiLink = `https://kalshi.com/markets/${encodeURIComponent((d.series || '').toLowerCase())}`;
@@ -480,7 +491,11 @@ window.TauPage('explore', (T) => {
       keepFocus(body, () => {
         paint(body, tau ? '<div id="xnote"></div><div class="sheet"><table class="stack t-explore"><thead><tr><th>Market</th><th class="num">Yes price</th><th class="num">24h volume</th><th class="num">Open interest</th><th class="num"><span class="vh">Link</span></th></tr></thead><tbody id="xrows"></tbody></table></div><div id="xpager"></div>'
           : `<div id="xnote"></div><div class="sheet"><table class="t-explore"><colgroup><col style="width:33.3333333333%"><col style="width:13.8888888889%"></colgroup><colgroup><col style="width:9.7222222222%"><col style="width:7.6388888889%"><col style="width:7.6388888889%"></colgroup><colgroup><col style="width:12.5%"><col style="width:12.5%"><col style="width:2.7777777778%"></colgroup><thead><tr><th scope="col" rowspan="2" class="contract-head">Market / contract</th><th scope="col" rowspan="2" title="Additional context from the market title">Context</th><th scope="colgroup" colspan="3" class="price-group">YES</th>${sortHead('v24', '24h volume', '24h volume', 2)}${sortHead('oi', 'Open interest', 'Open interest', 2)}<th scope="col" rowspan="2" class="num"><span class="vh">Link</span></th></tr><tr>${sortHead('last', 'Price')}<th scope="col" class="num quote-head">Bid</th><th scope="col" class="num quote-head quote-head-ask">Ask</th></tr></thead><tbody id="xrows"></tbody></table></div><div id="xpager"></div>`);
-        paint(body.querySelector('#xnote'), note ? `<p class="hint xspot-note${d.spot && !d.spot.stale && !d.spot.failed ? '' : ' behind'}">${esc(note)}</p>` : '');
+        // Off-hours the feed can hold no game at all: the page, headed "Crypto and sports markets", listed only Bitcoin and
+        // Ethereum and dropped its Sports button with no word on why, which read as sports gone or broken (sports walk
+        // 2026-11-01). Every market's list says so plainly, until the server's `groups` has sports again.
+        const noSports = f.show === 'all' && !f.q && Array.isArray(d.groups) && !d.groups.includes('sports');
+        paint(body.querySelector('#xnote'), (noSports ? `<p class="hint xnone-sports">${EXPLORE_NO_SPORTS}</p>` : '') + (note ? `<p class="hint xspot-note${d.spot && !d.spot.stale && !d.spot.failed ? '' : ' behind'}">${esc(note)}</p>` : ''));
         paintRows(body.querySelector('#xrows'), rows);
         paint(body.querySelector('#xpager'), pages > 1 ? `<div class="xpage">${f.page > 0 ? `<button class="btn sm" data-pg="${f.page - 1}">${ICON.up ? '' : ''}← Prev</button>` : '<span></span>'}<span class="lab">Page ${f.page + 1} of ${num(pages)}</span>${f.page + 1 < pages ? `<button class="btn sm" data-pg="${f.page + 1}">Next →</button>` : '<span></span>'}</div>` : '');
       });

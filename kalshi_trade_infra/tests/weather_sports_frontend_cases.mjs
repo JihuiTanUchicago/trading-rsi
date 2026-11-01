@@ -34,9 +34,9 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
       ['high_ny', 'KXHIGHNY-26NOV02-T64', 'NYC high temp on Nov 2, 64°F threshold'],
       ['kxhighchi', 'KXHIGHCHI-26NOV01-B48.5', 'Chicago high temp on Nov 1, 48° to 49°F'],
       ['kxhightokc', 'KXHIGHTOKC-26NOV01-T71', 'Oklahoma City high temp on Nov 1, 71°F threshold'],
-      ['nfl_game', 'KXNFLGAME-26NOV01KCBUF-KC', 'NFL: KC vs BUF on Nov 1, KC to win'],
-      ['nba_game', 'KXNBAGAME-26OCT30GSWMIA-MIA', 'NBA: GSW vs MIA on Oct 30, MIA to win'],
-      ['epl_game', 'KXEPLGAME-26NOV01ARSCHE-TIE', 'EPL: ARS vs CHE on Nov 1, a draw'],
+      ['nfl_game', 'KXNFLGAME-26NOV01KCBUF-KC', 'NFL: Chiefs vs Bills on Nov 1, Chiefs to win'],
+      ['nba_game', 'KXNBAGAME-26OCT30GSWMIA-MIA', 'NBA: Warriors vs Heat on Oct 30, Heat to win'],
+      ['epl_game', 'KXEPLGAME-26NOV01ARSCHE-TIE', 'Premier League: Arsenal vs Chelsea on Nov 1, a draw'],
       // A Bitcoin contract keeps its market's name.
       ['btc15m', 'KXBTC15M-26NOV012315-15', 'Bitcoin up or down in 15 minutes'],
     ];
@@ -57,7 +57,7 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     const groups = [...html.matchAll(/<\/span>([^<]+)<span class="mkt-count">(\d+)<\/span>/g)].map((m) => [m[1], +m[2]]);
     assert.deepEqual(groups, [['Crypto', 1], ['Sports', 3], ['Weather', 3]]);
     const names = [...html.matchAll(/<span class="mktrow-name">([^<]+)/g)].map((m) => m[1].trim());
-    for (const n of ['NYC high temp', 'Chicago high temp', 'Oklahoma City high temp', 'NFL winner', 'EPL result']) assert.ok(names.includes(n), `${n} in ${names}`);
+    for (const n of ['NYC high temp', 'Chicago high temp', 'Oklahoma City high temp', 'NFL winner', 'Premier League result']) assert.ok(names.includes(n), `${n} in ${names}`);
     assert.doesNotMatch(html, /Climate and Weather|Highest temperature in/);
   });
 
@@ -110,7 +110,7 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     g.S.me.markets = MARKETS;
     await g.viewMarketDetail(page.ticker); await flush();
     assert.match(g.root.querySelector('h1').innerHTML, /^Kansas City at Buffalo Winner\?\u00a0· Kansas City$/);
-    assert.match(g.root.querySelector('.deck').innerHTML, /^NFL: KC vs BUF on Nov 1, KC to win\u00a0· /);
+    assert.match(g.root.querySelector('.deck').innerHTML, /^NFL: Chiefs vs Bills on Nov 1, Chiefs to win\u00a0· /);
     if (g.clearTimers) g.clearTimers();
   });
 
@@ -125,7 +125,7 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     const html = f.root.innerHTML;
     assert.match(html, /Result<\/dt><dd><span class="fig ">Cancelled<\/span><\/dd><dd class="sub-fig">Kalshi cancelled this market and paid 50¢ a contract: no Yes or No result/);
     assert.match(html, /<h2>How it settles<\/h2><p>Cancelled by Kalshi · paid 50¢ a contract<\/p>/);
-    assert.equal(f.root.querySelector('.deck').innerHTML, 'NBA: GSW vs MIA on Oct 30, GSW to win · Cancelled by Kalshi');
+    assert.equal(f.root.querySelector('.deck').innerHTML, 'NBA: Warriors vs Heat on Oct 30, Warriors to win · Cancelled by Kalshi');
     assert.doesNotMatch(text(html), /scalar|no result sent|sent no Yes or No|chance of Yes/i);
     if (f.clearTimers) f.clearTimers();
   });

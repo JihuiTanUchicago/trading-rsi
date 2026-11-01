@@ -24,7 +24,7 @@ export function rawCodeCases({name, detailStrategy, strategyFrontend}) {
     const hold = (market, ticker, mode) => ({ticker, side: 'yes', qty: 4, entry_price: 0.57, cost: 2.35, unrealized: -0.15, mark_ts: new Date().toISOString(),
       mode, market_close_time: close});
     const cases = [
-      ['nba_game', 'KXNBAGAME-26OCT31MILPHI-PHI', 'NBA: MIL vs PHI on Oct 31, PHI to win'],
+      ['nba_game', 'KXNBAGAME-26OCT31MILPHI-PHI', 'NBA: Bucks vs 76ers on Oct 31, 76ers to win'],
       ['high_ny', 'KXHIGHNY-26OCT31-B58.5', 'NYC high temp on Oct 31, 58° to 59°F'],
       ['btc_daily', 'KXBTCD-26NOV0117-T113999.99', 'Bitcoin $114,000 or above at 5pm ET'],
       ['btc15m', 'KXBTC15M-26OCT312315-15', 'Bitcoin up or down in 15 minutes'],
