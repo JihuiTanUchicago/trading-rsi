@@ -1,6 +1,7 @@
 import assert from './assert_text.mjs';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 import vm from 'node:vm';
 import {bundleSource, exposing} from './bundle_source.mjs';
 
@@ -247,9 +248,9 @@ test('a queued or running review reads as in progress, not as a review that alre
   const at = new Date().toISOString();
   f.apUpdate(f.box, status({reviewing: true, last_review_at: at}));
   assert.match(f.box.querySelector('#apf-stats').innerHTML, /<dt>Last check-in<\/dt><dd>Reviewing now<\/dd>/);
-  assert.doesNotMatch(f.box.querySelector('#apf-stats').innerHTML, /Last check-in<\/dt><dd>just now/);
+  assert.doesNotMatch(ageless(f.box.querySelector('#apf-stats').innerHTML), /Last check-in<\/dt><dd>just now/);
   f.apUpdate(f.box, status({reviewing: false, last_review_at: at}));
-  assert.match(f.box.querySelector('#apf-stats').innerHTML, /<dt>Last check-in<\/dt><dd>just now<\/dd>/);
+  assert.match(ageless(f.box.querySelector('#apf-stats').innerHTML), /<dt>Last check-in<\/dt><dd>just now<\/dd>/);
   assert.doesNotMatch(source, /Working the operation/);
 });
 
@@ -261,7 +262,7 @@ test('the panel says how often the autopilot checks in, beside its last check-in
   const line = 'Nothing is on paper yet: Lean in cleared every check, and the next review puts it on paper.';
   const idle = {code: 'to_deploy', line};
   f.apUpdate(f.box, status({checkin_every_min: 10, last_review_at: ago(8), idle}));
-  assert.match(f.box.querySelector('#apf-stats').innerHTML, /<dt>Last check-in<\/dt><dd>8m ago <small class="apf-note">usually every 10 min<\/small><\/dd>/);
+  assert.match(ageless(f.box.querySelector('#apf-stats').innerHTML), /<dt>Last check-in<\/dt><dd>8m ago <small class="apf-note">usually every 10 min<\/small><\/dd>/);
   assert.match(f.box.querySelector('#apf-story').innerHTML,
     /<p class="apf-idle">Nothing is on paper yet: Lean in cleared every check, and the next review puts it on paper\. <span class="ap-when">Check-ins: usually every 10 min; last one 8 min ago\.<\/span><\/p>/);
   // Late: it says how late, and never "any moment now".
@@ -277,7 +278,7 @@ test('the panel says how often the autopilot checks in, beside its last check-in
   assert.doesNotMatch(f.box.querySelector('#apf-story').innerHTML, /waiting for a free worker/i);
   // No cadence (an older server, autopilot off or paused by billing): nothing is said, and the figure is as before.
   f.apUpdate(f.box, status({checkin_every_min: null, last_review_at: ago(8), idle}));
-  assert.match(f.box.querySelector('#apf-stats').innerHTML, /<dt>Last check-in<\/dt><dd>8m ago<\/dd>/);
+  assert.match(ageless(f.box.querySelector('#apf-stats').innerHTML), /<dt>Last check-in<\/dt><dd>8m ago<\/dd>/);
   assert.doesNotMatch(f.box.querySelector('#apf-story').innerHTML, /Check-ins|usually/);
   // Another idle line has no check-in to wait for, so it carries none.
   f.apUpdate(f.box, status({checkin_every_min: 10, last_review_at: ago(8), idle: {code: 'researching', line: 'Nothing is on paper yet.'}}));
@@ -294,7 +295,7 @@ test('the check-in figure follows the autopilot switch, live', async () => {
   f.apBuildShell(f.box); await flush();
   const stats = () => f.box.querySelector('#apf-stats').innerHTML;
   f.S.ap = status({last_review_at: at}); f.apUpdate(f.box, f.S.ap);
-  assert.match(stats(), /<dt>Last check-in<\/dt><dd>37m ago<\/dd>/);
+  assert.match(ageless(stats()), /<dt>Last check-in<\/dt><dd>37m ago<\/dd>/);
   const sw = f.box.querySelector('#apf-apswitch'); sw.checked = false;
   const flip = sw.onchange(); await flush();
   // A status read that left before the write lands still says on: the switch, flipped off, wins.
@@ -308,7 +309,7 @@ test('the check-in figure follows the autopilot switch, live', async () => {
     assert.doesNotMatch(stats(), /check-in/i);
   }
   f.apUpdate(f.box, status({autopilot: true, last_review_at: at}));
-  assert.match(stats(), /<dt>Last check-in<\/dt><dd>37m ago<\/dd>/);
+  assert.match(ageless(stats()), /<dt>Last check-in<\/dt><dd>37m ago<\/dd>/);
   reading.resolve(response(status({autopilot: false, mode: 'off', last_review_at: at})));
 });
 

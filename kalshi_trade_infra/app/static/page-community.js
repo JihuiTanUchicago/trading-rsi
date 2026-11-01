@@ -7,7 +7,7 @@ window.TauPage('community', (T) => {
   const {
     alert0, api, armed, attachMention, authorLine, BEHIND, bellTime, dayAt, boardTitle, busy, deploymentMode, esc, FEES_NET, flash, halfUp, ICON, keepZone,
     liveWaitMark, loading, marketShort, mdLite, notice, num, overDays, pageLede, PAPER_NET, pct, poll, realTrades, refreshed, researchBadge, root, S, SEP,
-    settleAt, shell, statusMark, theme, tone, trDay, usd
+    settleAt, shell, statusMark, theme, tone, trDay, usd, ageOnly
   } = T;
   // Each theme lays the page and its cards out its own way: Tau's cards print a figure in a line of words and its
   // composer sits under the feed; Meridian's set figures out as labelled terms, under a New post that opens.
@@ -530,6 +530,9 @@ window.TauPage('community', (T) => {
       }).join('')
         : `<div class="empty"><h3>${mineOnly ? 'You haven’t posted yet' : 'No posts yet'}</h3><p>${mineOnly ? EMPTY_MINE : EMPTY_ALL}</p></div>`;
       if (html === lastFeed) return;  // nothing changed — don't re-render (avoids flicker)
+      // Only a post's "2h ago" moved (bellTime): it says its words again in place, and the feed isn't written (a reader's
+      // scroll, a selection and an open thread stay as they are).
+      if (ageOnly(feed, lastFeed, html)) { lastFeed = html; return; }
       lastFeed = html;
       feed.innerHTML = html;
     };

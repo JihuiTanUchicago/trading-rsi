@@ -5,6 +5,7 @@
 // one ran, follows each status read, and says nothing while no check-in is coming or the status isn't read.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -101,11 +102,11 @@ export function checkinCadenceCases({name, frontend, detailStrategy, strategyFro
     f.S.ap = status; f.paintDashAp();
     const card = () => f.root.querySelector('#dash-ap').innerHTML;
     assert.match(card(), /the next review puts it on paper\. <span class="ap-when">Check-ins: usually every 10 min; last one 8 min ago\.<\/span>/);
-    assert.match(card(), /<dt>Last check-in<\/dt><dd>8m ago <small>usually every 10 min<\/small><\/dd>/);
+    assert.match(card(), /<dt>Last check-in<\/dt><dd><time data-age="since" datetime="[^"]+">8m ago<\/time> <small>usually every 10 min<\/small><\/dd>/);
     // Without a cadence the card reads as it did.
     f.S.ap = ap({idle: {code: 'to_deploy', line}, checkin_every_min: null}); f.paintDashAp();
     assert.doesNotMatch(card(), /Check-ins|usually every/);
-    assert.match(card(), /<dt>Last check-in<\/dt><dd>8m ago<\/dd>/);
+    assert.match(ageless(card()), /<dt>Last check-in<\/dt><dd>8m ago<\/dd>/);
     f.clearTimers();
   });
 }

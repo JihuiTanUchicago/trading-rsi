@@ -4,6 +4,7 @@
 // and, past two polls, says how old it is. The hot-markets rail polls every 30s and says the same when its reads fail.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {shown} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -78,7 +79,7 @@ export function explorePollCases({name, frontend, storageFor, railOpenWide}) {
     const {f, state, rows, asked, shift} = await open();
     const poll = await pollOf(f, '/api/explore?');
     const note = () => f.root.querySelector('#xstale').textContent;
-    const fresh = () => f.root.querySelector('#xfigs').textContent;
+    const fresh = () => shown(f.root.querySelector('#xfigs'));
     state.failing = true;
     await poll(); await settle();
     assert.equal(note(), '', 'one failed poll says nothing yet');

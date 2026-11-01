@@ -23,7 +23,7 @@
     waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince,
     sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER, apPillLabel, apAgo, apEvery, FOCUS_WORDS,
     creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount, exitWord, AP_FOCUS, KIND_LABEL, runwayLabel,
-    paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote
+    paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly
   } = window.TauCore;
 
   const root = document.getElementById('app');
@@ -1139,6 +1139,7 @@
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
       const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
       if (drawn.list === listHtml) return;
+      if (ageOnly(list, drawn.list, listHtml)) { drawn.list = listHtml; return; }
       paints++; drawn.list = listHtml; list.innerHTML = listHtml;
     };
     // A list that didn't load still opens, says so and offers Try again; the next read (bellTick) fills it
@@ -1499,9 +1500,9 @@
     return { ...kept, balance: last_balance, balance_at: last_balance_at };
   };
   // cashAt: when a figure Kalshi answered was read ("Read from Kalshi 2m ago"), or '' with no read time.
-  const cashAt = (b) => b && b.balance_at ? `Read from Kalshi ${when(b.balance_at)}` : '';
-  const cashFig = (b) => b.pending ? (b.last_balance != null ? [usd(b.last_balance), `Read ${when(b.last_balance_at)}; checking Kalshi for the latest\u2026`] : ['Checking\u2026', 'Asking Kalshi for your real cash now.'])
-    : b.failed ? (b.last_balance != null ? [usd(b.last_balance), `Read ${when(b.last_balance_at)}. ${CASH_FAILED}`] : ['Unavailable', CASH_FAILED]) : null;
+  const cashAt = (b) => b && b.balance_at ? `Read from Kalshi ${ageAt(b.balance_at)}` : '';
+  const cashFig = (b) => b.pending ? (b.last_balance != null ? [usd(b.last_balance), `Read ${ageAt(b.last_balance_at)}; checking Kalshi for the latest\u2026`] : ['Checking\u2026', 'Asking Kalshi for your real cash now.'])
+    : b.failed ? (b.last_balance != null ? [usd(b.last_balance), `Read ${ageAt(b.last_balance_at)}. ${CASH_FAILED}`] : ['Unavailable', CASH_FAILED]) : null;
   const cashRead = (b, book) => api('/api/funds/cash?book=' + book).then((c) => {
     const { pending, last_balance, last_balance_at, ...kept } = b;
     return { ...kept, connected: c.connected !== false, balance: c.balance == null ? null : c.balance, balance_at: c.balance_at };
@@ -1636,9 +1637,13 @@
   // phone-speed CPU at 30 deployments and 60 positions, and an armed "Confirm stop" was reset. The
   // markup is kept per element, so a new view's elements (shell) always paint.
   const painted = new WeakMap();
+  // Markup that moved only in its relative times (ageAt: "5m ago" became "6m ago") is not written: those times say
+  // their words again in place (ageOnly), and what the reader had in the region (scroll, a selection, focus) stays.
   function paint(el, html) {
     if (!el || painted.get(el) === html) return;
+    const was = painted.get(el);
     painted.set(el, html);
+    if (ageOnly(el, was, html)) return;
     // A poll that redraws the page's heading while it holds focus (pageStart) leaves focus on the new one.
     const a = document.activeElement, top = !!(a && a.tagName === 'H1' && el.contains && el.contains(a));
     el.innerHTML = html;
@@ -1699,7 +1704,7 @@
       back();
       return;
     }
-    rows.forEach(([, h], i) => { if (was.html[i] !== h) { was.html[i] = h; el.children[i].outerHTML = h; } });
+    rows.forEach(([, h], i) => { if (was.html[i] !== h) { const old = was.html[i]; was.html[i] = h; if (!ageOnly(el.children[i], old, h)) el.children[i].outerHTML = h; } });
     painted.set(el, was.html.join(''));
     back();
   }
@@ -2053,7 +2058,7 @@
       <td class="num" data-lab="Unrealized">${d.unrealized_pnl == null ? `<span class="sub-fig">${+d.open_positions ? NOT_MARKED : 'None open'}</span>` : markFig(d.oldest_mark_ts, money(d.unrealized_pnl))}${d.unrealized_pnl != null && d.open_positions ? `<div class="sub-fig">est.${markOld(d.oldest_mark_ts) ? ' ' + markedAt(d.oldest_mark_ts) : ''}${markedOf(d.marked_open, d.open_positions) ? `${SEP}${markedOf(d.marked_open, d.open_positions)} marked` : ''}</div>` : ''}</td>
       <td class="num" data-lab="Trades">${num(d.closed_trades)}${d.open_positions ? `<div class="sub-fig">+${num(d.open_positions)} open</div>` : ''}</td>
       <td class="num" data-lab="Backtest estimate" title="${d.void_no_record ? PACE_TIP_VOID : d.backtest_only ? PACE_TIP_LATER : PACE_TIP}">${pace == null ? (d.backtest_only ? '\u2014' : PACE_HELD(d)) : d.closed_trades ? `${usd(pace * d.closed_trades, true)}<div class="sub-fig">same ${num(d.closed_trades)} trade${d.closed_trades === 1 ? '' : 's'}</div>` : `<span class="sub-fig bt-per-trade">${btPerTrade(pace)}</span>`}</td>
-      <td data-lab="Since">${when(d.created_at)}</td>
+      <td data-lab="Since">${ageAt(d.created_at)}</td>
       ${actions}
     </tr>`;
   }
@@ -2553,7 +2558,7 @@
       const stubs = (rows, closed) => rows.length
         ? rows.map((r) => `<div class="stub"><b>${esc(r.side.toUpperCase())} ${esc(r.qty)} × ${cents(+r.entry_price)}</b>
             <span>${closed ? money(+r.pnl) : (r.unrealized != null ? markFig(r.mark_ts, r.value != null ? `worth ${usd(r.value)} (${money(r.unrealized)})` : money(r.unrealized)) : openCost({ open_cost: r.cost, open_at_cost: r.at_cost != null ? r.at_cost : r.qty * r.entry_price }))}</span>
-            <small>${esc(r.title)}${posTag(r)}\u00a0· <span class="pos-name">${contractLink(r.ticker, depMarket(r))}</span>${closed ? '' : `\u00a0· ${liveClose(r.market_close_time, 'settles')}`}\u00a0· ${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'DEMO' : 'PAPER'}\u00a0· ${when(closed ? r.closed_at : r.opened_at)}${!closed && r.unrealized != null && r.mark_ts ? `\u00a0· ${markedAt(r.mark_ts, 'worth as of')}` : ''}</small>${r.why ? `<small class="stub-why">${sepLine(r.why)}</small>` : ''}</div>`).join('')
+            <small>${esc(r.title)}${posTag(r)}\u00a0· <span class="pos-name">${contractLink(r.ticker, depMarket(r))}</span>${closed ? '' : `\u00a0· ${liveClose(r.market_close_time, 'settles')}`}\u00a0· ${r.mode === 'live' ? 'LIVE' : r.mode === 'demo' ? 'DEMO' : 'PAPER'}\u00a0· ${ageAt(closed ? r.closed_at : r.opened_at)}${!closed && r.unrealized != null && r.mark_ts ? `\u00a0· ${markedAt(r.mark_ts, 'worth as of')}` : ''}</small>${r.why ? `<small class="stub-why">${sepLine(r.why)}</small>` : ''}</div>`).join('')
         : `<p class="hint">${closed ? 'No closed trades yet.' : 'No open positions.'}</p>`;
       const main = `<div class="dash-wrap"><div class="dash">
           <div>
@@ -3043,7 +3048,7 @@
     if (!on) return 'Off.';
     const la = S.ap && S.ap.autopilot ? S.ap.last_action : null;
     return la && la.at && apMoveText(la) === 'Autopilot switched on'
-      ? `Switched on ${sinceMin(la.at)}. Its moves show up here as it makes them.` : 'On. It made no changes.';
+      ? `Switched on ${ageAt(la.at, 'since')}. Its moves show up here as it makes them.` : 'On. It made no changes.';
   };
   function sinceStrip(d, pausedHref) {
     const s = d.since;
@@ -3154,7 +3159,7 @@
     // autopilot card's "Since you started", its figures read as the same paper P&L.
     const win = s.first ? 'day' : 'visit';
     return `<section class="since" id="dash-since" aria-label="${PNL_WINDOW[win]}">
-      <h2 class="since-h">${s.first ? PNL_WINDOW.day : `${PNL_WINDOW.visit} <span class="since-at">${esc(when(s.at))}</span>`}</h2>
+      <h2 class="since-h">${s.first ? PNL_WINDOW.day : `${PNL_WINDOW.visit} <span class="since-at">${ageAt(s.at)}</span>`}</h2>
       <dl class="since-list">${row('Money', `${pnlWin(win)} ${money}`)}${cost ? row('Cost', cost) : ''}${row('New results', found)}${row('Autopilot', auto)}${row('Needs you', needs.length ? needs.join('<br>') : 'Nothing.', needs.length ? 'needs' : '')}</dl></section>`;
   }
   // The reconciler found live positions Tau's book and Kalshi disagree on. Tau has no portfolio page:
@@ -3215,6 +3220,7 @@
   function repaintKeep(host, html) {
     const how = host.querySelector('.ap-week-how'), out = html(!!(how && how.open));
     if (repainted.get(host) === out) return;
+    if (ageOnly(host, repainted.get(host), out)) { repainted.set(host, out); return; }
     const a = document.activeElement, mine = a && a !== host && host.contains && host.contains(a) ? a : null;
     const ds = (mine && mine.dataset) || {};
     // A link goes back to the link to the same place: the card's "Furthest on paper" link changes its words as a trade
@@ -3310,7 +3316,7 @@
       ['Strategies running', `${running || (S.dashPaused ? `None${SEP}${num(S.dashPaused)} paused` : 'None yet')}${liveIdle ? ` <small>${liveIdleCount(liveIdle)}</small>` : ''}`],
       d.week ? null : ['Ideas, last 7 days', `${Number(r.tested_7d || 0).toLocaleString('en-US')} tested${SEP}${r.passed_7d || 0} passed${+r.not_cleared_7d ? `, ${num(r.not_cleared_7d)} not cleared` : ''}`],
       prog ? ['Furthest on paper', `<a href="/strategies/${Number(prog.strategy_id)}" title="${esc(prog.title || 'Paper strategy')}">${paperCount(prog)}</a> <small>${gl(PAPER_COUNT_WHY, 'instantfill')}</small>`]
-        : ['Last check-in', d.reviewing ? 'Reviewing now' : d.last_review_at ? sinceMin(d.last_review_at) + apEvery(d) : 'Starting up'],
+        : ['Last check-in', d.reviewing ? 'Reviewing now' : d.last_review_at ? ageAt(d.last_review_at, 'since') + apEvery(d) : 'Starting up'],
     ].filter(Boolean);
     const now = d.billing_blocked
       ? (d.billing_reason === 'card' ? 'Paused: <a href="/billing">add a payment method</a> so it can keep researching.' + apStillTrading(d)
@@ -3363,7 +3369,7 @@
     const text = apMoveText(la);
     if (!text || !la.at) return '';
     // A move cut at 90 characters ends on its ellipsis, without a period after it ("on quiet days….", walk 2026-10-31).
-    return `<p class="ap-last">Last move <time datetime="${esc(la.at)}" title="${esc(stampAt(la.at))}">${sinceMin(la.at)}</time>: ${esc(text)}${text.endsWith('\u2026') ? '' : '.'}</p>`;
+    return `<p class="ap-last">Last move ${ageAt(la.at, 'since', ` title="${esc(stampAt(la.at))}"`)}: ${esc(text)}${text.endsWith('\u2026') ? '' : '.'}</p>`;
   }
   function apMarketName(n) {
     const s = String(n || '');
@@ -3677,7 +3683,7 @@
     if (document.body) document.body.querySelectorAll('[data-ap-next]').forEach((n) => { n.hidden = !on; });
     if (document.body) document.body.querySelectorAll('[data-ap-off]').forEach((n) => { n.hidden = on; });
     if (document.body) document.body.querySelectorAll('[data-ap-when]').forEach((n) => { const t = apWhen(); if (n.textContent !== t) n.textContent = t; });
-    if (document.body) document.body.querySelectorAll('[data-since-ap]').forEach((n) => { n.textContent = sinceApWord(on); });
+    if (document.body) document.body.querySelectorAll('[data-since-ap]').forEach((n) => { n.innerHTML = sinceApWord(on); });
     if (trAp && trAp.host.isConnected && trAp.on !== apSwitchOn()) trAp.repaint();
   }
   function apNudge(lead, rest) {
@@ -4004,9 +4010,10 @@
         <div class="hot-head"><div><span class="hot-kicker">Hot markets</span><span class="hot-now"><span class="hot-dot"></span>Right now</span></div><button class="hot-x" data-hot="toggle" aria-label="Collapse hot markets">‹</button></div>
         <p class="stale-note" id="hot-stale" role="status">${hotStaleText()}</p>
         <div class="hot-list">${rows}</div>
-        <div class="hot-ft">${d && d.at ? 'Updated ' + sinceMin(d.at) + SEP : ''}<a href="/explore">See all markets →</a></div>
+        <div class="hot-ft">${d && d.at ? 'Updated ' + ageAt(d.at, 'since') + SEP : ''}<a href="/explore">See all markets →</a></div>
       </div>`;
-    if (painted.get(rail) !== html) { painted.set(rail, html); keepFocus(rail, () => { rail.innerHTML = html; }); }
+    const railWas = painted.get(rail);
+    if (railWas !== html) { painted.set(rail, html); if (!ageOnly(rail, railWas, html)) keepFocus(rail, () => { rail.innerHTML = html; }); }
     if (hotStaleText()) staleLine('hot-stale', hotStaleText(), true);  // a stale line drawn again with the rail says nothing itself either
     rail.querySelectorAll('[data-hot="toggle"]').forEach((b) => b.onclick = (e) => {
       if (e.currentTarget.classList.contains('hot-tab') && open) return; // the spine only expands
@@ -4182,7 +4189,7 @@
     recoverFails, refreshed, registry, render, researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind,
     runTag, runWaitLine, runwayLabel, S, sessionEstimate, sessionNo, sessionTitle, settleAt, stampAt, dayAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark,
     strategySlip, strategyTable, stripeFail, syncMeBilling, theme: 'tau', tone, topupCharge, tradePrice, trDay, tzName,
-    usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord, localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker
+    usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord, localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker, ageAt, ageKey, ageTick, ageOnly
   }, { get: (all, k) => { if (!(k in all)) throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); return all[k]; } }));
   // A page file calls this as it runs: make(shared()) returns the file's views. Once per name.
   window.TauPage = (name, make) => { if (!PAGES[name]) PAGES[name] = make(shared()); };

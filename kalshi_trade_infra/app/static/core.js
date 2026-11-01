@@ -157,7 +157,7 @@
   const bellTime = (iso) => {
     const d = new Date(iso || NaN);
     if (!Number.isFinite(d.getTime())) return '';
-    return `<time datetime="${esc(iso)}" title="${esc(stampAt(iso))}" data-day="bell">${esc(bellShown(iso))}</time>`;
+    return `<time data-age="bell" datetime="${esc(iso)}" title="${esc(stampAt(iso))}" data-day="bell">${esc(bellShown(iso))}</time>`;
   };
   // What a grouped bell line stands for past its own words, from the server's `more`, `alike`, `from` and
   // `from_more` (app/services/bell.py), as text (the caller escapes it: the names are people's own). "and 3 more
@@ -463,7 +463,7 @@
     if (!markOld(iso)) return `${lead} ${dayAt(iso)}`;
     // Its hover names the day too (stampAt); the words a screen reader reads keep settleAt's.
     const why = (at) => `Last marked ${at}. No newer price has come in, so this figure may be out of date.`;
-    return `<span class="mark-age" title="${esc(why(stampAt(iso)))}">${lead} ${apAgo(iso)}<span class="vh"> (${esc(why(settleAt(iso)))})</span></span>`;
+    return `<span class="mark-age" title="${esc(why(stampAt(iso)))}">${lead} ${ageAt(iso, 'ap')}<span class="vh"> (${esc(why(settleAt(iso)))})</span></span>`;
   };
   // Short, consistent chip labels for every market; unknown keys fall back to the
   // server's full label, never the raw key (keeps the market chips uniform).
@@ -1557,6 +1557,39 @@
       : ` That’s more than the ${usd(bal)} you have, so a session may stop short when your credits run out.`);
   };
 
+  // ---------- relative times that tick in place ----------
+  // A relative time ("5m ago", "as of 4 min ago", "read just now") inside markup a poll compares before it redraws is a
+  // <time> carrying its own instant and the helper that says it (ageAt): each minute's change of its words made the
+  // poll's markup differ, so the whole region (Home's board, Funds, a strategy page's money) was written again, up to
+  // 600ms of a 4x-throttled phone's main thread a minute, and scroll, selection and focus inside it were reset (walk
+  // 2026-11-01). ageKey is the markup with those words left out, for the poll to compare; where only they moved,
+  // ageTick says each one's words again in place, from its own instant, with the helper that drew it, at the moment
+  // the redraw would have. The words, their rounding, a title, a screen reader's text, a dimmed old mark (its class is
+  // in the compared markup) and any live region are as drawn; none of these times sits in a live region, so a tick is
+  // never read out. Everything else in the markup, a time's instant included, still counts as a change.
+  const AGE_FORM = { when: (iso) => when(iso), since: (iso) => sinceMin(iso), ap: (iso) => apAgo(iso), bell: (iso) => bellShown(iso) };
+  // `attrs`: more attributes after its own (a title), as markup.
+  function ageAt(iso, form = 'when', attrs = '') {
+    return `<time data-age="${form}" datetime="${esc(iso || '')}"${attrs}>${esc(AGE_FORM[form](iso))}</time>`;
+  }
+  const AGE_WORDS = /(<time data-age="\w+"[^>]*>)[^<]*(?=<\/time>)/g;
+  const ageKey = (html) => String(html == null ? '' : html).replace(AGE_WORDS, '$1');
+  const ageTick = (box) => {
+    if (!box || !box.querySelectorAll) return;
+    box.querySelectorAll('time[data-age]').forEach((el) => {
+      const say = AGE_FORM[el.getAttribute('data-age')];
+      const t = say ? say(el.getAttribute('datetime')) : null;
+      if (t != null && el.textContent !== t) el.textContent = t;
+    });
+  };
+  // A region whose last markup was `was` takes `html`: true when only those words moved (they are said again in
+  // place, nothing is written), false when the poll must write it as before.
+  const ageOnly = (box, was, html) => {
+    if (was == null || html == null || was === html || ageKey(was) !== ageKey(html)) return false;
+    ageTick(box);
+    return true;
+  };
+
   // ---------- a list read a page at a time ----------
   // A list whose newest page is polled and whose older pages are read on request (Funds' paper history: "Show older
   // entries") keeps its older rows under each fresh newest page only while the two still join: `kept` (rows read
@@ -1590,6 +1623,6 @@
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,
-    pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote
+    pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly
   });
 })();

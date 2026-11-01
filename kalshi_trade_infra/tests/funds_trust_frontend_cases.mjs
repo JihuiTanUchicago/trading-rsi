@@ -4,6 +4,7 @@
 // the links that send someone to add a key go there.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -31,7 +32,7 @@ export function fundsTrustCases({name, frontend, fundsData, dashboard, detailStr
       const figs = text(f.root.querySelector('#ffigs')), main = f.root.querySelector('#main').innerHTML;
       assert.match(figs, /Tau’s demo book ?\$1,003\.50/);
       assert.match(main, /<dt>Tau’s demo book<\/dt><dd>\$1,003\.50<\/dd>/);
-      assert.match(f.root.querySelector('[data-cash="demo-ok"]').innerHTML,
+      assert.match(ageless(f.root.querySelector('[data-cash="demo-ok"]').innerHTML),
         new RegExp(`Connected ✓</b> \\(Kalshi demo account cash \\$${balance}\\.00, read just now\\)`));
       assert.doesNotMatch(figs + main, /Demo balance|\(balance \$|demo balance above/);
       if (!balance) assert.match(main, /Tau’s demo book above is Tau’s own bookkeeping and doesn’t fund it\./);

@@ -5,6 +5,7 @@
 // now" under the stale note; and a cash spot redrawn under focus gives focus back to the same link.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {shown} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -78,8 +79,8 @@ export function fundsDisplayCases({name, frontend, fundsData}) {
     }});
     f.location.pathname = '/funds';
     await f.viewFunds(); await settle();
-    const live = () => [...f.root.querySelectorAll('#ffigs div.m')][0].textContent.replace(/\s+/g, ' ');
-    const spot = (k) => f.root.querySelector(`[data-cash="${k}"]`).textContent;
+    const live = () => shown([...f.root.querySelectorAll('#ffigs div.m')][0]).replace(/\s+/g, ' ');
+    const spot = (k) => shown(f.root.querySelector(`[data-cash="${k}"]`));
     assert.match(live(), /read just now\./);
     assert.match(spot('demo-ok'), /read just now\)/);
     fail = true;
@@ -98,30 +99,39 @@ export function fundsDisplayCases({name, frontend, fundsData}) {
   test(`${name}: a Funds cash spot redrawn under focus gives it back to the same link, and one drawn the same is left alone`, async () => {
     let fail = false;
     const at = new Date().toISOString();
+    let land;  // the demo cash read, answered when the test says
     const f = frontend({fetchImpl: (path) => {
-      if (path.startsWith('/api/funds/cash')) return new Promise(() => {});
+      if (path.startsWith('/api/funds/cash')) return new Promise((resolve) => { land = resolve; });
       if (path === '/api/funds') return fail ? response({error: 'Tau is busy. Try again.'}, 503)
-        : response({...fundsData(), kalshi_dev: {connected: true, key_id: 'DEVK…5678', balance: 0, balance_at: at, copies_from: 100}});
+        : response({...fundsData(), kalshi_dev: {connected: true, key_id: 'DEVK…5678', pending: true, last_balance: 0, last_balance_at: at, copies_from: 100}});
       return response({});
     }});
     f.location.pathname = '/funds';
     await f.viewFunds(); await settle();
-    const ok = f.root.querySelector('[data-cash="demo-ok"]');
-    const demoLink = () => [...ok.querySelectorAll('a')].find((a) => /^https:\/\/demo\.kalshi\.co/.test(a.getAttribute('href')));
+    const spot = () => f.root.querySelector('[data-cash="demo-ok"]');
+    const demoLink = () => [...spot().querySelectorAll('a')].find((a) => /^https:\/\/demo\.kalshi\.co/.test(a.getAttribute('href')));
     const link = demoLink();
     assert.ok(link, 'the $0 notice links demo.kalshi.co');
+    assert.match(shown(spot()), /read just now/);
     link.focus(); f.document.activeElement = link;  // the Tau harness's focus() doesn't move activeElement
+    // The cash read lands with a newer read time: the spot is drawn again, and focus goes back to the same link.
+    land(response({connected: true, balance: 0, balance_at: new Date(Date.now() + 1000).toISOString()}));
+    await settle();
+    const back = demoLink();
+    assert.notEqual(back, link, 'the spot was drawn again');
+    assert.ok(back.focused || f.document.activeElement === back, 'focus is back on the same link');
+    f.document.activeElement = back;
     fail = true;
     const poll = () => { for (const t of [...f.intervals.values()]) t(); };
     poll(); await settle();
-    assert.equal(demoLink(), link, 'drawn the same: the very link stays');
-    f.shiftClock(5 * 60000);
+    assert.equal(demoLink(), back, 'drawn the same: the very link stays');
+    f.shiftClock(5 * 60000 + 1000);
     poll(); await settle();  // sat out: the back-off after one failed read
     poll(); await settle();
-    const back = demoLink();
-    assert.match(ok.textContent, /read 5m ago/);
-    assert.notEqual(back, link, 'the spot was drawn again');
-    assert.ok(back.focused || f.document.activeElement === back, 'focus is back on the same link');
+    // Only its age moved: it says "read 5m ago" in place, and the spot, its link and focus on it stay as they are.
+    assert.match(shown(spot()), /read 5m ago/);
+    assert.equal(demoLink(), back, 'only the age moved: the very link stays');
+    assert.equal(f.document.activeElement, back);
     f.clearTimers();
   });
 }

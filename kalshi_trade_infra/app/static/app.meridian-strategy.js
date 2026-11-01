@@ -11,7 +11,7 @@ window.TauPage('strategy', (T) => {
     gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4,
-    tone, tradePrice, usd, when, whyFailedHtml, errText
+    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly
   } = T;
 
   // ---------- strategy research paper (RESEARCH_PIPELINE_DESIGN.md §D) ----------
@@ -377,7 +377,7 @@ window.TauPage('strategy', (T) => {
       // count Tau's demo book from its last reload: after a reload "+$0.51 realized … in Tau's demo book" sat beside a
       // dashboard's "+$0.36 realized since reload" with no word of its window (walk 2026-10-31). It says it.
       const head = n ? `${money(pnl)} realized over ${num(n)} closed trade${n === 1 ? '' : 's'}, ${BOOK_NET[mode]}${mode === 'demo' ? DEMO_WINDOW : ''}` : 'No closed trades yet';
-      const tail = [open ? `${num(open)} open, counted once ${open === 1 ? 'it closes' : 'they close'}` : '', since ? `<span class="nobr">deployed ${when(since)}</span>` : ''].filter(Boolean).join(SEP);
+      const tail = [open ? `${num(open)} open, counted once ${open === 1 ? 'it closes' : 'they close'}` : '', since ? `<span class="nobr">deployed ${ageAt(since)}</span>` : ''].filter(Boolean).join(SEP);
       return `<p><span class="mk ${cls[mode]}">${label[mode]}</span>${mode === 'live' && ds.some((d) => d.status === 'running') ? liveWaitMark() : ''} ${n && mode === 'paper' ? (tail ? gloSep('paperfills', head) : gl(head, 'paperfills')) : head + (tail ? SEP : '')}${tail}</p>${mode === 'paper' && n && slipEst(slip) ? `<p class="sub-fig real-slip">${slipEst(slip)}</p>` : ''}${mode === 'paper' ? instantNote(instant, n, 'sub-fig real-instant') : ''}${checks ? btCheckLine(checks.find((c) => c.mode === mode), 'p') : pace(ds, n)}${pausedLine(ds, mode)}`;
     }).join('');
     // Removed deployments leave the list (and the lines above) but keep their record: one short line,
@@ -754,6 +754,7 @@ window.TauPage('strategy', (T) => {
     const apLine = apPaper ? `<p class="hint ap-paper" data-ap-next${apOn ? '' : ' hidden'}>The autopilot is putting this on paper at its next check-in${apWhenSpan()}, so there is nothing for you to deploy. <a href="/deploy">Deploy</a> shows it once it’s there.</p>` : '';
     const quickHtml = quickPaper ? `<div class="strat-quick" id="strat-quick">${apLine}<button class="btn primary" id="dep-paper-quick"${apOff}>Deploy on paper</button><p class="hint"${apOff}>Paper trades with pretend money against live prices, so nothing real is at risk. Demo and live are in Deploy, further down.</p><div id="depflash-quick"></div></div>` : '';
     const ladder = restricted ? '' : ladderLines(s, { canDeploy, demoWhy, apPaper });
+    let ladderWas = ladder;  // the ladder's markup as last drawn (the poll below compares it)
     // Its paper deployment is paused: where to resume it, beside the button and its second-copy warning. A running one
     // gets no line here: "It runs on paper. See it on Deploy." repeated the warning's "It already runs on paper" right
     // above it, and the panel already links to Deploy.
@@ -912,7 +913,7 @@ window.TauPage('strategy', (T) => {
         // The ladder is drawn again with it, and with the demo cash below: a link in it that held keyboard focus (the
         // Funds page, a demo account's fix) kept it only until then, and focus fell to the page's top (walk 2026-10-31).
         const lb = root.querySelector('#ladder-body');
-        if (lb) keepFocus(lb, () => { lb.innerHTML = ladderLines(s, { canDeploy, demoWhy, road: r, apPaper }); });
+        if (lb) keepFocus(lb, () => { lb.innerHTML = ladderWas = ladderLines(s, { canDeploy, demoWhy, road: r, apPaper }); });
         const p = r.paper, c = p.checks;
         const rows = [
           { name: 'Gatekeeper cleared', threshold: 'holdout + diversification', ok: r.deployment_candidate, value: r.deployment_candidate ? 'yes' : 'no' },
@@ -965,7 +966,7 @@ window.TauPage('strategy', (T) => {
         if (again) s.demo_health = again.demo_health;
         s.demo_health_pending = false;
         const lb = root.querySelector('#ladder-body');
-        if (lb) keepFocus(lb, () => { lb.innerHTML = ladderLines(s, { canDeploy, demoWhy, road: roadNow, apPaper }); });
+        if (lb) keepFocus(lb, () => { lb.innerHTML = ladderWas = ladderLines(s, { canDeploy, demoWhy, road: roadNow, apPaper }); });
       };
       demoCashRead().then(() => (gen === S.gen ? api('/api/strategies/' + s.id) : null)).then(redraw, () => redraw(null));
     }
@@ -1082,10 +1083,16 @@ window.TauPage('strategy', (T) => {
       const roadKey = (x) => JSON.stringify([x.deployments, x.book_totals]);
       let liveDrawn = liveKey(s), roadDrawn = roadKey(s);
       // One part in place: `sel` finds it, `html` is its new markup ('' when it has none now), `put` places a new one.
+      // Each part's markup as last drawn: one drawn the same is left as it is, and one whose markup moved only in its
+      // relative times (an old mark's "as of 4 min ago", "deployed 6m ago") says them again in place (ageOnly). Each
+      // minute an old mark's age moved, the parts were written again whole, scroll and selection in them reset.
+      const partWas = new Map([['.paper-top', paperTop(s)], ['#since-deploying', realRecord(s)], ['#holding-now', holdingNow(s)]]);
       const swap = (sel, html, put) => {
-        const el = root.querySelector(sel);
+        const el = root.querySelector(sel), was = partWas.get(sel);
+        partWas.set(sel, html);
         if (!el) { if (html) put(html); return; }
         if (!html) { el.remove(); return; }
+        if (html === was || ageOnly(el, was, html)) return;
         if (el.parentElement) keepFocus(el.parentElement, () => { el.outerHTML = html; });
       };
       poll(async (cfg) => {
@@ -1100,8 +1107,9 @@ window.TauPage('strategy', (T) => {
         swap('.paper-top', paperTop(s), (h) => root.querySelector('#figs').insertAdjacentHTML('beforebegin', h));
         swap('#since-deploying', realRecord(s), (h) => root.querySelector('#figs').insertAdjacentHTML('afterend', h));
         swap('#holding-now', holdingNow(s), (h) => root.querySelector('aside[aria-label="Deploy and gates"]').insertAdjacentHTML('afterbegin', h));
-        const lb = root.querySelector('#ladder-body');
-        if (lb) keepFocus(lb, () => { lb.innerHTML = ladderLines(s, { canDeploy, demoWhy, road: roadNow, apPaper }); });
+        // The ladder is written only when its markup differs from what was last drawn there (ladderWas).
+        const lb = root.querySelector('#ladder-body'), lh = ladderLines(s, { canDeploy, demoWhy, road: roadNow, apPaper });
+        if (lb && lh !== ladderWas) keepFocus(lb, () => { lb.innerHTML = ladderWas = lh; });
         if (root.querySelector('#road-live-body') && roadKey(s) !== roadDrawn) roadRead();
         roadDrawn = roadKey(s);
         if (s.holdings && s.holdings.length) closeClock();

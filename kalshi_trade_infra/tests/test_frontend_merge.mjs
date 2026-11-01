@@ -2,6 +2,7 @@ import assert, {visible} from './assert_text.mjs';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 import vm from 'node:vm';
 import {bundleSource, exposing} from './bundle_source.mjs';
 import {pageFileCases} from './page_files_frontend_cases.mjs';
@@ -47,6 +48,7 @@ import {fundsTrustCases} from './funds_trust_frontend_cases.mjs';
 import {demoBookCases} from './demo_book_frontend_cases.mjs';
 import {fundsWalkCases} from './funds_walk_frontend_cases.mjs';
 import {fundsDisplayCases} from './funds_display_frontend_cases.mjs';
+import {ageTickCases} from './age_tick_frontend_cases.mjs';
 import {fundsHistoryCases} from './funds_history_frontend_cases.mjs';
 import {fundsLongHistoryCases} from './funds_long_history_frontend_cases.mjs';
 import {moneyPagesWalkCases} from './money_pages_walk_frontend_cases.mjs';
@@ -1389,7 +1391,7 @@ test('Funds says when Kalshi cash was read, what each book has open, and matches
     d.paper = {...d.paper, cash: 991.91, equity: 1000, open_positions: 3, open_at_cost: 8.09, open_cost: 8.25}; return response(d); }});
   await f.viewFunds();
   const figs = f.root.querySelector('#ffigs').innerHTML;
-  assert.match(figs, /Your real cash at Kalshi, read 5m ago\. 2 open live positions \(\$8\.25 at cost \+ fees\) not included/);
+  assert.match(ageless(figs), /Your real cash at Kalshi, read 5m ago\. 2 open live positions \(\$8\.25 at cost \+ fees\) not included/);
   assert.match(figs, /\$1,000\.00 starting capital\u00a0· 1 open \(\$3\.11 at cost \+ fees, all of it in Tau’s demo book\)\u00a0· needs a demo key\u00a0· real fills/);
   // Paper is the dashboard's figure (cash + open at their price), never cash alone under another name; its open
   // positions are named at cost + fees, with the part the balance holds.
@@ -1487,7 +1489,7 @@ test('dashboard: Kalshi cash says when it was read, keeps Tau\'s own trades when
     }});
     await f.viewDashboard(); await flush();
     const board = f.root.querySelector('#boardbody').innerHTML;
-    if (balance) assert.match(board, /Read from Kalshi just now\u00a0· Tau trades: 2 open \(not in cash\)/);
+    if (balance) assert.match(ageless(board), /Read from Kalshi just now\u00a0· Tau trades: 2 open \(not in cash\)/);
     else assert.match(board, /Couldn’t read your Kalshi balance just now\u00a0· Tau trades: 2 open \(not in cash\)\u00a0· \+\$17\.00 realized all time/);
     assert.match(f.root.querySelector('#main').innerHTML, /<span>worth \$5\.64 \(<span class="gain">\+\$0\.48<\/span>\)<\/span>/);
   }
@@ -1590,9 +1592,9 @@ test('right after switching on, the card says the first review is running, not t
   await f.viewDashboard(); await flush();
   // The cell says when it last checked in; the switch is the move, said as the switch, not as a review.
   assert.match(f.root.querySelector('#dash-ap').innerHTML, /<dt>Last check-in<\/dt><dd>Reviewing now<\/dd>/);
-  assert.match(f.root.querySelector('#dash-ap').innerHTML, /<p class="ap-last">Last move <time datetime="[^"]+" title="[^"]+">just now<\/time>: Autopilot switched on\.<\/p>/);
+  assert.match(f.root.querySelector('#dash-ap').innerHTML, /<p class="ap-last">Last move <time data-age="since" datetime="[^"]+" title="[^"]+">just now<\/time>: Autopilot switched on\.<\/p>/);
   f.S.ap = {...f.S.ap, reviewing: false}; f.paintDashAp();
-  assert.match(f.root.querySelector('#dash-ap').innerHTML, /<dt>Last check-in<\/dt><dd>just now<\/dd>/);
+  assert.match(ageless(f.root.querySelector('#dash-ap').innerHTML), /<dt>Last check-in<\/dt><dd>just now<\/dd>/);
 });
 
 test('while its paper strategy holds nothing, the autopilot card also says what the autopilot is doing', async () => {
@@ -5513,7 +5515,7 @@ test('Funds says when the demo key\'s balance was read, as it does for Kalshi ca
     const f = frontend({fetchImpl: path => { assert.equal(path, '/api/funds');
       return response({...funds(), kalshi_dev: {connected: true, key_id: 'DEVK…1234', balance: 25, balance_at: at}}); }});
     await f.viewFunds();
-    assert.match(f.root.querySelector('#main').innerHTML, said);
+    assert.match(ageless(f.root.querySelector('#main').innerHTML), said);
   }
 });
 
@@ -6410,6 +6412,7 @@ fundsTrustCases({name: 'Tau', frontend, fundsData: funds, dashboard: emptyDashbo
 demoBookCases({name: 'Tau', frontend, fundsData: funds, dashboard: emptyDashboard, detailStrategy, strategyFrontend});
 fundsWalkCases({name: 'Tau', frontend, fundsData: funds, dashboard: emptyDashboard, detailStrategy, strategyFrontend});
 fundsDisplayCases({name: 'Tau', frontend, fundsData: funds});
+ageTickCases({name: 'Tau', frontend, fundsData: funds, dashboard: emptyDashboard});
 fundsHistoryCases({name: 'Tau', frontend, fundsData: funds});
 fundsLongHistoryCases({name: 'Tau', frontend, fundsData: funds});
 chatPanelCases({name: 'Tau', frontend, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
