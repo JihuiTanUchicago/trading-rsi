@@ -450,4 +450,48 @@ export function chatPanelCases({name, frontend, storageFor}) {
     assert.equal(f.S.ap.mode, 'paper');
   });
 
+  // Walk 2026-11-01 (the status and the model list failing from the start of a visit): Model and markets showed
+  // "Any market" over an account focused on crypto, weather and sports, and an empty model box that stayed empty
+  // after Tau came back. Each now says it didn't load, locked, and fills in when the status next lands.
+  test(`${name}: Model and markets never shows a wrong market focus or a blank model box while their reads fail, and fill in when Tau answers`, async () => {
+    let down = true, modelAsks = 0;
+    const store = new Map([['tau_ap_open', '1']]);
+    const f = frontend({storage: storageFor(store), fetchImpl: (path) => {
+      if (path.startsWith('/api/chat?')) return response({messages: [], agent_busy: false});
+      if (path === '/api/models') { modelAsks++; return down ? response({error: 'Something went wrong on our side. It’s been logged.'}, 500) : response({models: [{key: 'm1', label: 'Model one'}, {key: 'm2', label: 'Model two'}], default: 'm1'}); }
+      if (path === '/api/autopilot/status') return down ? response({error: 'Something went wrong on our side. It’s been logged.'}, 500) : response({autopilot: true, mode: 'paper', paper_running: 1, focus: ['crypto', 'weather', 'sports'], model: 'm2'});
+      if (path === '/api/notifications') return response({items: [], unread: 0});
+      throw new Error('Unexpected offline request: ' + path);
+    }});
+    f.S.me = {...f.S.me, user: {...(f.S.me && f.S.me.user), id: 7, autopilot: true}};
+    f.S.ap = null; f.S.apAt = 0;
+    const box = f.document.createElement('div'); box.id = 'autopilot-float'; f.document.body.appendChild(box);
+    f.renderAutopilot(box, null);
+    await flush(); await flush();
+    assert.equal(await f.refreshAutopilot(box), false);
+    await flush();
+    const focus = box.querySelector('#apf-focus'), model = box.querySelector('#apf-model');
+    for (const sel of [focus, model]) {
+      assert.equal(sel.options.length, 1);
+      assert.match(sel.innerHTML, /Didn’t load\. Tau keeps trying\./);
+      assert.equal(sel.disabled, true);
+    }
+    assert.doesNotMatch(focus.innerHTML, /Any market/);
+    const asked = modelAsks;
+    down = false;
+    assert.equal(await f.refreshAutopilot(box), true);
+    await flush(); await flush(); await flush();
+    assert.equal(modelAsks, asked + 1, 'the model list is asked again once, when the status lands');
+    assert.equal(focus.disabled, false);
+    assert.doesNotMatch(focus.innerHTML, /Didn’t load|selected>Any market/);
+    assert.match(focus.innerHTML, /selected>Only /);
+    assert.equal(model.disabled, false);
+    assert.equal(model.options.length, 2);
+    assert.match(model.innerHTML, /value="m2" selected/);
+    // A status read that lands with everything loaded asks nothing more.
+    assert.equal(await f.refreshAutopilot(box), true);
+    await flush(); await flush();
+    assert.equal(modelAsks, asked + 1);
+  });
+
 }

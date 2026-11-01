@@ -497,34 +497,53 @@ window.TauPage('autopilot', (T) => {
         } catch (e) { if (current()) { sel.value = prev; apNote(box, e.message); } }
         finally { if (current()) { sel.disabled = false; refocus(sel, had); } }
       };
-      apFocusOptions(sel, (S.ap && S.ap.focus) || []);
+      // Before the status has been read (or while its read fails) the saved focus isn't known: the select said "Any
+      // market" over an account set to crypto, weather and sports (walk 2026-11-01, status failing). It says it didn't
+      // load and waits, locked, for the status (apUpdate fills it).
+      if (S.ap && Array.isArray(S.ap.focus)) apFocusOptions(sel, S.ap.focus); else apPrefUnread(sel);
     })();
-    // The autopilot's research, review and chat share its saved model preference.
-    (async () => {
-      const sel = box.querySelector('#apf-model'); if (!sel) return;
-      const current = () => box.isConnected !== false && box.querySelector('#apf-model') === sel;
-      const mdl = await api('/api/models', undefined, { keep: true }).catch(() => ({ models: [], default: '' }));
-      if (!current()) return;
-      const cur = (S.ap && S.ap.model) || mdl.default;
-      sel.innerHTML = (mdl.models || []).filter((m) => m.available !== false).concat((mdl.models || []).filter((m) => m.available === false))
-        .map((m) => `<option value="${esc(m.key)}"${m.key === cur ? ' selected' : ''}${m.available === false ? ' disabled' : ''}>${esc(m.label)}${m.available === false ? ' (coming soon)' : ''}</option>`).join('');
-      sel.onchange = async () => {
-        if (!current() || sel.disabled) return;
-        // As the market select: focus stays on it, and a change that saved says so (it said nothing).
-        const had = document.activeElement === sel;
-        sel.disabled = true;
-        try {
-          const r = await api('/api/autopilot/model', { model: sel.value });
-          if (!current()) return;
-          if (S.ap) S.ap.model = r.model;
-          const m = (mdl.models || []).find((x) => x.key === r.model);
-          // A session already running keeps the model it started with.
-          apFlash(box, `Saved: the autopilot’s next research sessions and chat replies use ${m ? m.label : 'the model you picked'}.`);
-        }
-        catch (e) { if (current()) { sel.value = (S.ap && S.ap.model) || cur; apNote(box, e.message); } }
-        finally { if (current()) { sel.disabled = false; refocus(sel, had); } }
-      };
-    })();
+    apModels(box);
+  }
+  // A choice in Model and markets whose saved value didn't load: one locked line says so, never a blank box or a
+  // wrong pick. Filled in, and unlocked, by the next status read that lands (apUpdate), on the status poll's own pace.
+  const PREF_UNREAD = 'Didn’t load. Tau keeps trying.';
+  function apPrefUnread(sel) {
+    sel.innerHTML = `<option value="" selected>${PREF_UNREAD}</option>`;
+    sel.disabled = true;
+    sel.dataset.unread = '1';
+  }
+  // The autopilot's research, review and chat share its saved model preference. A list that didn't load said
+  // nothing at all (an empty box, for good: walk 2026-11-01); it says so and is asked again when the status next
+  // lands (apUpdate), one ask at a time.
+  async function apModels(box) {
+    const sel = box.querySelector('#apf-model'); if (!sel) return;
+    const current = () => box.isConnected !== false && box.querySelector('#apf-model') === sel;
+    sel.dataset.unread = 'asking';
+    let mdl;
+    try { mdl = await api('/api/models', undefined, { keep: true }); } catch (e) { mdl = null; }
+    if (!current()) return;
+    if (!mdl) { apPrefUnread(sel); return; }
+    delete sel.dataset.unread;
+    sel.disabled = false;
+    const cur = (S.ap && S.ap.model) || mdl.default;
+    sel.innerHTML = (mdl.models || []).filter((m) => m.available !== false).concat((mdl.models || []).filter((m) => m.available === false))
+      .map((m) => `<option value="${esc(m.key)}"${m.key === cur ? ' selected' : ''}${m.available === false ? ' disabled' : ''}>${esc(m.label)}${m.available === false ? ' (coming soon)' : ''}</option>`).join('');
+    sel.onchange = async () => {
+      if (!current() || sel.disabled) return;
+      // As the market select: focus stays on it, and a change that saved says so (it said nothing).
+      const had = document.activeElement === sel;
+      sel.disabled = true;
+      try {
+        const r = await api('/api/autopilot/model', { model: sel.value });
+        if (!current()) return;
+        if (S.ap) S.ap.model = r.model;
+        const m = (mdl.models || []).find((x) => x.key === r.model);
+        // A session already running keeps the model it started with.
+        apFlash(box, `Saved: the autopilot’s next research sessions and chat replies use ${m ? m.label : 'the model you picked'}.`);
+      }
+      catch (e) { if (current()) { sel.value = (S.ap && S.ap.model) || cur; apNote(box, e.message); } }
+      finally { if (current()) { sel.disabled = false; refocus(sel, had); } }
+    };
   }
   // A control that was locked for a save gets focus back, unless the reader has moved it somewhere since.
   function refocus(el, had) {
@@ -656,9 +675,12 @@ window.TauPage('autopilot', (T) => {
     if (sayEl && pulseEl.apSaid !== idleSay) { pulseEl.apSaid = idleSay; sayEl.textContent = idleSay; }
     const lastEl = box.querySelector('#apf-last'); if (lastEl) lastEl.innerHTML = d.autopilot ? apLastHtml(d.last_action) : '';
     const week = box.querySelector('#apf-week'); if (week) repaintKeep(week, (open) => d.autopilot ? apWeek(d.week, d, open, true) : apOffCost(d, 'ap-week-left'));
-    const msel = box.querySelector('#apf-model'); if (msel && msel.options.length && d.model && document.activeElement !== msel && !msel.disabled) msel.value = d.model;
+    const msel = box.querySelector('#apf-model');
+    if (msel && msel.dataset.unread === '1') apModels(box);  // its list didn't load: asked again now Tau answers
+    else if (msel && !msel.dataset.unread && msel.options.length && d.model && document.activeElement !== msel && !msel.disabled) msel.value = d.model;
     if (Array.isArray(d.focus)) apFocusPaint(box, d.focus);
     const fsel = box.querySelector('#apf-focus');
+    if (fsel && fsel.dataset.unread && Array.isArray(d.focus)) { delete fsel.dataset.unread; fsel.disabled = false; apFocusOptions(fsel, d.focus); }
     if (fsel && Array.isArray(d.focus) && document.activeElement !== fsel && !fsel.disabled && fsel.dataset.cur !== d.focus.join(',')) apFocusOptions(fsel, d.focus);
     const gates = box.querySelector('#apf-gates');
     if (gates) {
