@@ -607,4 +607,97 @@ export function bellCases({name, frontend, detailStrategy}) {
     assert.equal(menu.hidden, true); assert.equal(trig.focusOptions, undefined);
     f.clearTimers && f.clearTimers();
   });
+
+  // Walk 2026-11-01, an account with 300 notices: the bell never said how many there were, opening a list kept over 15
+  // seconds marked it read twice, a research session deleted since opened "Not found", and the summary said "69 new;
+  // the newest 100:" over parts adding up to 49.
+  test(`${name}: with older notices past its lines the bell says how many there are and how many it shows, counting on to the last`, async () => {
+    const at = ago(3 * 86400e3);
+    const newest = [
+      {id: 300, kind: 'comment', body: 'Ana replied to your post.', link: '/community#post-9', created_at: ago(60e3), read: false, more: 2, alike: true, from: [], from_more: 0},
+      {id: 297, kind: 'deployed', body: 'New.', link: '/strategies/3', created_at: ago(120e3), read: false, more: 0}];
+    const pages = {
+      296: () => response({items: [{id: 296, kind: 'passed', body: 'Older.', link: '/strategies/6', created_at: at, read: true, more: 4}], older: true, next_before: 291}),
+      291: () => response({items: [{id: 20, kind: 'share', body: 'Oldest.', link: null, created_at: at, read: true, more: 0}], older: false, next_before: null}),
+    };
+    const f = dashboard({unread: 3, unread_listed: 3, older: true, next_before: 296, total: 10, items: newest}, (path) => {
+      const m = /^\/api\/notifications\?before=(\d+)$/.exec(path);
+      return m ? pages[m[1]]() : undefined;
+    });
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const list = f.root.querySelector('#bell-list');
+    await f.root.querySelector('.bell-trig').onclick({stopPropagation() {}}); await settle();
+    // Two lines standing for four notices (a reply line with 2 more), of 10.
+    assert.equal(list.querySelector('.bell-count').textContent, 'Showing the newest 4 of 10 notices.');
+    assert.equal(list.querySelector('.bell-older').textContent, 'Older notices aren’t listed here.');
+    const press = async () => { list.listeners.get('click')({target: list.querySelector('[data-bell-more]')}); await settle(); };
+    await press();
+    assert.equal(list.querySelector('.bell-count').textContent, 'Showing the newest 9 of 10 notices.');
+    await press();
+    assert.equal(list.querySelector('.bell-end').textContent, 'No older notices. All 10 are listed.');
+    assert.equal(list.querySelector('.bell-count'), null);
+    f.clearTimers && f.clearTimers();
+
+    // Every notice listed: no count to give. A server that sends no total: the notes as before.
+    for (const [d, count] of [[{total: 2, older: false}, null], [{older: true}, null], [{total: 2, older: true}, null]]) {
+      const g = dashboard({unread: 0, items: structuredClone(newest).map((n) => ({...n, more: 0})), ...d});
+      g.location.pathname = '/';
+      await g.render(); await settle();
+      assert.equal(g.root.querySelector('.bell-count'), count, JSON.stringify(d));
+      g.clearTimers && g.clearTimers();
+    }
+  });
+
+  test(`${name}: a notice about a research session deleted since says so as text, not a link to Not found`, async () => {
+    const f = dashboard({unread: 0, items: [
+      {id: 9, kind: 'research_done', body: 'Your research session on NYC daily high temperature finished. 2 of 5 ideas passed.', link: '/research/58', created_at: ago(60e3), read: true, more: 0, gone: true},
+      {id: 8, kind: 'research_done', body: 'Your research session finished.', link: '/research/28', created_at: ago(120e3), read: true, more: 0, gone: false},
+      {id: 7, kind: 'share', body: 'Sam shared the strategy “Drift” with you.', link: '/strategies/14', created_at: ago(180e3), read: true, more: 0, gone: true}]});
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const wrap = f.root.querySelector('.bell-wrap');
+    assert.deepEqual(wrap.querySelectorAll('a.notif').map((a) => a.getAttribute('href')), ['/research/28']);
+    const plain = wrap.querySelectorAll('p.notif');
+    assert.match(plain[0].innerHTML, /2 of 5 ideas passed\.<span class="notif-more">This research session has been deleted\.<\/span>/);
+    assert.doesNotMatch(plain[0].innerHTML, /research\/58/);
+    assert.match(plain[1].innerHTML, /<span class="notif-more">This strategy is no longer in your list\.<\/span>/);
+    f.clearTimers && f.clearTimers();
+  });
+
+  test(`${name}: opening a list kept a while marks it read once, after the fresh read, and only up to the newest notice shown`, async () => {
+    // The server still has them unread when the fresh read comes back: the write that went out as the list opened
+    // hadn't landed. The old bell sent a second one then.
+    const notes = () => response(structuredClone({unread: 2, items: [
+      {id: 8, kind: 'paused', body: '“Edge” was paused automatically.', link: '/strategies/7', created_at: ago(30e3), read: false, more: 0},
+      {id: 5, kind: 'comment', body: 'Ana replied to your post.', link: '/community#post-4', created_at: ago(90e3), read: false, more: 1}]}));
+    const f = dashboard(notes);
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    const trig = f.root.querySelector('.bell-trig');
+    const marks = () => f.requests.filter(({path}) => path === '/api/notifications/read');
+    f.shiftClock(20e3);  // kept over BELL_OPEN_FRESH_MS: opening reads it again
+    await trig.onclick({stopPropagation() {}}); await settle();
+    assert.equal(notesRead(f), 2);
+    assert.equal(marks().length, 1, 'one write per open');
+    assert.deepEqual(JSON.parse(marks()[0].options.body), {upto: 8}, 'a notice that came in after this read stays new');
+    assert.equal(f.root.querySelector('.bell-dot').hidden, true);
+    await trig.onclick({stopPropagation() {}}); await settle();
+    // Fresh: marked as it opens, once, as before.
+    const g = dashboard(notes);
+    g.location.pathname = '/';
+    await g.render(); await settle();
+    await g.root.querySelector('.bell-trig').onclick({stopPropagation() {}}); await settle();
+    assert.equal(g.requests.filter(({path}) => path === '/api/notifications/read').length, 1);
+    f.clearTimers && f.clearTimers(); g.clearTimers && g.clearTimers();
+  });
+
+  test(`${name}: the summary names the newest new notices its parts stand for`, async () => {
+    const items = [1, 2, 3, 4].map((i) => ({id: i, kind: 'deployed', body: `Notice ${i}.`, link: null, created_at: ago(i * 60e3), read: false, more: 0}));
+    const f = dashboard({items, unread: 69, unread_kinds: {deployed: 40, comment: 9}, unread_kinds_of: 100});
+    f.location.pathname = '/';
+    await f.render(); await settle();
+    assert.equal(f.root.querySelector('.bell-sum').textContent, '69 new; the newest 49: 40 strategies put on paper · 9 comments');
+    f.clearTimers && f.clearTimers();
+  });
 }

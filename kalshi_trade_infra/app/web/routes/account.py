@@ -72,11 +72,11 @@ def notifications(ctx: Ctx):
     except (TypeError, ValueError):
         before = 0
     # One row past the window says, in the same read, whether any notice is older than the bell lists (`older`);
-    # the first page's unread count rides the same statement.
+    # the first page's unread count and count of every notice ride the same statement.
     if before:
-        listed, unread = repo.list_notifications(ctx.cur, ctx.uid, limit=bell.READ_ROWS + 1, before=before), None
+        listed, unread, total = repo.list_notifications(ctx.cur, ctx.uid, limit=bell.READ_ROWS + 1, before=before), None, None
     else:
-        listed, unread = repo.notifications_first_page(ctx.cur, ctx.uid, bell.READ_ROWS + 1)
+        listed, unread, total = repo.notifications_first_page(ctx.cur, ctx.uid, bell.READ_ROWS + 1)
     read = customer_text.notification_rows(listed)
     rows = read[:bell.READ_ROWS]
     items, older, next_before = bell.page(read)
@@ -90,11 +90,21 @@ def notifications(ctx: Ctx):
             # notices reads the next page with ?before=next_before (a cursor, never shown).
             "older": older, "next_before": next_before,
             # Unread notices the listed lines stand for: `unread` past them are older ones, said under the list.
-            "unread_listed": bell.unread_listed(rows, items)}
+            "unread_listed": bell.unread_listed(rows, items),
+            # Every notice the user has: with older ones past the lines, the bell says how many of them it shows
+            # ("Showing the newest 22 of 300 notices"), and when Show older notices has listed them all.
+            "total": total}
 
 
 def mark_notifications_read(ctx: Ctx):
-    repo.mark_notifications_read(ctx.cur, ctx.uid)
+    """Opening the bell marks what it showed read: {"upto": the newest notice id it listed} leaves one that arrived
+    after the list was read unread, for the next open to show. Without it (a tab loaded before it was sent), every
+    unread notice."""
+    try:
+        upto = max(0, int((getattr(ctx, "body", None) or {}).get("upto") or 0))
+    except (TypeError, ValueError, AttributeError):
+        upto = 0
+    repo.mark_notifications_read(ctx.cur, ctx.uid, upto or None)
     return {"ok": True}
 
 

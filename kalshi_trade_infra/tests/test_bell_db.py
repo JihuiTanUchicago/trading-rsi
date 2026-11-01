@@ -121,3 +121,44 @@ def test_a_notice_about_a_strategy_no_longer_the_users_reads_gone_in_the_same_re
     # Newest first: no link, Billing, a post, another user's strategy, the deleted one, the kept one.
     assert [bool(r["gone"]) for r in rows] == [False, False, False, True, True, False]
     assert rows[-1]["body"] == "“Kept” passed."
+
+
+def test_a_notice_about_a_research_session_no_longer_there_reads_gone_in_the_same_read(conn):
+    # Walk 2026-11-01: a research_done notice outlived its session and opened "Not found".
+    from app import repository as repo
+
+    cur = conn.cursor()
+    uid, other = _user(cur), _user(cur)
+    kept = repo.create_run(cur, uid, "research", "btc15m", None, "Kept")
+    dropped = repo.create_run(cur, uid, "research", "btc15m", None, "Dropped")
+    theirs = repo.create_run(cur, other, "research", "btc15m", None, "Theirs")
+    for rid in (kept, dropped, theirs):
+        repo.add_notification(cur, uid, "research_done", "Your research session finished.", "/research/%d" % rid)
+    repo.add_notification(cur, uid, "comment", "Ana replied to your post.", "/community#post-4")
+    repo.add_notification(cur, uid, "share", "An old notice.", "/research")
+    cur.execute("DELETE FROM app_agent_runs WHERE id=%s", (dropped,))
+    rows = repo.list_notifications(cur, uid, limit=10)
+    # Newest first: the bare Research link, a post, another user's session, the deleted one, the kept one.
+    assert [bool(r["gone"]) for r in rows] == [False, False, True, True, False]
+    assert [bool(r["gone"]) for r in repo.notifications_first_page(cur, uid, 10)[0]] == [False, False, True, True, False]
+    older = repo.list_notifications(cur, uid, limit=10, before=rows[1]["id"])
+    assert [bool(r["gone"]) for r in older] == [True, True, False], "an older page reads it as the first does"
+
+
+def test_marking_read_up_to_a_notice_leaves_a_newer_one_unread(conn):
+    from app import repository as repo
+
+    cur = conn.cursor()
+    uid, other = _user(cur), _user(cur)
+    shown = [repo.add_notification(cur, uid, "comment", "Ana replied to your post.", "/community#post-4") for _ in range(3)]
+    late = repo.add_notification(cur, uid, "comment", "Bo replied to your post.", "/community#post-4")
+    theirs = repo.add_notification(cur, other, "comment", "Theirs.", "/community#post-5")
+    assert repo.mark_notifications_read(cur, uid, upto=shown[-1]) == 3
+    cur.execute("SELECT id FROM app_notifications WHERE user_id IN (%s,%s) AND read_at IS NULL ORDER BY id", (uid, other))
+    assert [r["id"] for r in cur.fetchall()] == [late, theirs]
+    # The write reads the user's (user_id, read_at, id) index: unread and up to the id, a range of it.
+    cur.execute("EXPLAIN UPDATE app_notifications SET read_at=NOW() WHERE user_id=%s AND read_at IS NULL AND id<=%s",
+                (uid, shown[-1]))
+    assert [p["key"] for p in cur.fetchall()] == ["idx_notif_user"]
+    assert repo.mark_notifications_read(cur, uid) == 1  # no upto: every unread one, as before
+    assert repo.count_unread_notifications(cur, uid) == 0 and repo.count_unread_notifications(cur, other) == 1

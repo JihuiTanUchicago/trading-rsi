@@ -1131,7 +1131,8 @@
     // The parts count the newest notices the server read (unread_kinds_of, 100), the lead count every unread one:
     // "131 new: 50 strategies put on paper · 50 comments" added up to 100. Past that window it says which it covers.
     const covered = Object.values(by).reduce((a, n) => a + (+n || 0), 0);
-    return `<p class="bell-sum">${num(d.unread)} new${covered < d.unread ? `; the newest ${num(+d.unread_kinds_of || covered)}` : ''}: ${parts.join(SEP)}</p>`;
+    // They are the newest `covered` new ones: "69 new; the newest 100:" read over parts that added up to 49.
+    return `<p class="bell-sum">${num(d.unread)} new${covered < d.unread ? `; the newest ${num(covered)}` : ''}: ${parts.join(SEP)}</p>`;
   }
   async function wireBell() {
     const wrap = root.querySelector('.bell-wrap');
@@ -1154,6 +1155,10 @@
     // without a page to open is plain text, not a link to nowhere. One about a strategy that is no longer the user's (the server's `gone`: deleted since, as a shared copy can be) says so,
     // as text: its link opened "Not found" (walk 2026-10-31).
     const BELL_GONE = 'This strategy is no longer in your list.';
+    // A research session finished notice outlives its session: the server marks it gone too, and it says so plainly
+    // instead of opening "Not found" (walk 2026-11-01).
+    const BELL_GONE_RUN = 'This research session has been deleted.';
+    const goneText = (n) => (/^\/research\//.test(n.link || '') ? BELL_GONE_RUN : BELL_GONE);
     const BELL_OLDER = 'Older notices aren\u2019t listed here';
     // The count is every unread notice, the lines the newest 20: with 47 new and 20 lines it said only that older
     // ones aren't listed, so the count read as wrong. It says how many of them are new (the server's unread_listed),
@@ -1165,7 +1170,7 @@
     // A control a tap or Tab can leave focus on; a container focused only by script (tabindex="-1") is none.
     const takesFocus = (el) => { const t = el && el.getAttribute ? el.getAttribute('tabindex') : null; return !!el && (/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(el.tagName || '') ? t !== '-1' : t != null && +t >= 0); };
     const item = (n) => {
-      const inner = `${n.read ? '' : '<span class="vh notif-new">New: </span>'}${esc(n.body)}${n.gone ? `<span class="notif-more">${BELL_GONE}</span>` : ''}${n.more ? `<span class="notif-more">${esc(bellMore(n))}</span>` : ''}${bellTime(n.created_at)}`;
+      const inner = `${n.read ? '' : '<span class="vh notif-new">New: </span>'}${esc(n.body)}${n.gone ? `<span class="notif-more">${goneText(n)}</span>` : ''}${n.more ? `<span class="notif-more">${esc(bellMore(n))}</span>` : ''}${bellTime(n.created_at)}`;
       return !n.gone && /^\/(?!\/)/.test(n.link || '') ? `<a class="notif ${n.read ? '' : 'unread'}" href="${esc(n.link)}">${inner}</a>` : `<p class="notif ${n.read ? '' : 'unread'}">${inner}</p>`;
     };
     // Show older notices, under the list when older ones are past it: the next page of the same read (?before=, the
@@ -1174,6 +1179,13 @@
     // press only). A read: nothing is marked read by it. A repaint (a fresh list) drops a page still reading.
     const BELL_MORE = 'Show older notices';
     let olderAt = null, paints = 0;
+    // With older notices past the lines, the foot says how many there are (the server's `total`) and how many the
+    // lines stand for (a grouped line is 1 + its `more`), and Show older notices counts on; a server that sends no
+    // total shows the note alone.
+    let listed = 0, total = null;
+    const rowsOf = (items) => items.reduce((a, n) => a + 1 + (+n.more || 0), 0);
+    const countText = () => `Showing the newest ${num(listed)} of ${num(total)} notices.`;
+    const countLine = () => (total != null && total > listed ? `<p class="bell-empty bell-count">${countText()}</p>` : '');
     const moreFoot = (note) => `<div class="bell-foot">${note}<p class="bell-more-note" role="status"></p><button type="button" class="btn sm bell-more" data-bell-more>${BELL_MORE}</button></div>`;
     const showOlder = async (btn) => {
       const foot = btn.closest('.bell-foot'), note = foot && foot.querySelector('.bell-more-note');
@@ -1192,6 +1204,8 @@
       const added = [...hold.children];
       added.forEach((n) => list.insertBefore(n, foot));
       drawn.list = null;
+      listed += rowsOf(d.items);
+      const count = foot.querySelector('.bell-count'); if (count) count.textContent = countText();
       const first = added[0];
       const old = foot.querySelector('.bell-older'); if (old) old.remove();  // they are listed now, as far as they go
       btn.textContent = BELL_MORE;
@@ -1199,7 +1213,7 @@
       if (first) first.focus({ preventScroll: true });
       if (!done) return;
       if (!first) menu.focus({ preventScroll: true });  // off the button before it goes
-      foot.innerHTML = '<p class="bell-empty bell-end" tabindex="-1">No older notices.</p>';
+      foot.innerHTML = `<p class="bell-empty bell-end" tabindex="-1">No older notices.${total != null ? ` All ${num(listed)} are listed.` : ''}</p>`;
       if (!first) foot.querySelector('.bell-end').focus({ preventScroll: true });
     };
     // The minute's read (bellFresh) drew the bell again with the same list: each part is written only when it changed.
@@ -1208,6 +1222,7 @@
     const drawn = { head: null, list: null };
     const paint = (d) => {
       olderAt = d.older && d.next_before ? d.next_before : null;
+      listed = rowsOf(d.items); total = typeof d.total === 'number' ? d.total : null;
       if (dot.hidden !== !d.unread) dot.hidden = !d.unread;
       const label = d.unread ? `Notifications, ${num(d.unread)} unread` : 'Notifications';  // the dot alone is colour
       if (trig.getAttribute('aria-label') !== label) trig.setAttribute('aria-label', label);
@@ -1217,7 +1232,7 @@
       // And where the research it doesn't ring for shows: opened just after autopilot started its first session, the empty
       // bell left a new account wondering whether anything had started (walk 2026-11-01).
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
-      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card. It rings when a research session you started finishes, too: <a class="bell-go" href="/research">Research</a> shows each one as it runs.</p>`;
+      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`${countLine()}<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `${countLine()}<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card. It rings when a research session you started finishes, too: <a class="bell-go" href="/research">Research</a> shows each one as it runs.</p>`;
       if (drawn.list === listHtml) return;
       if (ageOnly(list, drawn.list, listHtml)) { drawn.list = listHtml; return; }
       paints++; drawn.list = listHtml; list.innerHTML = listHtml;
@@ -1246,8 +1261,9 @@
     const seen = () => {
       if (menu.hidden || !data || !data.unread) return;
       const was = data, unread = data.unread, fresh = data.items.filter((n) => !n.read);
+      const upto = data.items.reduce((a, n) => Math.max(a, +n.id || 0), 0);
       data.unread = 0; fresh.forEach((n) => { n.read = true; }); dot.hidden = true; trig.setAttribute('aria-label', 'Notifications');
-      api('/api/notifications/read', {}).catch(() => {
+      api('/api/notifications/read', upto ? { upto } : {}).catch(() => {
         if (data !== was) return;  // a newer read already says what the server has
         data.unread = unread; fresh.forEach((n) => { n.read = false; });
         if (menu.hidden) paint(data); else { dot.hidden = false; trig.setAttribute('aria-label', `Notifications, ${num(unread)} unread`); }
@@ -1279,12 +1295,16 @@
       // A list read a while ago is read again as it opens: the bell's own read comes at most once a minute, so a
       // strategy the autopilot had just put on paper (the dashboard already said so) opened as “No notifications
       // yet” (walk 2026-10-28). The kept list shows at once; focus waits on the list while it reads, as Try again's does.
+      // It is marked read once: as it opens, or for a list read again, when that read is in (it went out once
+      // before the read and once after, walk 2026-11-01). A read that fails marks the kept list it shows.
       const old = data && Date.now() - dataAt > BELL_OPEN_FRESH_MS;
       if (old) menu.focus({ preventScroll: true }); else focusIn();
-      seen();
-      if (!old) return;
+      if (!old) { seen(); return; }
       bellReqAt = 0;
-      if (await load() && !menu.hidden) { focusIn(); seen(); }
+      const ok = await load();
+      if (menu.hidden) return;
+      if (ok) focusIn();
+      seen();
     };
     // Focus waits on the list itself while it reads: the browser blurs a button that goes disabled or is
     // painted over, and focus leaving the bell closes the list.

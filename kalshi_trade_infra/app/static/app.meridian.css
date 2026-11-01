@@ -267,6 +267,8 @@ th .info { vertical-align: 0; }
 /* Show older notices, under the list: a full-width control (44px on a phone), and a line above it only when a read
    failed (its live region stays in place, empty and flat, so the failure is announced). */
 .bell-foot .bell-older { padding-bottom: 8px; }
+.bell-count { padding-bottom: 4px; color: var(--ink-2); }
+.bell-count + .bell-older { padding-top: 0; }
 .bell-more-note { margin: 0; padding: 10px 9px 4px; font-size: 12px; line-height: 1.4; color: var(--ink-2); text-transform: none; letter-spacing: normal; white-space: normal; }
 .bell-more-note:empty { padding: 0; }
 .bell-foot .bell-more { display: block; width: calc(100% - 18px); margin: 4px 9px 9px; white-space: normal; }

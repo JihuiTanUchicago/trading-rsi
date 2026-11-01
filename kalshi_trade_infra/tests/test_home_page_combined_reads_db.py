@@ -3,7 +3,8 @@ test_app_engine_db.py (APP_TEST_MYSQL=1).
 
 A signed-in page's shell and the dashboard ask in one statement what they used to ask in two or three:
   - repo.account_reads (/api/me): kalshi_keys_saved, get_stripe_customer and credit_balance;
-  - repo.notifications_first_page (the bell, on every shell): list_notifications' first page and count_unread_notifications;
+  - repo.notifications_first_page (the bell, on every shell): list_notifications' first page, count_unread_notifications
+    and the count of every notice;
   - repo.kalshi_key_ids (Funds): the key ids get_kalshi_key and get_kalshi_dev_key read;
   - repo.ledger_rows_with_balance (Funds): ledger_rows and paper_balance;
   - repo.book_versions (the dashboard): positions_version and paper_ledger_version;
@@ -109,10 +110,11 @@ def test_the_bells_first_page_carries_the_unread_count_in_one_statement(conn):
         if read:
             cur.execute("UPDATE app_notifications SET read_at=%s WHERE user_id=%s ORDER BY id LIMIT %s",
                         (repo.now_utc(), uid, read))
-        rows, unread = repo.notifications_first_page(cur, uid, bell.READ_ROWS + 1)
+        rows, unread, total = repo.notifications_first_page(cur, uid, bell.READ_ROWS + 1)
         assert rows == repo.list_notifications(cur, uid, limit=bell.READ_ROWS + 1)
         assert unread == repo.count_unread_notifications(cur, uid) == n - read
-        assert all("unread_all" not in r for r in rows)
+        assert total == n, "every notice the user has, past the window too, and none of another user's"
+        assert all("unread_all" not in r and "total_all" not in r for r in rows)
 
 
 def test_funds_key_ids_and_ledger_with_balance_say_what_the_single_reads_say(conn):
