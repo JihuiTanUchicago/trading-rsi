@@ -71,6 +71,25 @@ export function runLogCases({name, frontend, longFeed, runEvent}) {
     assert.equal(span.textContent, 'Showing every entry since the session started.');
   });
 
+  test(`${name}: the line over a cut log says how many entries or lines there are in all`, async () => {
+    // "Showing the latest 60 entries" gave no total (walk 2026-11-01). Every line read, the first paint holding the oldest
+    // rows: the entries in all. Earlier steps on the server: the lines the session has logged (the server's earlier.lines,
+    // plus each poll's), since an entry groups lines the page hasn't read.
+    let f = frontend(), {stream, span} = longFeed(f);
+    stream.push(Array.from({length: 120}, (_, i) => runEvent(i + 1, 'step', `Step ${i + 1}`)));
+    assert.equal(span.textContent, 'Showing the latest 60 of 120 entries; earlier ones open at the top.');
+    ({stream, span} = longFeed(f = frontend()));
+    stream.push(Array.from({length: 120}, (_, i) => runEvent(i + 2901, 'step', `Step ${i + 2901}`)));
+    stream.older(2901, async () => ({events: [], more: false}), 3020);
+    assert.equal(span.textContent, 'Showing the latest 60 entries; earlier ones open at the top. The session has logged 3,020 lines in all.');
+    stream.push([runEvent(3021, 'step', 'Step 3021'), runEvent(3022, 'thinking', 'and so on', {block: 1})]);  // a poll's lines
+    assert.match(span.textContent, /The session has logged 3,022 lines in all\.$/);
+    ({stream, span} = longFeed(f = frontend()));
+    stream.push(Array.from({length: 120}, (_, i) => runEvent(i + 101, 'step', `Step ${i + 101}`)));
+    stream.older(101, async () => ({events: [], more: false}));  // no count from the server: the line as before
+    assert.equal(span.textContent, 'Showing the latest 60 entries; earlier ones open at the top.');
+  });
+
   test(`${name}: a page of earlier steps from another day takes its own day line, and one from the same day moves it up`, async () => {
     const f = frontend(), {stream, log} = longFeed(f);
     const d2 = '2026-10-17T12:00:00Z', d1 = '2026-10-16T12:00:00Z';

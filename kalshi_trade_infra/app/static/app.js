@@ -826,8 +826,9 @@
     // A bell notice opens its page at what it is about (app/services/bell.py adds it to the link: a pause at the
     // strategy's Since deploying, a failed auto-reload at Billing's notice of it). On a phone both sat screens
     // below the heading that took focus. A page without that part (none deployed, the notice cleared) starts at its heading.
-    // The same page drawn again keeps its place, unless a notice about it was opened there (its hash is new).
-    const spot = (!again || newHash) && !(a && a !== document.body && a.isConnected !== false) && ARRIVE_AT.has(hash.slice(1)) ? root.querySelector(hash) : null;
+    // The same page drawn again keeps its place, unless a notice about it was opened there (its hash is new, or its query:
+    // Billing open at one failed auto-reload's notice, then another's from the bell, ?notice= alone changes).
+    const spot = (!again || moved || newHash) && !(a && a !== document.body && a.isConnected !== false) && ARRIVE_AT.has(hash.slice(1)) ? root.querySelector(hash) : null;
     if (spot && spot.focus && !(spot.closest && spot.closest('[hidden]'))) {
       if (spot.getAttribute('tabindex') == null) spot.setAttribute('tabindex', '-1');
       spot.focus({ preventScroll: true }); if (spot.scrollIntoView) spot.scrollIntoView({ block: 'start' });

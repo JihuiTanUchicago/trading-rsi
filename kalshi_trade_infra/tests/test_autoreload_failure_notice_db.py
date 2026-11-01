@@ -100,8 +100,10 @@ def test_a_failing_card_rings_the_bell_once_and_billing_says_why_until_it_is_fix
             "Research pauses when your credits run out.") in text and "/billing\n" in text
     assert not any(s in text for s in ("req_Z9", "pm_fail", customer, "pi_", "reload-%s" % uid, "list price"))
     bell = server.notifications(ctx())
-    # Stored as /billing; the bell opens it at Billing's notice of the failure (bell.shown_link).
-    assert bell["unread"] >= 1 and any(i["kind"] == "reload_failed" and i["link"] == "/billing#autorel-fail" for i in bell["items"])
+    # Stored as /billing; the bell opens it at Billing's notice of that failure, by its own id (bell.shown_link).
+    [only] = notices()
+    assert bell["unread"] >= 1 and any(i["kind"] == "reload_failed" and i["link"] == "/billing?notice=%d#autorel-fail" % only["id"]
+                                       for i in bell["items"])
 
     state = server.billing_state(ctx())
     assert state["reload_failed"]["text"] == "It couldn’t add $25.00 in credits. That card has expired. Add a current card and try again."
@@ -155,3 +157,56 @@ def test_a_failing_card_rings_the_bell_once_and_billing_says_why_until_it_is_fix
     assert not notices() and server.billing_state(ctx())["reload_failed"] is None
     assert server.me(ctx())["reload_failed"] is None
     assert repo.get_stripe_customer(cur, uid)["default_pm_id"] == "pm_new"
+
+
+def test_each_failed_reload_notice_opens_billing_at_its_own_failure_and_what_came_after_it(conn, monkeypatch):
+    # Every "Auto-reload couldn't add..." notice opened the newest failure's banner (walk 2026-11-01). Billing opened from one
+    # (?notice=<id>) reads that notice and what came first after it, in one statement (repo.reload_failure), on MySQL.
+    from app import repository as repo
+    from app import server
+    from app.adapters.stripe import billing
+
+    monkeypatch.setattr(billing, "STRIPE_SECRET_KEY", "sk_test_reload_notice")
+    monkeypatch.setattr(billing, "_stripe", lambda *a, **k: pytest.fail("a Stripe call escaped the stubs: %r" % (a,)))
+    monkeypatch.setattr(billing, "list_cards", lambda customer_id: [])
+    cur = conn.cursor()
+    uid = repo.upsert_google_user(cur, "test:" + uuid.uuid4().hex, "rn-%s@example.com" % uuid.uuid4().hex[:8], "N", None)["id"]
+    other = repo.upsert_google_user(cur, "test:" + uuid.uuid4().hex, "rn-%s@example.com" % uuid.uuid4().hex[:8], "O", None)["id"]
+    repo.save_stripe_customer(cur, uid, "cus_" + uuid.uuid4().hex[:14])
+    now = repo.now_utc().replace(microsecond=0, tzinfo=None)
+    day = timedelta(days=1)
+
+    def notice(kind, amount, ago, who=uid):
+        nid = repo.add_notification(cur, who, kind, billing.reload_failed_body(Decimal(amount), billing.CARD_DECLINED), "/billing")
+        cur.execute("UPDATE app_notifications SET created_at=%s WHERE id=%s", (now - ago, nid))
+        return nid
+
+    def reload_ok(ago):
+        cur.execute("INSERT INTO app_credit_ledger (user_id, kind, amount_usd, memo, stripe_ref, created_at) VALUES (%s,'autoreload',20,"
+                    "'Auto-reload',%s,%s)", (uid, "pi_rn_%s" % uuid.uuid4().hex[:10], now - ago))
+
+    first = notice("reload_failed", "20", 40 * day)
+    reload_ok(33 * day)
+    second = notice("reload_failed", "50", 25 * day)
+    third = notice("reload_failed", "25", 12 * day)
+    reload_ok(8 * day)
+    latest = notice("reload_failed", "1000", timedelta(hours=2))
+    stranger = notice("reload_failed", "20", 3 * day, who=other)
+    passed = notice("passed", "20", 3 * day)
+
+    def state(n):
+        return server.billing_state(server.Ctx(conn, repo.get_user(cur, uid), (), {"notice": str(n)}, {}, None))
+
+    banner = state(0)
+    assert banner["reload_failed"]["notice"] == latest and "reload_notice" not in banner
+    was = state(first)["reload_notice"]
+    assert was["text"] == "It couldn’t add $20.00 in credits. " + billing.CARD_DECLINED
+    assert (str(was["at"])[:19], str(was["ok_at"])[:19], str(was["next_at"])[:19]) == tuple(
+        str(t)[:19].replace("T", " ") for t in (now - 40 * day, now - 33 * day, now - 25 * day))
+    assert state(second)["reload_notice"]["ok_at"] is not None and state(second)["reload_notice"]["text"].startswith("It couldn’t add $50.00")
+    assert state(third)["reload_notice"]["text"].startswith("It couldn’t add $25.00")
+    assert str(state(third)["reload_notice"]["next_at"])[:10] == str(now - timedelta(hours=2))[:10]
+    # The banner's own notice, someone else's, another kind, none at all: nothing beside the banner.
+    for n in (latest, stranger, passed, 99999999):
+        assert "reload_notice" not in state(n), n
+    assert state(first)["reload_failed"]["notice"] == latest  # the banner is unchanged by which notice opened the page

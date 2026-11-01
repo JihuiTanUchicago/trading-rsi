@@ -236,7 +236,7 @@ def test_billing_shows_the_last_failure_until_an_auto_reload_succeeds(monkeypatc
     monkeypatch.setattr(repo, "last_credit_at", lambda cur, uid, kind: ok_at[0] if kind == "autoreload" else pytest.fail(kind))
     # Read in the bell or not, Billing still says it: it is about the card, not the bell.
     assert billing_routes._reload_failed(object(), UID) == {
-        "at": NOW, "text": "It couldn’t add $20.00 in credits. " + billing.CARD_DECLINED}
+        "at": NOW, "notice": 3, "text": "It couldn’t add $20.00 in credits. " + billing.CARD_DECLINED}
     for older in (NOW - timedelta(minutes=5), NOW):  # an older success (or one in the same second) keeps it
         ok_at[0] = older
         assert billing_routes._reload_failed(object(), UID)["at"] == NOW
@@ -244,6 +244,26 @@ def test_billing_shows_the_last_failure_until_an_auto_reload_succeeds(monkeypatc
     assert billing_routes._reload_failed(object(), UID) is None
     monkeypatch.setattr(repo, "latest_notification", lambda *a: (_ for _ in ()).throw(RuntimeError("db gone")))
     assert billing_routes._reload_failed(object(), UID) is None  # a readout: never a broken page
+
+
+def test_billing_opened_from_an_older_failure_notice_says_that_failure_not_the_latest(monkeypatch):
+    # Every failed auto-reload notice opened the newest failure's banner (walk 2026-11-01): Billing opened from one
+    # (?notice=) says that one, in its notice's own words, and what came first after it.
+    repo = billing_routes.repo
+    older = {"id": 2, "body": billing.reload_failed_body(Decimal("25"), billing.CARD_DECLINED), "created_at": NOW - timedelta(days=9),
+             "ok_at": NOW - timedelta(days=4), "next_at": None}
+    asked = []
+    monkeypatch.setattr(repo, "reload_failure", lambda cur, uid, nid, kind: asked.append((uid, nid, kind)) or (older if nid == 2 else None))
+    shown = {"at": NOW, "notice": 3, "text": "It couldn’t add $1,000.00 in credits."}
+    assert billing_routes._reload_notice(object(), UID, 2, shown) == {
+        "at": NOW - timedelta(days=9), "text": "It couldn’t add $25.00 in credits. " + billing.CARD_DECLINED,
+        "ok_at": NOW - timedelta(days=4), "next_at": None}
+    assert asked == [(UID, 2, "reload_failed")]
+    assert billing_routes._reload_notice(object(), UID, 3, shown) is None  # the banner's own: nothing beside it
+    assert billing_routes._reload_notice(object(), UID, 0, shown) is None and len(asked) == 1  # none named: no read
+    assert billing_routes._reload_notice(object(), UID, 7, shown) is None  # not the user's failed reload
+    monkeypatch.setattr(repo, "reload_failure", lambda *a: (_ for _ in ()).throw(RuntimeError("db gone")))
+    assert billing_routes._reload_notice(object(), UID, 2, None) is None  # a readout: never a broken page
 
 
 def test_saving_a_card_clears_the_failure_and_a_failed_clear_still_saves_it(monkeypatch):

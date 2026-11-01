@@ -75,7 +75,7 @@ window.TauPage('billing', (T) => {
     // The estimate (or the autopilot's model) landing repaints the figures, as it does the dashboard card.
     apCostWatch.add(Object.assign(() => { if (gen !== S.gen) return false; if (shown) paintFigs(shown); }, { gen }));
     const load = async () => {
-      const d = await api('/api/billing?tz=' + new Date().getTimezoneOffset());  // the statement's days are yours
+      const d = await api('/api/billing?tz=' + new Date().getTimezoneOffset() + fromNotice());  // the statement's days are yours
       syncMeBilling(d);
       shown = d;
       paintFigs(d);
@@ -189,7 +189,7 @@ window.TauPage('billing', (T) => {
       const arPaint = (on, amount, threshold) => {
         arBox.checked = on; arAmt.value = amount; arThr.value = threshold;
         arSum.textContent = `Reload $${amount} at $${threshold}`;
-        const fail = root.querySelector('#autorel-fail'); if (fail) fail.hidden = !on;
+        const fail = root.querySelector('.autorel-fail'); if (fail) fail.hidden = !on;
         root.querySelector('#autorel-when').innerHTML = reloadWhen(on, amount, threshold);
       };
       // A save that failed says what still stands: "Something went wrong on our side." alone left it unsaid whether
@@ -358,11 +358,27 @@ window.TauPage('billing', (T) => {
   // The last auto-reload failed (/api/billing reload_failed): when, what it tried to add and why, in the
   // user's words, with a way to the card form. Shown by the auto-reload switch while it is on; '' when
   // the last auto-reload didn't fail. The server clears it when one succeeds or a card is saved.
+  // Opened from an older failure's bell notice (?notice=, the server's reload_notice), that failure comes first, with
+  // the id the bell's link lands on, and the banner of the latest failure (if one stands) follows it under its own id.
   function reloadFailNote(d) {
-    const f = d && d.reload_failed;
-    if (!f || !f.text) return '';
-    return `<div class="notice bad autorel-fail" id="autorel-fail" role="status"${d.auto_reload ? '' : ' hidden'}>${ICON.warn}<span><b>Auto-reload failed</b> ${dayAt(f.at)}. ${esc(f.text)}<button type="button" class="btn sm" id="autorel-fix">Update card</button></span></div>`;
+    const f = d && d.reload_failed, was = d && d.reload_notice && d.reload_notice.text ? d.reload_notice : null;
+    const now = !f || !f.text ? '' : `<div class="notice bad autorel-fail" id="${was ? 'autorel-fail-now' : 'autorel-fail'}" role="status"${d.auto_reload ? '' : ' hidden'}>${ICON.warn}<span><b>${was ? 'Latest auto-reload failed' : 'Auto-reload failed'}</b> ${dayAt(f.at)}. ${esc(f.text)}<button type="button" class="btn sm" id="autorel-fix">Update card</button></span></div>`;
+    return (was ? reloadWasNote(was, !!now) : '') + now;
   }
+  // The failure a bell notice was about, when it isn't the latest (every "Auto-reload couldn't add…" notice opened the
+  // newest failure's banner, whichever was pressed: walk 2026-11-01): when it failed and its notice's words, then what
+  // came first after it: an auto-reload that went through, or the next failure (the latest one's banner follows, `latest`).
+  function reloadWasNote(w, latest) {
+    const ok = w.ok_at && (!w.next_at || new Date(w.ok_at) <= new Date(w.next_at));
+    const after = ok ? ` An auto-reload went through after it, ${dayAt(w.ok_at)}.`
+      : w.next_at ? ` Auto-reload failed again after it, ${dayAt(w.next_at)}${latest ? '; the latest failure is below' : ''}.` : '';
+    return `<div class="notice autorel-was" id="autorel-fail" role="status">${ICON.warn}<span><b>This auto-reload failed</b> ${dayAt(w.at)}. ${esc(w.text)}${after}</span></div>`;
+  }
+  // The bell notice the page was opened from, as the query string names it (app/services/bell.py shown_link).
+  const fromNotice = () => {
+    const n = Math.floor(+new URLSearchParams((typeof location !== 'undefined' && location.search) || '').get('notice'));
+    return n > 0 ? '&notice=' + n : '';
+  };
   // The week's usage by what spent it (/api/billing spent_7d_by), biggest first; '' when nothing did. The server
   // sends the parts in cents that add up to "Spent, last 7 days" (rounded each on its own they read $38.85 +
   // $0.18 + $0.18 under $39.22), and names a part that spent something but rounds to $0.00 in
@@ -412,6 +428,12 @@ window.TauPage('billing', (T) => {
   // −$2.50" (walk 2026-10-31): it says it adjusted them, as the server's memo and the receipt's memo do.
   const ADJUSTED = 'Credits adjusted by Tau support';
   const itemLabel = (r) => (r.kind === 'usage' && r.item) || (r.kind === 'admin_grant' && +r.amount < 0 ? ADJUSTED : KIND_LABEL[r.kind] || r.kind);
+  // A statement the line cap cut (the server's ledger_cut, STATEMENT_LINES) says how far back it reaches: it said only
+  // "Older days are in the receipt.", with no word of how many lines it listed or from when (walk 2026-11-01).
+  const ledgerCutWords = (rows, days) => {
+    const back = [...days].reverse().find((g) => g.day);
+    return `Showing the newest ${num(rows.length)} line${rows.length === 1 ? '' : 's'}${back ? `, back to ${ledgerDay(back.day)}` : ''}. Older days are in the receipt.`;
+  };
   function ledgerTable(d) {
     const rows = d.ledger || [], feePct = d.topup_fee_pct;
     if (!rows.length) return billMath(d.math) + '<p class="hint">No credit activity yet.</p>';
@@ -440,7 +462,7 @@ window.TauPage('billing', (T) => {
     const key = d.math ? `Last ${d.math.days} days, newest first. Its days and times are in your time zone; the receipt’s are in UTC. Each research line is one session’s model calls that day; open it to see the session. Lines are rounded to the cent so they add up to their day, so a session’s lines can be a cent off the cost its own page shows; the receipt has every call and every card charge, exactly.`
       : 'Newest first. The receipt has every line, with exact amounts.';
     return `${billMath(d.math)}<p class="hint ledger-key">${key}</p><div class="sheet"><table class="table stack t-dep t-ledger"><thead><tr><th>When</th><th>Item</th><th class="num">Amount</th></tr></thead><tbody>${
-      days.map((g) => (g.day ? head(g) : '') + g.rows.map(line).join('')).join('')}</tbody></table></div>${d.ledger_cut ? '<p class="hint">Older days are in the receipt.</p>' : ''}`;
+      days.map((g) => (g.day ? head(g) : '') + g.rows.map(line).join('')).join('')}</tbody></table></div>${d.ledger_cut ? `<p class="hint">${ledgerCutWords(rows, days)}</p>` : ''}`;
   }
 
   return {viewBilling};

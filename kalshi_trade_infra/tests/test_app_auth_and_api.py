@@ -583,6 +583,35 @@ def test_strategy_detail_answers_on_a_stored_spec_with_no_model_or_sizing(monkey
     assert out["stake"] is None and out["side"] == "yes"
 
 
+def test_strategy_detail_shows_its_spec_with_markets_by_name_and_no_internal_id(monkeypatch):
+    # The page's machine spec showed the stored spec: "market": "kxhighchi" (walk 2026-11-01). It shows spec_shown: each
+    # market (top level, a leg's, the pool's) by its long name, no id field, a model identifier by its name. The stored
+    # spec still comes as `spec` for the page's code.
+    from app.trading.markets import customer_name
+    spec = {"market": "high_ny", "side": "yes", "pool": ["btc15m", "kxnotlisted"], "experiment_id": 4471, "strategy_id": 9,
+            "cross": {"pairing": "cross_sectional", "legs": [{"market": "eth15m", "id": 3}]},
+            "model": {"kind": "logistic", "features": ["ret_5m"], "note": "fit by us.anthropic.claude-opus-4-6-v1"}}
+    row = {"id": 4, "run_id": 1, "parent_id": None, "market": "high_ny", "title": "Heat", "thesis": "t", "status": "passed",
+           "created_at": None, "result": {}, "direction": "momentum", "experiment_id": None, "spec": spec}
+    monkeypatch.setattr(strategy_routes, "_experiment_block", lambda *a: None)
+    monkeypatch.setattr(strategy_routes, "demo_health_memo", lambda *a, **k: (None, False))
+    monkeypatch.setattr(server.specmod, "describe", lambda spec: [])
+    monkeypatch.setattr(server.repo, "list_deployments_for_display", lambda *a, **k: [])
+    monkeypatch.setattr(server.repo, "positions_for_strategy", lambda *a: [])
+    monkeypatch.setattr(server.repo, "removed_deployments", lambda *a, **k: [])
+    monkeypatch.setattr(server.repo, "get_strategy", lambda cur, uid, sid: dict(row))
+    out = server.get_strategy(ctx(params=("4",)))
+    shown = out["spec_shown"]
+    assert shown["market"] == customer_name("high_ny") and shown["market"] != "high_ny"
+    assert shown["pool"] == [customer_name("btc15m"), "an unlisted market"]
+    assert shown["cross"]["legs"] == [{"market": customer_name("eth15m")}]
+    text = json.dumps(shown)
+    for raw in ("high_ny", "btc15m", "eth15m", "kxnotlisted", "experiment_id", "strategy_id", "4471", "us.anthropic", "claude-opus"):
+        assert raw not in text, raw
+    assert shown["side"] == "yes" and shown["model"]["features"] == ["ret_5m"]  # the rule itself is as stored
+    assert out["spec"] == spec  # the stored spec, for the page's code
+
+
 def test_list_strategies_applies_limit_and_offset():
     cur = StratCur()
     server.repo.list_strategies(cur, 1, limit=50, offset=100)

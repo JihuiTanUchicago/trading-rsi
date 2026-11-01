@@ -20,6 +20,7 @@ import {researchPollCases} from './research_poll_frontend_cases.mjs';
 import {runPageCases} from './run_page_frontend_cases.mjs';
 import {olderStepsCases} from './run_feed_older_cases.mjs';
 import {runLogCases} from './run_log_frontend_cases.mjs';
+import {listTotalsCases} from './list_totals_frontend_cases.mjs';
 import {moneyPollCases} from './money_poll_frontend_cases.mjs';
 import {strategyPageCases} from './strategy_page_frontend_cases.mjs';
 import {marketNameCases} from './market_names_frontend_cases.mjs';
@@ -4999,6 +5000,7 @@ const billingPage = (data, posts = [], routes = {}) => frontend({stripeLoader: a
   if (path === '/api/billing/auto-reload') { posts.push(JSON.parse(options.body)); return response({ok: true}); }
   throw new Error('Unexpected offline request: ' + path);
 }});
+listTotalsCases({name: 'Meridian', frontend, detailStrategy, billingPage, cardedBilling});
 
 test('Billing copies its balance and card onto the page state, and a moved balance re-reads the autopilot status', async () => {
   const f = frontend({stripeLoader: async () => STRIPE_STUB, fetchImpl: (path) => {
@@ -5110,6 +5112,8 @@ test('Billing statement: a heading per day, one line per session a day that link
   assert.doesNotMatch(rows[4], /href=/);  // a check-in has no session page
   assert.match(rows[5], /Added credits<div class="sub-fig">Card charged \$10\.55: \$10\.00 credits plus the 5\.5% purchase fee\u00a0· Stripe ref <span class="ref">pi_3SyntheticTopup<\/span>/);
   assert.match(main, /Older days are in the receipt\./);  // the line cap left days out, and says where they are
+  // ...and how much it lists: it said only where the rest are (walk 2026-11-01).
+  assert.match(main, /<p class="hint">Showing the newest 4 lines, back to [A-Z][a-z]{2}, Jan 14\. Older days are in the receipt\.<\/p>/);
   assert.doesNotMatch(main, /list price|markup|us\.anthropic/i);
 });
 

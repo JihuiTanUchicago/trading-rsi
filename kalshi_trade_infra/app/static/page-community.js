@@ -238,7 +238,7 @@ window.TauPage('community', (T) => {
     // past the newest 30 but a bell link (walked 2026-10-31). One read, so a refresh repeats or skips no post between pages.
     const feedHtml = `<div id="feed-note"></div>
         <div id="feed">${loading(120)}${loading(120)}</div>
-        <div class="feed-more"><button type="button" class="btn sm" data-older hidden>Show older posts</button><div id="older-flash"></div></div>`;
+        <div class="feed-more"><p class="hint feed-count" id="feed-count" hidden></p><button type="button" class="btn sm" data-older hidden>Show older posts</button><div id="older-flash"></div></div>`;
     const composer = `<form class="panel composer-post" id="composer-post"${tau ? '' : ' aria-label="New post"'}>
           <textarea class="input" id="post-body" maxlength="2000" rows="1" aria-label="Write a post" aria-describedby="post-hint" placeholder="${tau ? 'Share an idea or how it’s going…' : 'Write a post…'}"></textarea>
           <div id="photo-preview" hidden><img id="photo-img" alt="Attached photo preview"><button type="button" class="photo-x" id="photo-remove" aria-label="Remove photo">${ICON.cross}</button></div>
@@ -522,6 +522,17 @@ window.TauPage('community', (T) => {
       // A full read may have more behind it; a short one is the whole feed.
       const more = root.querySelector('[data-older]');
       if (more) more.hidden = d.posts.length < upTo || upTo >= FEED_MAX;
+      // How much of the feed is listed: a full read shows the newest N (at FEED_MAX, the most it lists), and once Show
+      // older posts reaches the end, every post is. It said nothing, and at 300 posts Show older posts went away with
+      // older ones still there (walk 2026-11-01). A feed opened at an older post (`from`) isn't the newest: no line.
+      const count = root.querySelector('#feed-count');
+      if (count) {
+        const n = d.posts.length, whose = mineOnly ? 'of your posts' : 'posts';
+        const said = from || !n ? '' : n >= upTo ? `Showing the newest ${num(n)} ${whose}${upTo >= FEED_MAX ? ', the most this page lists' : ''}.`
+          : upTo > FEED_PAGE ? `No older posts. All ${num(n)} ${mineOnly ? 'of your posts are' : 'are'} listed.` : '';
+        if (count.textContent !== said) count.textContent = said;
+        count.hidden = !said;
+      }
       const html = d.posts.length ? d.posts.map((p, i) => {
         const prev = d.posts[i - 1];  // the post just above (newer) — a run by one author groups under it
         const grouped = !!prev && !!p.username && prev.username === p.username
