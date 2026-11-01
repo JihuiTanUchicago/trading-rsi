@@ -443,7 +443,7 @@
     clearTimers();
     try {
       // This tab's unsent words were the old account's (forgetDrafts' per-tab ones): they don't follow it over.
-      sessionStorage.removeItem('tau_research_draft'); sessionStorage.removeItem('tau_post_draft');
+      sessionStorage.removeItem('tau_research_draft'); sessionStorage.removeItem('tau_post_draft'); sessionStorage.removeItem('tau_funds_draft');
       sessionStorage.setItem('tau_account_moved', !write ? 'read' : res.ok ? 'saved' : res.status >= 500 ? 'unconfirmed' : 'unsaved');
     } catch (e) { /* private mode: the reload still shows the right account, only without the note */ }
     location.reload();
@@ -531,7 +531,7 @@
     if (replace) history.replaceState(null, '', path); else history.pushState(null, '', path);
     render();
   }
-  window.addEventListener('popstate', () => { if (S.newBuild && calm(true)) location.reload(); else render(); });
+  window.addEventListener('popstate', () => { if ((S.newBuild || S.themeMoved) && calm(true)) location.reload(); else render(); });
   document.addEventListener('click', (e) => {
     // In-page "#id" links scroll to their target: letting the hash navigate fires popstate, whose
     // re-render dropped the reader back at the top of the page.
@@ -548,9 +548,10 @@
     }
     const a = e.target.closest('a[href^="/"]');
     if (!a || a.target || e.metaKey || e.ctrlKey || e.shiftKey || a.hasAttribute('download') || a.dataset.native != null) return;
-    // The app was updated under this page: the browser follows the link itself, a full load of the new build, unless a
-    // write is out or words typed in what stays (the autopilot panel) would go.
-    if (S.newBuild && calm(true)) return;
+    // The app was updated under this page, or another tab switched the account's theme: the browser follows the link
+    // itself, a full load of the new build or theme, unless a write is out or words typed in what stays (the autopilot
+    // panel) would go.
+    if ((S.newBuild || S.themeMoved) && calm(true)) return;
     e.preventDefault();
     go(a.getAttribute('href'));
   });
@@ -763,6 +764,22 @@
     location.reload();
     return true;
   }
+  // Another tab of this account switched theme (Settings): this tab follows it, so one account no longer shows in two
+  // themes until a reload (walk 2026-11-01). The switch names the account and the theme in localStorage (THEME_SWITCH),
+  // whose 'storage' event reaches this browser's other tabs at once, with no read or timer. tau_ui alone can't say whose
+  // switch it was (the page shell writes it for whoever signs in). A tab signed out, one showing another account, and the
+  // Terms and Privacy pages (Tau only) stay as they are. The tab loads afresh in the new theme when that loses nothing
+  // (calm: no write out, nothing typed); otherwise at the next link pressed or Back, as after a new build, and an open
+  // Settings says the account's theme changed (settingsSync).
+  const THEME_SWITCH = 'tau_theme_switch';
+  window.addEventListener('storage', (e) => {
+    const u = S.me && S.me.user, said = e && e.key === THEME_SWITCH && typeof e.newValue === 'string' ? e.newValue.split(':') : [];
+    if (!u || S.accountMoved || said[0] !== String(u.id) || (said[1] !== 'tau' && said[1] !== 'meridian')) return;
+    u.ui_theme = said[1];
+    S.themeMoved = said[1] !== pageTheme() && !/^\/(?:terms|privacy)$/.test(location.pathname);
+    if (/^\/settings(?:\/theme)?$/.test(location.pathname)) settingsSync();
+    if (S.themeMoved && calm()) location.reload();
+  });
 
   // A new page in the app names itself in the tab title and puts keyboard focus on its heading, as a
   // full page load would: a screen reader says where it landed, and Tab starts from the page instead of
@@ -1507,6 +1524,8 @@
         try { localStorage.setItem('tau_ui', key); sessionStorage.setItem(THEME_SAVED, key); } catch (e) { /* private mode */ }
         // The shell links the theme from this cookie (the server set it too, on the save above).
         document.cookie = `tau_ui=${key}; Path=/; Max-Age=34560000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
+        // This account's other tabs follow (THEME_SWITCH): named last, once the account and the cookie both have it.
+        try { localStorage.setItem(THEME_SWITCH, `${S.me.user.id}:${key}:${Date.now()}`); } catch (e) { /* private mode */ }
         location.reload();
       });
     }));
@@ -1801,12 +1820,12 @@
     forgetDrafts();
     return true;
   }
-  // Signing out leaves nothing of the reader's own words on the device: the research idea not yet started and the
-  // community post not yet sent (page-research.js, page-community.js, this tab) and the autopilot message not yet
-  // sent (page-autopilot.js, kept per account).
+  // Signing out leaves nothing of the reader's own words on the device: the research idea not yet started, the community
+  // post and the Funds amount not yet sent (page-research.js, page-community.js, the Funds file, this tab) and the
+  // autopilot message not yet sent (page-autopilot.js, kept per account).
   // A session that ended by itself keeps them, so signing back in finds them where they were.
   function forgetDrafts() {
-    try { sessionStorage.removeItem('tau_research_draft'); sessionStorage.removeItem('tau_post_draft'); } catch (e) { /* private mode */ }
+    try { sessionStorage.removeItem('tau_research_draft'); sessionStorage.removeItem('tau_post_draft'); sessionStorage.removeItem('tau_funds_draft'); } catch (e) { /* private mode */ }
     try {
       const mine = [];
       for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('tau_ap_draft:') === 0) mine.push(k); }

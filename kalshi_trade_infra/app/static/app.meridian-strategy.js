@@ -1016,12 +1016,17 @@ window.TauPage('strategy', (T) => {
         try { await api(`/api/strategies/${s.id}/delete`, {}); go('/strategies', true); } catch (e) { if (e.status === 404) stratGone('#delflash'); else flash('#delflash', e.message, 'bad'); }
       }).then(standDown));
     };
+    const SHARE_SELF = 'That’s your own email. Enter the email your friend signs in with.';
     const shareForm = root.querySelector('#share-form');
     if (shareForm) shareForm.onsubmit = (e) => {
       e.preventDefault();
       const email = root.querySelector('#share-email').value.trim();
       if (!email) { flash('#shareflash', 'Enter an email first.', 'bad'); return; }
       if (gone) { stratGone('#shareflash'); return; }
+      // Your own sign-in email is said here, before the press goes anywhere: the server refuses it too ("That’s your own
+      // account."), but only after the round trip, under a button that looked like it would send (walk 2026-11-01).
+      const mine = String((S.me && S.me.user && S.me.user.email) || '').trim().toLowerCase();
+      if (mine && email.toLowerCase() === mine) { flash('#shareflash', SHARE_SELF, 'bad'); return; }
       busy(shareForm.querySelector('button'), async () => {
         try {
           const r = await api(`/api/strategies/${s.id}/share`, { email });
