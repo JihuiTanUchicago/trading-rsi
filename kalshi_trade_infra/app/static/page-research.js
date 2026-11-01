@@ -1675,6 +1675,10 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
   // false: no idea listed and none counted) has no results to take: a failed one with none said "takes these results
   // into its next ideas" all the same (walk 2026-10-31).
   const apNext = (r, tested = true) => +r.by_autopilot && !r.example ? ` <span data-ap-next${S.me && S.me.user && S.me.user.autopilot ? '' : ' hidden'}>${tested ? 'The autopilot takes these results into its next ideas and starts its next session on its own.' : 'The autopilot starts its next session on its own.'}</span>` : '';
+  // The way on from a session opens the form on that session's market (the form reads ?market=), so another idea
+  // on the same market doesn't start with the market lost; an agent's-choice session leaves it to the agent again
+  // (walk 2026-11-01). The example's own market isn't the reader's pick, so its link stays plain.
+  const againHref = (r) => `/research?new=1${r && r.market && !r.example ? '&amp;market=' + encodeURIComponent(r.market) : ''}`;
   const runTested = (r, strategies) => (strategies || []).length > 0 || +r.hypotheses_tried > 0;
   // `gonePassed`: the session's passes the user deleted since ({title}), which no list shows. Its Passed figure
   // counts them, and the line under it said "Nothing passed this time" beside "Passed 1" (walk 2026-10-31).
@@ -1703,19 +1707,19 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         : ` Open ${passed.length === 1 ? 'it' : 'one'} to deploy it on paper.`;
       return `<p class="run-next">${credits}${passed.length === 1 ? 'Passed' : passed.length + ' passed'}: ${links}${more}.${way}${fellLine ? ' ' + fellLine : ''}${goneLine ? ' ' + goneLine : ''}</p>`;
     }
-    if (goneLine && (r.status === 'succeeded' || r.status === 'stopped')) return `<p class="run-next">${credits}${goneLine}${fellLine ? ' ' + fellLine : ''}${apNext(r)} <a href="/research?new=1">Try another idea</a></p>`;
+    if (goneLine && (r.status === 'succeeded' || r.status === 'stopped')) return `<p class="run-next">${credits}${goneLine}${fellLine ? ' ' + fellLine : ''}${apNext(r)} <a href="${againHref(r)}">Try another idea</a></p>`;
     // A failed or cancelled session said nothing: the reason sat in a folded log, the way on nowhere.
     // The server's reason is written for the customer; one that already says the session stopped
     // stands alone ("…stopped on an error. …so the session stopped.").
-    if (r.status === 'failed') return `<p class="run-next">${r.error && /\bstopped\b/.test(r.error) ? esc(r.error) : `This session stopped on an error.${r.error ? ' ' + esc(r.error) : ''}`}${apNext(r, runTested(r, strategies))} <a href="/research?new=1">Start a new session</a></p>`;
+    if (r.status === 'failed') return `<p class="run-next">${r.error && /\bstopped\b/.test(r.error) ? esc(r.error) : `This session stopped on an error.${r.error ? ' ' + esc(r.error) : ''}`}${apNext(r, runTested(r, strategies))} <a href="${againHref(r)}">Start a new session</a></p>`;
     // In the status figure's and the list's words ("Stopped by you"): it said "cancelled" right under it.
-    if (r.status === 'cancelled') return `<p class="run-next">You stopped this session before it finished.${(strategies || []).length ? ' The ideas it tested are listed below.' : ''} <a href="/research?new=1">Try another idea</a></p>`;
+    if (r.status === 'cancelled') return `<p class="run-next">You stopped this session before it finished.${(strategies || []).length ? ' The ideas it tested are listed below.' : ''} <a href="${againHref(r)}">Try another idea</a></p>`;
     const none = !(strategies || []).length;
     // Tau lists the ideas tested, Meridian the strategies.
     if (credits) return `<p class="run-next">${credits}${none ? 'No strategy reached the checks before then.' : `${fellLine ? fellLine + ' ' : ''}${nothing} before then; each ${tau ? 'idea' : 'strategy'} below says which check it missed.`}</p>`;
-    if (none && (r.status === 'succeeded' || r.status === 'stopped')) return `<p class="run-next">${runEmpty(r)}${apNext(r, runTested(r, strategies))} <a href="/research?new=1">Try another idea</a></p>`;
+    if (none && (r.status === 'succeeded' || r.status === 'stopped')) return `<p class="run-next">${runEmpty(r)}${apNext(r, runTested(r, strategies))} <a href="${againHref(r)}">Try another idea</a></p>`;
     // An interrupted one says so, as its status does: it read "Nothing passed this time" as if it had finished (walk 2026-10-31).
-    if (r.status === 'succeeded' || r.status === 'stopped') return `<p class="run-next">${r.status === 'stopped' && r.stop_reason === 'interrupted' ? 'It was interrupted and couldn’t be resumed, so it stopped early. ' : ''}${fellLine ? fellLine + ' ' : ''}${nothing} ${r.status === 'stopped' ? 'before then' : 'this time'}. Most ideas don’t. ${tau ? 'Each idea below says which check it missed; tap one for what to try next.' : 'Each strategy below says which check it missed and what to try next.'}${apNext(r)} <a href="/research?new=1">Try another idea</a></p>`;
+    if (r.status === 'succeeded' || r.status === 'stopped') return `<p class="run-next">${r.status === 'stopped' && r.stop_reason === 'interrupted' ? 'It was interrupted and couldn’t be resumed, so it stopped early. ' : ''}${fellLine ? fellLine + ' ' : ''}${nothing} ${r.status === 'stopped' ? 'before then' : 'this time'}. Most ideas don’t. ${tau ? 'Each idea below says which check it missed; tap one for what to try next.' : 'Each strategy below says which check it missed and what to try next.'}${apNext(r)} <a href="${againHref(r)}">Try another idea</a></p>`;
     return '';
   }
   // The foot of a finished session, under the log's last line (on Meridian the example's; the others' under the
@@ -1728,7 +1732,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     if (r.status !== 'succeeded' && r.status !== 'stopped') return '';
     if (r.out_of_credits) return '<div class="run-end"><a class="btn" href="/billing">Add credits</a></div>';
     if ((strategies || []).some(cleared)) return '';
-    return `<div class="run-end"><a class="btn" href="/research?new=1">Try another idea</a>${apNudge('Rather not write ideas yourself?', 'and it picks ideas and researches them on its own, on paper.')}</div>`;
+    return `<div class="run-end"><a class="btn" href="${againHref(r)}">Try another idea</a>${apNudge('Rather not write ideas yourself?', 'and it picks ideas and researches them on its own, on paper.')}</div>`;
   }
   // Tau's: what the session tried, one row per idea: its outcome and, for a miss, the first check it missed
   // in plain words. Each idea's outcome sat only in the log, a scroll box that held 200+ lines on a

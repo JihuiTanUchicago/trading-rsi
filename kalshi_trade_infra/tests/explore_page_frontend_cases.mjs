@@ -37,6 +37,12 @@ export function explorePageCases({name, frontend}) {
     assert.deepEqual(links.map((a) => a.textContent), ['Research BTC $113,500 or above at 5pm ET', 'Your BTC above set price at 5pm ET strategies'],
       'the research button names this contract\u2019s strike, never the placeholder');
     assert.doesNotMatch(next.textContent, /\$[A-Z]\b/, 'no strike placeholder on the market page');
+    // What Research leads to, under the buttons (walk 2026-11-01): a newcomer had no way to tell how a market becomes
+    // something on paper. A line of its own, so the buttons' row and its links stay as they were.
+    const hint = f.root.querySelector('.mk-next-hint');
+    assert.ok(hint, 'the market page says what a research session leads to');
+    assert.equal(hint.textContent, 'A session writes strategies for this market and tests each on data it never saw. You can put one that passes on paper from its page.');
+    assert.equal(hint.querySelectorAll('a').length, 0);
     // "Your … strategies" showed to a reader with none on this market (and opened an empty list): it shows only when the
     // server says they have one there; with none, or that read failed (null), only Research is offered.
     for (const mine of [[], ['nba_game'], null]) {
@@ -55,6 +61,7 @@ export function explorePageCases({name, frontend}) {
     const next = f.root.querySelector('.mk-next');
     assert.match(next.textContent, /Tau doesn’t research this market, so your strategies can’t trade it\./);
     assert.equal(next.querySelector('a.primary'), null, 'no research button for a market research can’t pick');
+    assert.equal(f.root.querySelector('.mk-next-hint'), null, 'no session to lead anywhere on a market Tau doesn’t research');
     assert.match(f.root.innerHTML, />Open on Kalshi<\/span> · <span class="kalshi-ref">Kalshi contract <span class="tick" translate="no">KXFEDDECISION-26DEC-H0</);
     assert.doesNotMatch(f.root.innerHTML, /KXFEDDECISION ·/);
   });

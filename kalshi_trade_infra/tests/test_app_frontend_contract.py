@@ -931,15 +931,15 @@ def _passed(title='Rain tails', market='kxrainnyc', in_focus=True, candidate=Fal
     # The review autopilot starts the moment it is switched on, before any research: nothing has been tested, so
     # nothing has failed its tests either.
     (_idle_d(reviewing=True, research={'active': [], 'researched': False}), [], [], None, [], 'reviewing',
-     "Nothing is on paper yet: no research has run yet. It’s reviewing the markets to pick its next move.", None),
+     "Nothing is on paper yet: no research has run yet. It’s reviewing the markets to pick its next move. If a session passes a strategy through every test, the next check-in puts it on paper. There’s no set time for that, and most ideas don’t pass.", None),
     (_idle_d(), [], [], None, [_passed(retired=True)], 'no_strategies',
      "Nothing is on paper: the strategy that passed was stopped on paper, and no new one has passed since. It’s "
      "between research runs.", None),
     # Never researched (the seeded example aside): nothing could have passed, and it isn't "between research runs".
     (_idle_d(research={'active': [], 'researched': False}), [], [], None, [], 'no_strategies',
-     "Nothing is on paper yet: no research has run yet. Its first research session starts at its next check-in.", None),
+     "Nothing is on paper yet: no research has run yet. Its first research session starts at its next check-in. If a session passes a strategy through every test, the next check-in puts it on paper. There’s no set time for that, and most ideas don’t pass.", None),
     (_idle_d(research={'active': ['BTC 15m'], 'researched': False, 'watch': 7}), [], [], None, [], 'researching',
-     "Nothing is on paper yet: no strategy has passed its research tests. It’s researching BTC 15m.",
+     "Nothing is on paper yet: no strategy has passed its research tests. It’s researching BTC 15m. If a session passes a strategy through every test, the next check-in puts it on paper. There’s no set time for that, and most ideas don’t pass.",
      {'label': 'Watch it research', 'href': '/research/7'}),
     # A session still queued to start isn't researching, as Research and Home say it ("1 session queued"): the link
     # opens it to see. It said "Watch it research" under "A session on BTC 15m is queued to start."

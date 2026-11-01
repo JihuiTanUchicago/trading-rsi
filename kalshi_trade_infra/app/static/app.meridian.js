@@ -3619,7 +3619,7 @@
       host.innerHTML = `<div class="apcard-main"><span class="apcard-kick"><span class="apf-dot" aria-hidden="true"></span>Autopilot off</span>
         <h2>Let the autopilot trade for you</h2>
         <p>It picks markets, tests ideas on data it never saw, and runs the ones that pass on paper money. Every move shows up in its activity feed. ${liveOpen() ? 'Real money stays off until you turn it on separately.' : 'Real money stays off: live trading isn\u2019t open yet.'}</p>${apOffRunning(d)}${apCostLine()}${apOffCost(d, 'apcard-cost')}${d && Array.isArray(d.focus) ? `<p class="ap-focus">${apFocusLine(d.focus, 'data-apcard="focus"')}</p>` : ''}</div>
-        <div class="apcard-act"><button type="button" class="btn primary" data-apcard="on">Turn on autopilot</button><a class="apcard-alt" href="/research">or research by hand</a></div>
+        <div class="apcard-act"><button type="button" class="btn primary" data-apcard="on">Turn on autopilot</button><a class="apcard-alt" href="/research?new=1">or research by hand</a></div>
         <p class="apcard-err error-text" role="alert"></p>`;
       const b = host.querySelector('[data-apcard="on"]');
       if (apTurning) { b.classList.add('busy'); b.disabled = true; apTurning.place(b); }

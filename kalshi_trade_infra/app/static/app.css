@@ -1883,6 +1883,8 @@ body.hot-open .hot-panel { display: flex; flex-direction: column; width: 306px; 
 /* Walk 2026-10-31 at 320px: Tau's "Research BTC $113,000 or above at 5pm ET" ran on one line 5px past the screen's
    edge, so the whole page scrolled sideways. The market page's buttons wrap inside the column instead. */
 .mk-next .btn { white-space: normal; max-width: 100%; }
+/* What Research leads to, a line under the buttons. */
+.mk-next-hint { margin: 8px 0 0; max-width: 72ch; }
 .m.fig-behind .sub-fig { color: var(--loss-ink); }
 /* A market page's count of ten digits or more (98,765,432,100 contracts) ran out of its figure on a phone: set smaller there. */
 @media (max-width: 760px) { .m.fig-long .fig { font-size: 16px; } }
