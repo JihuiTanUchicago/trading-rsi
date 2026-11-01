@@ -12,7 +12,7 @@ import {test} from 'node:test';
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async () => { for (let i = 0; i < 6; i++) await flush(); };
-const OUTAGE = 'Can’t reach Tau right now; retrying. The figures on screen are from its last good read.';
+const OUTAGE = 'Tau couldn’t update this page just now; retrying. The figures on screen are from its last good read.';
 const BACK = 'Tau is back. The figures on screen are up to date.';
 const run = (spent) => ({run: {id: 9, prompt: 'Idea', status: 'running', market: 'btc15m', created_at: '2026-10-17T10:00:00Z',
   started_at: '2026-10-17T10:00:00Z', spent_usd: spent, hypotheses_tried: 2}, events: []});

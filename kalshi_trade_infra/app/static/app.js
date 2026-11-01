@@ -582,7 +582,9 @@
   // reads as before), and the page says the outage once, when its first line goes up retrying, and the recovery once,
   // when its last one clears. A line that only says "refreshing" (back on the tab, nothing failed yet) is no outage.
   // Lines go by id: one drawn again (Meridian's hot rail) is the same line, and one whose page has gone drops out.
-  const STALE_SAY = 'Can\u2019t reach Tau right now; retrying. The figures on screen are from its last good read.';
+  // It says the page couldn't update, not that Tau can't be reached: a server error or a garbled answer reads the same
+  // as a dropped connection here, and on those Tau did answer (walk 2026-11-01).
+  const STALE_SAY = 'Tau couldn\u2019t update this page just now; retrying. The figures on screen are from its last good read.';
   const STALE_BACK = 'Tau is back. The figures on screen are up to date.';
   const staleUp = new Set();
   function staleLine(id, text, failing) {
