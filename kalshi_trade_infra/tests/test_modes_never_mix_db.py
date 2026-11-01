@@ -28,6 +28,14 @@ STAKES = {"paper": 10.0, "demo": 20.0, "live": 16.0}  # live trades a quarter of
 STRIKE = 98.0
 
 
+def _csv_rows_are(lines, closed):
+    """The file's rows are exactly `closed` (the book's closed rows), each told by when it closed, its contract, its
+    size and its P&L: the file carries no position id."""
+    said = sorted((r["closed_at_utc"], r["ticker"], r["contracts"], r["realized_pnl"]) for r in lines)
+    return said == sorted((c["closed_at"].strftime("%Y-%m-%dT%H:%M:%SZ"), c["ticker"], str(int(c["qty"])),
+                           "%.4f" % float(c["pnl"])) for c in closed)
+
+
 @pytest.fixture(scope="module")
 def conn():
     from app import schema
@@ -221,7 +229,7 @@ def test_paper_demo_and_live_figures_never_mix(conn, monkeypatch):
         _, _, _, data = server.trades_csv(server.Ctx(conn, ctx.user, (), {"mode": mode}, {}, None))
         lines = list(csv.DictReader(io.StringIO(data)))
         assert {r["mode"] for r in lines} == {mode}
-        assert sorted(int(r["position_id"]) for r in lines) == book[mode]["ids"]
+        assert _csv_rows_are(lines, book[mode]["closed"]), mode
         assert _money(sum(float(r["realized_pnl"]) for r in lines)) == _money(realized[mode])
 
     # -- the autopilot: the scorecard is paper only; the panel's day figures are each their own ---------

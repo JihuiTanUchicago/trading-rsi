@@ -53,6 +53,14 @@ RESULT = {"capital": 40.0, "out_of_sample": {"trades": 40, "pnl": 6.0, "win_rate
           "in_sample": {"trades": 90, "pnl": 30.0, "win_rate": 0.7}}
 
 
+def _csv_rows_are(lines, closed):
+    """The file's rows are exactly `closed` (the book's closed rows), each told by when it closed, its contract, its
+    size and its P&L: the file carries no position id."""
+    said = sorted((r["closed_at_utc"], r["ticker"], r["contracts"], r["realized_pnl"]) for r in lines)
+    return said == sorted((c["closed_at"].strftime("%Y-%m-%dT%H:%M:%SZ"), c["ticker"], str(int(c["qty"])),
+                           "%.4f" % float(c["pnl"])) for c in closed)
+
+
 @pytest.fixture(scope="module")
 def conn():
     from app import schema
@@ -273,7 +281,7 @@ def test_every_page_shows_the_same_book_to_the_cent(conn, monkeypatch):
 
         # -- the trades CSV: every closed row of this book, and nothing else --
         assert {r["mode"] for r in lines} == {mode}
-        assert sorted(int(r["position_id"]) for r in lines) == b["ids"]
+        assert _csv_rows_are(lines, b["closed"]), mode
         assert csv_sum(lines) == (realized, n_closed), mode
 
         # -- the dashboard bucket, the same rows (demo's shown P&L is since its reload) --

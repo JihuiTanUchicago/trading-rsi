@@ -28,7 +28,7 @@ export function fundsDisplayCases({name, frontend, fundsData}) {
     f.S.me.markets = MARKETS;
     f.location.pathname = '/funds';
     await f.viewFunds(); await settle();
-    const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')];
+    const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].filter((tr) => !tr.classList.contains('ledger-day'));
     const said = rows.map((tr) => tr.querySelector('.ledger-said').textContent);
     const refs = rows.map((tr) => [...tr.querySelectorAll('.kalshi-ref')].map((r) => r.textContent.replace(/\s+/g, ' ')));
     assert.match(said[2], /^Bought 3 pair Bitcoin \$113,000 or above at 5pm ET\/Bitcoin \$114,000 or above at 5pm ET \(pair\)$/);

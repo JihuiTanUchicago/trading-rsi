@@ -26,7 +26,7 @@ export function fundsWalkCases({name, frontend, fundsData}) {
     f.S.me.markets = MARKETS;
     f.location.pathname = '/funds';
     await f.viewFunds(); await settle();
-    const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].map((tr) => tr.innerHTML);
+    const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].filter((tr) => !tr.classList.contains('ledger-day')).map((tr) => tr.innerHTML);
     const what = (r) => r.replace(/<span class="kalshi-ref">[\s\S]*?<\/span><\/span>/g, '');
     assert.match(rows[0], /Bitcoin \$115,000 or above at 5pm ET settled YES<span class="hint">\u00a0· won, paid \$1 a contract<\/span>/);
     assert.match(rows[1], /Sold 8 YES Bitcoin up or down in 15 minutes at 58¢ \(take profit\)/);
