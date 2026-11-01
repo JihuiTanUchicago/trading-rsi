@@ -5,7 +5,7 @@
 window.TauPage('autopilot', (T) => {
   'use strict';
   const {
-    alert0, announce, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apExpanded, apSaid, apFlash, apFloorText,
+    alert0, announce, staleLine, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apExpanded, apSaid, apFlash, apFloorText,
     apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, apMarketNames, apQueued, apReloadFailed, apShowFocus,
     apEvery, apOffCost, apStale, apStillTrading, apStory, apSwitchOn, apWeek, busy, clock, esc, failText, feedMd, gl, go, ICON, mdLite, num,
     liveIdleCount, liveIdleShort, liveOpen, paced, paintDashAp, paperCount, PAPER_COUNT_WHY, PAPER_NET, pausesIn, pnlWin, refreshAutopilot, repaintKeep, S, SEP, settleAt, sinceMin, slipEstGl, theme, usd, waitNote, waitSpan,
@@ -624,7 +624,7 @@ window.TauPage('autopilot', (T) => {
       ${d.research && !(d.story || []).length ? `<div class="apf-wide"><dt>Research</dt><dd>${apMarketNames(d).length ? 'Researching ' + esc(apMarketNames(d).join(SEP)) : apQueued(d) ? (apQueued(d) === 1 ? 'A session queued to start' : `${num(apQueued(d))} sessions queued to start`) : 'Not researching right now'}${SEP}${Number(d.research.tested_7d).toLocaleString('en-US')} ideas tested in the last 7 days, ${d.research.passed_7d} passed${+d.research.not_cleared_7d ? `, ${Number(d.research.not_cleared_7d).toLocaleString('en-US')} not cleared` : ''}${+d.research.cost_7d >= 0.005 ? ', ' + usd(d.research.cost_7d) + ' spent' : (+d.research.cost_7d > 0 || d.research.cost_7d_under_cent) ? ', under $0.01 spent' : ''}</dd></div>` : ''}
       ${d.paper_progress ? `<div class="apf-wide"><dt>Furthest on paper</dt><dd><a href="/strategies/${d.paper_progress.strategy_id}">${esc(d.paper_progress.title || 'Paper strategy')}</a>${SEP}${paperCount(d.paper_progress)}${SEP}${usd(d.paper_progress.net_pnl, true)} net on them. <small>${gl(PAPER_COUNT_WHY_SAID, 'instantfill')}</small></dd></div>` : ''}`);
     }
-    const staleEl = box.querySelector('#apf-stale'); if (staleEl) staleEl.textContent = apStale();
+    staleLine('apf-stale', apStale(), true);
     // The feed's idle pulse reads the status too; repaint it now rather than on the next chat poll.
     // The shown line takes the new minutes; the spoken one changes only with the status.
     const idleEl = box.querySelector('[data-ap-idle]'), idleLine = idleEl && apIdleLine(box);

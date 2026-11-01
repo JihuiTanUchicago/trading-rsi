@@ -82,6 +82,7 @@ import {sessionStateCases} from './session_state_frontend_cases.mjs';
 import {firstSessionCases} from './first_session_frontend_cases.mjs';
 import {checkinCadenceCases} from './checkin_cadence_frontend_cases.mjs';
 import {staleMoneyCases} from './stale_money_frontend_cases.mjs';
+import {outageSpeechCases} from './outage_speech_frontend_cases.mjs';
 
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
@@ -6427,6 +6428,7 @@ demoReloadTruthCases({name: 'Tau', frontend, dashboard: () => emptyDashboard()})
 autopilotCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, apStatus: apOn});
 billingCostCases({name: 'Tau', frontend, dashboard: emptyDashboard, billingPage, cardedBilling});
 staleMoneyCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard});
+outageSpeechCases({name: 'Tau', frontend, detailStrategy, dashboard: emptyDashboard});
 settingsBillingCases({name: 'Tau', frontend, billingPage, cardedBilling});
 settingsTruthCases({name: 'Tau', frontend, current: 'tau', storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))}), billingPage, cardedBilling});
 unrealizedCellCases({name: 'Tau', frontend, dashboard: emptyDashboard});
