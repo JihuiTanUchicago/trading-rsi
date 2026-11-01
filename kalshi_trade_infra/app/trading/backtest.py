@@ -1187,7 +1187,13 @@ def load_dataset(market_key: str, loader: Callable[..., Dataset], history_days: 
                 return hit[1]  # loaded while this caller waited
         ds = loader(market, days)
         with _cache_lock:
-            _cache[ckey] = (time.time(), ds)
+            now = time.time()
+            # A lapsed window is never served again (it is loaded afresh), but it stayed referenced here: every
+            # market and window a process ever opened held its ~40MB frames for good. The web process is capped
+            # at 1G (recursive-web MemoryMax), so drop lapsed ones as each new load is kept.
+            for k in [k for k, (at, _) in _cache.items() if now - at >= DATASET_TTL_SECONDS]:
+                del _cache[k]
+            _cache[ckey] = (now, ds)
     return ds
 
 
