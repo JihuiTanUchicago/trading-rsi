@@ -82,7 +82,9 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     const want = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'}).format(at);
     assert.equal(shown, want);
     assert.doesNotMatch(shown, /\b(?:AM|PM)\b/i, 'no 12-hour clock');
-    assert.match(shown, new RegExp(`\\b${String(at.getHours()).padStart(2, '0')}:21\\b`), 'the hour as a 24-hour clock says it');
+    // The reader's minutes, not the UTC ones: a half-hour zone (Asia/Kolkata) opens it at 04:51, not 04:21.
+    const pad = (n) => String(n).padStart(2, '0');
+    assert.match(shown, new RegExp(`\\b${pad(at.getHours())}:${pad(at.getMinutes())}\\b`), 'the hour as a 24-hour clock says it');
     const zone = new Intl.DateTimeFormat(undefined, {timeZoneName: 'short'}).formatToParts(at).find((p) => p.type === 'timeZoneName').value;
     assert.ok(shown.endsWith(zone), 'with its zone');
     f.clearTimers();

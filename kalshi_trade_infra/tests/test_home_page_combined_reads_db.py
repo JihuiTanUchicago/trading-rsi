@@ -220,10 +220,15 @@ def test_the_dashboard_shell_carries_what_each_endpoint_answers_alone_in_fewer_s
     from app.adapters.db import sql
 
     # One clock for every module that took sql.now_utc (the facade's patch would miss the split modules).
-    fixed = sql.now_utc().replace(microsecond=0)
+    # Compared with the real clock taken first: compared with sql.now_utc, only sql itself was frozen (patched first,
+    # it no longer matched the rest), so "since" read the wall clock and differed by a second when the endpoints
+    # answered alone in one second and the shell in the next.
+    real = sql.now_utc
+    fixed = real().replace(microsecond=0)
     for m in list(sys.modules.values()):
-        if m is not None and getattr(m, "now_utc", None) is sql.now_utc:
+        if m is not None and getattr(m, "now_utc", None) is real:
             monkeypatch.setattr(m, "now_utc", lambda: fixed)
+    assert repo.now_utc() == fixed  # the facade the routes read, frozen too
     monkeypatch.setattr(dashboard_routes, "_freshness", lambda cur: {"engine": None})
     monkeypatch.setattr(billing, "STRIPE_SECRET_KEY", "sk_test_home")
     cur = conn.cursor()

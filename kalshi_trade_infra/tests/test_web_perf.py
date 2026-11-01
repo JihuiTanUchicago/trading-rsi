@@ -200,7 +200,10 @@ def test_perf_endpoint_hides_from_non_loopback_peers():
 
 def test_summary_percentiles_and_5xx_rate():
     webperf._ROWS.clear()
-    now = 1_000_000.0
+    # The window has no upper edge, so a "now" in the past (it was 1_000_000) also counted every row a real request
+    # stamps with time.time(): a server thread of an earlier test still finishing its request records after the
+    # clear above, and its route joined the set below. Ten years ahead, every real row is older than the window.
+    now = time.time() + 10 * 365 * 86400
     for i in range(100):
         webperf.record("GET /api/dashboard", 500 if i < 2 else 200, float(i + 1), now=now)
     webperf.record("GET /static/*", 200, 9999.0, now=now)
