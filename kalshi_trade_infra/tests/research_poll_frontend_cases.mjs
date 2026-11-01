@@ -290,6 +290,7 @@ export function researchPollCases({name, frontend}) {
     // One that ran out of credits before its first idea names that, and one with an idea keeps its count.
     const credits = f.runRow(run({hypotheses_tried: 0, strategies_passed: 0, stop_reason: 'credits', run_forever: 1})).replace(/<[^>]+>/g, ' ');
     assert.match(credits, /Out of credits/); assert.match(credits, /no ideas tested/i);
-    assert.match(f.runRow(run({hypotheses_tried: 3, strategies_passed: 0})).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), /0 of 3 passed|0 \/ 3 passed/);
+    // What a screen reader hears: Meridian's "0/3" hides its slash and reads " of " in its place.
+    assert.match(f.runRow(run({hypotheses_tried: 3, strategies_passed: 0})).replace(/<span aria-hidden="true">[^<]*<\/span>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), /0 of 3 passed/);
   });
 }

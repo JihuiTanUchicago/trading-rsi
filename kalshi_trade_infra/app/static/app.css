@@ -2141,6 +2141,10 @@ body.landing-body .apf { display: none; }
   .apf.open .apf-x:focus-visible { outline-offset: -3px; }
   .apf.open .apf-session { flex: none; min-height: 55vh; }
   .apf.open .apf-composer-row { position: sticky; bottom: 0; }
+  /* What Tab or a script focuses scrolls clear of the pinned head (47px) and composer (110px with its note): "Change"
+     beside the focus line put the focused market select under the composer, and Shift+Tab put it under the head
+     (walk 2026-11-01 at 390px, both themes). */
+  .apf.open { scroll-padding-top: calc(56px + env(safe-area-inset-top, 0px)); scroll-padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
   .apf-stats, .apf-stats[data-cols] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .apf-stats > .apf-tail { grid-column: 1 / -1; }
   /* The on/off-live switch gets the full row; Kill and Open board share the next. */

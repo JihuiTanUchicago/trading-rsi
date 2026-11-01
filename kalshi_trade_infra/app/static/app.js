@@ -3426,9 +3426,9 @@
         <p class="ap-focus">${apFocusLine(d.focus, 'data-apcard="focus"')}</p>` : ''}
         <dl class="apcard-figs">${cells.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl><p class="stale-note" id="dash-ap-stale" role="status">${apStale()}</p>${apWeek(d.week, d, open)}</div>
       <div class="apcard-act"><button type="button" class="btn" data-apcard="open">Open autopilot</button></div>`);
-    host.querySelector('[data-apcard="open"]').onclick = () => apOpen();
+    host.querySelector('[data-apcard="open"]').onclick = () => apOpen('open');
     const idleFocus = host.querySelector('[data-apcard="idle-focus"]');
-    if (idleFocus) idleFocus.onclick = () => { apOpen(); apShowFocus(document.getElementById('autopilot-float')); };
+    if (idleFocus) idleFocus.onclick = () => { apOpen('idle-focus'); apShowFocus(document.getElementById('autopilot-float')); };
     apBindFocus(host);
   }
   // The autopilot's latest move (the server's last_action: its newest system line about itself) as one
@@ -3538,7 +3538,7 @@
   const apFocusLine = (focus, attr) => `Focus: ${esc(apFocusText(focus))} <button type="button" ${attr} aria-label="Change focus">Change</button>`;
   function apBindFocus(host) {
     const b = host.querySelector('[data-apcard="focus"]');
-    if (b) b.onclick = () => { apOpen(); apShowFocus(document.getElementById('autopilot-float')); };
+    if (b) b.onclick = () => { apOpen('focus'); apShowFocus(document.getElementById('autopilot-float')); };
   }
   function apFocusPaint(box, focus) {
     const fline = box.querySelector('#apf-focusline'); if (!fline) return;
@@ -3691,8 +3691,10 @@
       ? `. When they fall to ${usd(ar.threshold)}, auto-reload charges your card ${usd(ar.charge)} for ${usd(ar.amount)} more. Turn it off any time, or change auto-reload on <a href="/billing">Billing</a>.`
       : ' and pauses when they run out. Turn it off any time.'}</p>`;
   }
-  function apOpen() {
+  // `from`: the card's button that opened it (its data-apcard), which takes focus back when the panel closes.
+  function apOpen(from) {
     S.apAutoOpen = null;  // opened by the reader: it stays open from page to page
+    S.apOpener = from || null;
     try { localStorage.setItem('tau_ap_open', '1'); } catch (e) { /* private mode */ }
     const box = document.getElementById('autopilot-float');
     if (box) renderAutopilot(box, S.ap);
@@ -4041,11 +4043,14 @@
       const t = e && e.currentTarget, fromEntry = !!(t && t.dataset && t.dataset.apEntry !== undefined);
       const back = !opening && S.apFromEntry;
       S.apFromEntry = opening && fromEntry;
+      // Opened from the autopilot card's Change or Open autopilot (apOpen), focus goes back to that button: it went to
+      // the pill, at the other end of the page from the card (walk 2026-11-01, keyboard, both themes).
+      const card = !opening && S.apOpener; S.apOpener = null;
       S.apAutoOpen = null;
       localStorage.setItem('tau_ap_open', opening ? '1' : '0'); renderAutopilot(box, S.ap);
       // Opened, focus goes into the panel (its close button comes first); closed, back to the pill, or to the
-      // masthead's button that opened it while that is still on screen (scrolled away, the pill keeps it).
-      const to = opening ? box.querySelector('.apf-x') : back && root.querySelector('[data-ap-entry]');
+      // masthead's button or card button that opened it while that is still on screen (scrolled away, the pill keeps it).
+      const to = opening ? box.querySelector('.apf-x') : (back && root.querySelector('[data-ap-entry]')) || (card && root.querySelector(`[data-apcard="${card}"]`));
       const r = to && !opening && to.getBoundingClientRect ? to.getBoundingClientRect() : null;
       if (to && to.focus && !(r && (r.bottom <= 0 || (typeof innerHeight === 'number' && r.top >= innerHeight)))) to.focus({ preventScroll: true });
       return;
