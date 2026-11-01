@@ -14,7 +14,7 @@
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
-    statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
+    stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, btCheckLine, roadDays, roadLine,
     depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
@@ -1929,12 +1929,15 @@
     // ideas, and one stopped in its first round never saves it). Both are unknown and read "—" in both themes: Tau
     // read 0 as "—" and Meridian as "0" (audit 2026-10-31).
     const tried = +s.hypotheses_tried > 0 ? num(s.hypotheses_tried) : s.parent_id ? 'Adjustment' : '\u2014';
-    const name = opts.nolink ? esc(s.title) : `<a href="/strategies/${s.id}">${esc(s.title)}</a>`;
+    // An empty title reads "Untitled strategy" (stratTitle). A row whose title another row on the page shares
+    // (opts.filed, from the Strategies list) says the day it was filed, and its box says it too.
+    const title = stratTitle(s), filed = opts.filed ? filedDay(s.created_at) : '';
+    const name = opts.nolink ? esc(title) : `<a href="/strategies/${s.id}">${esc(title)}</a>`;
     const pickCell = opts.pick ? (bulkDeployable(s)
-      ? `<td class="pickcol" data-lab="Deploy"><input type="checkbox" class="pick" data-id="${s.id}" aria-label="Select ${esc(s.title)} for deployment"></td>`
+      ? `<td class="pickcol" data-lab="Deploy"><input type="checkbox" class="pick" data-id="${s.id}" aria-label="Select ${esc(title)}${filed ? `, ${esc(filed.toLowerCase())},` : ''} for deployment"></td>`
       : '<td class="pickcol" data-lab=""></td>') : '';
     return `<tr class="${opts.land ? 'washed' : ''}">${pickCell}
-      <td class="name" data-lab="">${name}${s.shared_from ? ` <span class="shared-flag">${ICON.share}${esc(s.shared_from)}</span>` : ''}${s.example ? ' ' + EXAMPLE_TAG : s.by_autopilot ? ' ' + AP_STRAT_TAG : ''}<div class="sub-fig cellwrap">${mdInline(esc(s.thesis))}</div></td>
+      <td class="name" data-lab="">${name}${s.shared_from ? ` <span class="shared-flag">${ICON.share}${esc(s.shared_from)}</span>` : ''}${s.example ? ' ' + EXAMPLE_TAG : s.by_autopilot ? ' ' + AP_STRAT_TAG : ''}${filed ? `<div class="sub-fig filed-day">${esc(filed)}</div>` : ''}<div class="sub-fig cellwrap">${mdInline(esc(s.thesis))}</div></td>
       <td data-lab="Market"><span class="tick">${esc(marketShort(s.market))}\u00a0· ${esc(dirLabel(s.direction))}</span></td>
       <td class="num" data-lab="Backtest P&amp;L">${m.pnl == null ? '\u2014' : noPass ? `<span class="pnl-nopass">${usd(m.pnl, true)}</span>` : money(m.pnl)}${pnlSub}</td>
       <td class="num" data-lab="Trades">${m.trades == null ? '\u2014' : num(m.trades)}</td>
