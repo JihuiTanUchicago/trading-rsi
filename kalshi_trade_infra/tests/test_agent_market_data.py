@@ -321,5 +321,6 @@ def test_review_whose_every_action_was_refused_does_not_narrate_it(monkeypatch, 
     model, _ = scripted([mixed])
     agent.run_copilot(Conn(), {"id": 2, "user_id": 7, "kind": "review", "prompt": "scheduled"}, model=model)
     assert [a[2] for a in records] == ["agent", "system", "system"]
-    assert records[0][3] == "Asking to pause #78; researching btc15m."
+    # The posted reply names the market by its label, never the raw key (customer_text.agent_reply).
+    assert records[0][3] == "Asking to pause #78; researching Bitcoin up or down in 15 minutes."
     assert "never as done" in agent.ACTIONS_GUIDE

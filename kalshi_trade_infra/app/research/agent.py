@@ -57,6 +57,7 @@ from app.services import demo_record
 from app.services import gate_explain
 from app.services import customer_text
 from app.services import research_notice
+from app.services import chat_facts
 from app.research.agent_market_data import AgentMarketData, DataScope
 from app.research.agent_knowledge import AgentKnowledge
 from app.research.agent_news import AgentNews
@@ -4838,6 +4839,52 @@ def _deployment_state(d: Dict) -> str:
     return "%s (why: %s)" % (status, why[:200].rstrip(".")) if why else status
 
 
+_REPLY_STRATEGY_ID = re.compile(r"\bstrateg(?:y|ies)(?:[_ ]?id)?\s*(?:=|:|#)\s*#?(\d+)", re.I)
+
+
+def _reply_words(cur, user_id: int, reply: str) -> str:
+    """The reply as the panel shows it (customer_text.agent_reply): the deployments, strategies and markets its context
+    named by id or key, by their titles and labels. Its names come from the user's deployments (stopped ones too) and
+    the strategies the reply names by number; a read that fails leaves the ids to clean() alone, never the reply unsaid."""
+    deps: Dict[int, Dict] = {}
+    strats: Dict[int, str] = {}
+    try:
+        for d in repo.list_deployments(cur, user_id, include_stopped=True):
+            deps[int(d["id"])] = {"title": d.get("title"), "mode": d.get("mode")}
+            strats.setdefault(int(d["strategy_id"]), d.get("title") or "")
+        for m in _REPLY_STRATEGY_ID.finditer(reply or ""):
+            sid = int(m.group(1))
+            if sid not in strats:
+                s = repo.get_strategy(cur, user_id, sid)
+                if s:
+                    strats[sid] = s.get("title") or ""
+    except Exception:  # noqa: BLE001 - names are a nicety; the reply still posts, cleaned
+        pass
+    markets = {k: m.customer_label for k, m in MARKETS.items()}
+    markets.update({m.series: m.customer_label for m in MARKETS.values() if m.series})
+    return customer_text.agent_reply(reply, deps, strats, markets)
+
+
+def _running_lines(deps: List[Dict]) -> List[str]:
+    """What runs now as Home and the autopilot card count it (chat_facts.running_lines): strategies across the books and
+    each book's. Best-effort."""
+    try:
+        return chat_facts.running_lines(deps, _live_switch_open())
+    except Exception:
+        return []
+
+
+def _research_now(cur, user_id: int) -> Optional[str]:
+    """Research sessions as the Research page and Home count them (chat_facts.research_now): "1 running, 1 queued to
+    start, 0 paused". The context's one figure counted a session still queued for a worker as running. None when the
+    read fails (the count of active sessions stands)."""
+    try:
+        from app import worker  # the reaper's limit, as Home's count leaves a silent session out
+        return chat_facts.research_now(repo.active_run_counts(cur, user_id, silent_before=repo.now_utc() - worker.ABANDONED_AFTER))
+    except Exception:
+        return None
+
+
 def _copilot_context(cur, user: Dict) -> str:
     deps = repo.list_deployments(cur, user["id"])
     passed = [s for s in repo.list_strategies(cur, user["id"], status="passed", limit=20)]
@@ -4854,8 +4901,13 @@ def _copilot_context(cur, user: Dict) -> str:
         plan = {}
     running = [d for d in deps if d["status"] == "running"]
     focus = focus_tokens(user)
+    research_now = _research_now(cur, user["id"])
     lines = [
         "Autopilot is %s." % ("ON" if user.get("autopilot") else "OFF"),
+        # The autopilot card says both switches; only the user flips either (the context had autopilot's alone).
+        "Live autopilot is %s%s. Only the user turns autopilot or live autopilot on or off (the autopilot panel's "
+        "switches); you can't." % ("ON" if user.get("autopilot_live") else "OFF",
+                                   "" if _live_switch_open() else "; live trading isn’t open on this server yet"),
         ("USER'S MARKET FOCUS (binding, set by the user): %s. Research and deploy ONLY markets inside it: "
          "the host refuses anything else, so don't propose it. Diversify WITHIN the focus." % ", ".join(focus))
         if focus else
@@ -4863,18 +4915,23 @@ def _copilot_context(cur, user: Dict) -> str:
          "markets (e.g. 'only crypto', 'focus on bitcoin'), emit a set_focus action so it binds."),
         # Counted here so the review's status line can't contradict the list below (a review once
         # opened with "0 deployments live/paper" while two paper deployments were running).
-        "DEPLOYMENTS RUNNING RIGHT NOW: %d on paper%s, %d live%s." % (
+        "DEPLOYMENTS RUNNING RIGHT NOW: %d on paper%s, %s%d live%s." % (
             sum(1 for d in running if d["mode"] == "paper"),
             " (%s)" % ", ".join("#%s" % d["id"] for d in running if d["mode"] == "paper") if any(d["mode"] == "paper" for d in running) else "",
+            # Demo deployments were left out of the count, so "what's running?" read "6 on paper" beside Home's demo too.
+            ("%d on demo (%s), " % (sum(1 for d in running if d["mode"] == "demo"),
+                                    ", ".join("#%s" % d["id"] for d in running if d["mode"] == "demo"))
+             if any(d["mode"] == "demo" for d in running) else ""),
             sum(1 for d in running if d["mode"] == "live"),
             " (%s)" % ", ".join("#%s" % d["id"] for d in running if d["mode"] == "live") if any(d["mode"] == "live" for d in running) else "")
         # The dashboard and Deploy say a running live deployment places no orders while the live switch is
         # closed; counted as live here, a reply asked "how is my live strategy doing?" said it trades real money.
         + (" Live trading isn’t open yet on this server, so the live ones place no orders: they are waiting, "
            "never trading real money." if any(d["mode"] == "live" for d in running) and not _live_switch_open() else ""),
-        "RESEARCH RUNNING RIGHT NOW: %d.%s" % (active_research, "" if active_research else
+        "RESEARCH RUNNING RIGHT NOW: %s.%s" % (research_now or active_research, "" if active_research else
             " NONE is running — any research you mentioned in earlier messages has ALREADY FINISHED "
             "(its outcome is listed below). Do NOT tell the user research is 'still running'."),
+        *_running_lines(deps),
         "Risk controls: drawdown_limit_pct=%s, max_open_positions=%s, max_open_notional=%s."
         % (risk.get("drawdown_limit_pct"), risk.get("max_open_positions"), risk.get("max_open_notional")),
         _cooldown_line(cur, user["id"]),
@@ -5021,6 +5078,9 @@ def _copilot_context(cur, user: Dict) -> str:
             dead += repo.list_strategies(cur, user["id"], status=st, limit=10)
         except Exception:
             pass
+    # The example session every account is seeded with isn't the user's research: the Strategies page counts it
+    # apart, and listed here a reply called "Todd's random walk" one of the user's own dead ends.
+    dead = [s for s in dead if s.get("direction") != repo.DEMO_DIRECTION]
     if dead:
         lines += ["", "Dead ends already tested and killed for this user — do NOT re-propose the same idea; "
                       "refine the mechanism or hunt elsewhere:"]
@@ -5043,12 +5103,24 @@ def _copilot_context(cur, user: Dict) -> str:
                   % (_usd(paper), demo, _credits_usd(credits))]
     except Exception:
         pass
+    # What Billing and the autopilot card say the AI's work cost (credits, never P&L), and the research cap: the context
+    # had only the balance left, so "how much did autopilot cost me?" was answered from the 3-day token scorecard.
+    try:
+        lines += chat_facts.credits_lines(cur, user["id"], AUTOPILOT_RESEARCH_USD_PER_DAY,
+                                          research_spend(cur, user["id"]) if AUTOPILOT_RESEARCH_USD_PER_DAY > 0 else None)
+    except Exception:
+        pass
     # PORTFOLIO VIEW: each book's open exposure vs the user's caps, so the review manages the whole
     # book (concentration, headroom) and not one deployment at a time. The engine applies the caps to
     # one book at a time, and live money is never added to paper or demo: the line summed all three,
     # so a reply could quote one open figure mixing real and practice money.
     try:
         expo = {m: repo.user_open_exposure(cur, user["id"], m) for m in ("paper", "demo", "live")}
+        # Home's and Funds' paper headline (cash plus open at cost): "what is my balance?" had paper cash alone.
+        try:
+            lines.append(chat_facts.paper_portfolio_line(repo.paper_balance(cur, user["id"]), chat_facts.open_notional(expo["paper"])))
+        except Exception:
+            pass
         lines.append("Open exposure by book (each cap applies to each book on its own; never add books together): %s "
                      "(caps: max_open_positions=%s, max_open_notional=%s). Manage each book as a whole — don't let "
                      "exposure concentrate in one market."
@@ -5067,11 +5139,20 @@ def _copilot_context(cur, user: Dict) -> str:
         lines.append("Realized P&L by book, closed trades only (the dashboard's figures; never add books together): "
                      "paper %s over %d closed trades, all time; demo %s %s; live (real money) %s over %d "
                      "closed trades, all time. Removed deployments and deleted strategies are included. "
+                     "Demo has %d closed trades all time. "
                      "Realized today (UTC, since 00:00 UTC): paper %s; demo %s; live (real money) %s."
                      % (_usd(realized["paper"][0]), closed.get("paper", 0), _usd(demo_since["realized"]),
                         "since its last reload" if demo_since.get("before_reload") else "all time",
-                        _usd(realized["live"][0]), closed.get("live", 0),
+                        _usd(realized["live"][0]), closed.get("live", 0), closed.get("demo", 0),
                         _usd(realized["paper"][1]), _usd(realized["demo"][1]), _usd(realized["live"][1])))
+    except Exception:
+        pass
+    # The trades themselves, with the page's reason line, and open positions a deleted strategy left: "why did this
+    # trade lose?" had nothing to answer from, and a book's open count one more than its deployments hold.
+    try:
+        lines += chat_facts.orphan_lines(repo.user_positions(cur, user["id"], "open"))
+        lines += chat_facts.recent_trades_lines(repo.user_positions(cur, user["id"], "closed", chat_facts.RECENT_TRADES),
+                                                deps, _market_words)
     except Exception:
         pass
     try:
@@ -5115,7 +5196,11 @@ def _copilot_context(cur, user: Dict) -> str:
                        "is a FAILURE — you MUST launch at least one new research line THIS review (a market "
                        "from the list above + a concrete mechanism). Do NOT reply 'waiting' or 'nothing to do' "
                        "with an empty deck: the loop only keeps moving if you keep research running.")]
-    return "\n".join(lines)
+    # A loss reads "-$3.38" on every page; a few blocks above write "$-3.38" (shared formatters other text uses as is).
+    return _SIGNED_USD.sub("-$", "\n".join(lines))
+
+
+_SIGNED_USD = re.compile(r"\$-(?=\d)")
 
 
 ACTIONS_GUIDE = """Reply: {"reply": "<what you tell the user>", "actions": [ ... at most 3 ... ], "plan": {"goals": "...", "agenda": "...", "deployments": "...", "posture": "..."}}
@@ -5134,7 +5219,9 @@ Actions:
   {"type": "kalshi_perps_order", "side": "bid", "count": "1", "price": "7.00", "reduce_only": false, "reason": "..."} (Native Kalshi BTC perps REAL-MONEY order proposal only. Whole contracts; price is USD PER CONTRACT, not BTC spot price. Bid buys/longs, ask sells/shorts; reduce_only must only reduce the current position. Kalshi determines account/product margin and leverage; there is no order leverage field or Tau financial cap. Always requires the owner to review a fresh exact order ticket and explicitly confirm, even with autopilot on. Never submit, approve, retry or claim execution yourself. Do not infer fills, access, buying power or liquidation safety. Research-only perps strategies remain ineligible for automatic deployment.)
   {"type": "deploy_live", "strategy_id": N, "reason": "..."}  (REAL money; any side (YES or NO) that already proved itself on PAPER, and only when the user turned on live autopilot. If live autopilot is off or any safety gate fails it is refused and stays on paper. Never the first step for a new idea: research -> paper -> live.)
 Back your words with actions. If your reply says you ARE doing something — starting/launching research, tuning, pausing, promoting, deploying — you MUST include the matching action(s) in `actions`. A reply that merely DESCRIBES an action without emitting it does NOTHING (no research is launched, nothing changes) and is a failure: e.g. saying "I'll launch three research threads now" requires three `research` actions in this same response, not a promise to do it later. Conversely, never invent actions you have no concrete reason for — if the right move is to wait and watch, say so plainly and return an empty list. EXCEPTION: if the context says EMPTY DECK (zero deployments and zero research in flight), waiting is NOT allowed — you must emit at least one `research` action this turn.
-The host may REFUSE any action (a paper strategy younger than its minimum age can't be paused, the live gate, cooldowns, limits); each action's result is posted as its own line right after your reply. So write actions as what you are ASKING for ("asking to pause #78"), never as done ("paused #78", "released 8 positions"), and quote dollar amounts, trade counts and position counts exactly as the context above states them: never estimate, round or infer one.
+The host may REFUSE any action (a paper strategy younger than its minimum age can't be paused, the live gate, cooldowns, limits); each action's result is posted as its own line right after your reply. So write actions as what you are ASKING for ("asking to pause “Fade tails”"), never as done ("paused “Fade tails”", "released 8 positions"), and quote dollar amounts, trade counts and position counts exactly as the context above states them: never estimate, round or infer one.
+In "reply", name a strategy by its title (with its book when it runs in more than one) and a market by its label: never by an id (#N, deployment_id, strategy_id, run #N, an experiment), a market key (btc15m, high_ny, KXHIGHNY) or an AI model's name. Never add paper, demo and live money together, and never mix credits (what the AI's work cost) with trading P&L.
+You can't turn autopilot or live autopilot on or off, change the research cap or the daily live loss limit, add or refund credits, or move paper, demo or real money: say where the user does it (the autopilot panel's switches, Billing, Funds) instead of saying you did it.
 CLOSE THE LOOP: research only pays off when a proven edge reaches the book. If a passed strategy is a DEPLOYMENT-CANDIDATE, promoting it to paper (a `deploy` action) takes priority over opening a new exploratory research line — don't explore forever while a ready edge sits undeployed. And don't re-launch research on a market that is already running or just finished: that line is refused; hunt a DIFFERENT market from the list.
 """ + specmod.SPEC_GUIDE
 
@@ -5294,7 +5381,7 @@ def run_copilot(conn, run: Dict, model: Optional[ModelFn] = None, dataset_fn=bac
                 refused += 1  # these kinds return a proposal id whenever they did (or proposed) something
             notes.append((text, proposal_id))
         if run["kind"] != "review" or (out["actions"] and refused < len(out["actions"])):
-            repo.add_chat(cur, user["id"], "agent", out["reply"])
+            repo.add_chat(cur, user["id"], "agent", _reply_words(cur, user["id"], out["reply"]))
             try:
                 wrong = false_live_line(out["reply"], repo.list_deployments(cur, user["id"]), customer=True)
             except Exception:  # best-effort: a lookup hiccup must not fail the run after it replied
