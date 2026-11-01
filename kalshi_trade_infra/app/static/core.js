@@ -1644,7 +1644,7 @@
   // the card and the panel told what one session costs and how many the balance covers, and nothing of how much it
   // could spend in a day (walk 2026-11-01: the cap showed only once the first session had spent something). '' with
   // no cap. Its spend against the cap is said once there is some (apCreditsLeft).
-  const apCapShort = (cap) => +cap > 0 ? `It starts no new research once research has cost ${usd(+cap)} in 24 hours, your own sessions included; research you start yourself isn’t limited.` : '';
+  const apCapShort = (cap) => +cap > 0 ? `It starts no new research once research sessions started in the last 24 hours have cost ${usd(+cap)}, your own included; research you start yourself isn’t limited.` : '';
 
   // ---------- relative times that tick in place ----------
   // A relative time ("5m ago", "as of 4 min ago", "read just now") inside markup a poll compares before it redraws is a

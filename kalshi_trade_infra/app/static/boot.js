@@ -6,7 +6,7 @@
    loading Meridian's bundle. The app keeps localStorage in step with the account. It also hands the
    app the account the signed-in shell carries (window.__TAU_ME__), and the page's first reads when
    the shell carries those too (window.__TAU_FIRST__). It keeps the browser's UTC offset in the tau_tz
-   cookie, so a later shell can name Billing's first read too. */
+   cookie, so a later shell can name Billing's first read too, and its time zone's name in tau_tzn. */
 (function () {
   // A signed-in shell carries the account (/api/me's reply) in a JSON data block; the app takes it
   // from here once, at its first render, instead of starting with a round trip to read it.
@@ -36,8 +36,12 @@
   } catch (e) { /* the page asks for them itself */ }
   // Billing asks for /api/billing?tz=<getTimezoneOffset()> (its statement's days are yours). Only the
   // browser knows that offset: kept in a cookie, a later page shell can carry Billing's read (shell_reads.py).
+  // Beside it the zone's name (tau_tzn), so the statement counts a day before a clock change by the offset it had.
   try {
-    document.cookie = 'tau_tz=' + new Date().getTimezoneOffset() + '; Path=/; Max-Age=34560000; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+    var ck = '; Path=/; Max-Age=34560000; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+    document.cookie = 'tau_tz=' + new Date().getTimezoneOffset() + ck;
+    var zone = typeof Intl === 'object' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
+    if (zone) document.cookie = 'tau_tzn=' + encodeURIComponent(zone) + ck;
   } catch (e) { /* cookies blocked: Billing asks as before */ }
   var b = document.getElementById('tau-boot');
   if (!b) return;

@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from urllib.parse import unquote
 
 from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
@@ -169,7 +170,7 @@ def billing_state(ctx: Ctx):
             cards = billing.list_cards(cust["stripe_customer_id"])
         except billing.StripeError:
             cards, cards_unread = [], True
-    return dict(state, cards=cards, cards_unread=cards_unread, **_statement(ctx.cur, ctx.uid, since, _tz_minutes(ctx), totals, balance, ctx.user.get("created_at")))
+    return dict(state, cards=cards, cards_unread=cards_unread, **_statement(ctx.cur, ctx.uid, since, _statement_tz(ctx, since), totals, balance, ctx.user.get("created_at")))
 
 
 def billing_figures(ctx: Ctx):
@@ -180,7 +181,7 @@ def billing_figures(ctx: Ctx):
     since = repo.now_utc() - timedelta(days=STATEMENT_DAYS)
     state, _, totals, balance = _figures(ctx, since)
     if ctx.query.get("statement") == "1":
-        state.update(_statement(ctx.cur, ctx.uid, since, _tz_minutes(ctx), totals, balance, ctx.user.get("created_at")))
+        state.update(_statement(ctx.cur, ctx.uid, since, _statement_tz(ctx, since), totals, balance, ctx.user.get("created_at")))
     return state
 
 
@@ -266,13 +267,57 @@ def _tz_minutes(ctx: Ctx) -> int:
     return tz if -840 <= tz <= 840 else 0
 
 
+TZ_NAME_COOKIE = "tau_tzn"  # the browser's time zone name (Intl), URL-encoded, as boot.js writes it on every load
+_TZ_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}$")
+
+
+def _zone_offset(zone, at: datetime) -> int:
+    """The zone's offset from UTC at the naive UTC instant `at`, in minutes as getTimezoneOffset() says it (360 for UTC-6)."""
+    return -int(at.replace(tzinfo=timezone.utc).astimezone(zone).utcoffset().total_seconds()) // 60
+
+
+def _statement_tz(ctx: Ctx, since: datetime) -> Union[int, List[Tuple[Optional[datetime], int]]]:
+    """The viewer's day for each statement row: the browser's offset now (?tz=) when its offset held over the whole
+    window, else [(from, minutes)] — the offset in force from each naive UTC instant on, oldest first, the first
+    from None — read off the time zone the browser names (the tau_tzn cookie), when that zone is at ?tz= now. With one
+    offset for every row, the days before a clock change were cut an hour off the viewer's midnight: a session's
+    calls on two of the viewer's days (Oct 31 evening and 00:04 CDT Nov 1) were one line, headed by its last call's
+    day, so "Today" summed yesterday's calls (walk 2026-11-01). Display only: amounts are the ledger's own."""
+    tz = _tz_minutes(ctx)
+    handler = getattr(ctx, "handler", None)
+    name = unquote((handler.cookies().get(TZ_NAME_COOKIE) or "") if handler is not None and hasattr(handler, "cookies") else "")
+    if not name or len(name) > 64 or not _TZ_NAME.match(name):
+        return tz
+    try:
+        from zoneinfo import ZoneInfo
+        zone = ZoneInfo(name)
+        now = repo.now_utc()
+        if _zone_offset(zone, now) != tz:
+            return tz  # the cookie names another zone than the page's offset (it moved): the offset wins
+        t = since.replace(second=0, microsecond=0)  # clock changes fall on whole minutes
+        segs: List[Tuple[Optional[datetime], int]] = [(None, _zone_offset(zone, t))]
+        while t < now:  # a day at a time; a change inside a day is found to the minute
+            nxt = min(t + timedelta(days=1), now)
+            if _zone_offset(zone, nxt) != segs[-1][1]:
+                lo, hi = 0, int((nxt - t).total_seconds() // 60) + 1
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    lo, hi = (mid, hi) if _zone_offset(zone, t + timedelta(minutes=mid)) == segs[-1][1] else (lo, mid)
+                at = t + timedelta(minutes=hi)
+                segs.append((at, _zone_offset(zone, at)))
+            t = nxt
+    except Exception:  # noqa: BLE001 - an unknown zone or no zone data: the browser's offset, as before
+        return tz
+    return segs if len(segs) > 1 else tz
+
+
 _cents = credit_cents  # every credits figure rounds one way (app.web.views.credit_cents)
 
 
-def _statement(cur, uid: int, since, tz: int, totals: Dict, balance: float, created_at=None) -> Dict:
+def _statement(cur, uid: int, since, tz, totals: Dict, balance: float, created_at=None) -> Dict:
     """Billing's history and the sum that explains the balance. `ledger`: the last STATEMENT_DAYS
-    as lines, newest first. A usage line is one session's model calls on one of the viewer's days
-    with one model (`calls`, `first_at`, and `session` when it billed a research session the user
+    as lines, newest first. A usage line is one session's model calls on one of the viewer's days (`tz`, as
+    _statement_tz gives it) with one model (`calls`, `first_at`, and `session` when it billed a research session the user
     can open); a card purchase says what the card was charged and its Stripe reference.
     `ledger_cut`: the line cap left older days out. `math`: the balance STATEMENT_DAYS ago, plus
     credits bought by card, plus other credits, minus agent usage, is the balance now, in cents that

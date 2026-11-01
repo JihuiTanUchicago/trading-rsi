@@ -12,7 +12,7 @@ import {test} from 'node:test';
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async () => { for (let i = 0; i < 6; i++) await flush(); };
-const CAP = 'It starts no new research once research has cost $240.00 in 24 hours, your own sessions included; research you start yourself isn’t limited.';
+const CAP = 'It starts no new research once research sessions started in the last 24 hours have cost $240.00, your own included; research you start yourself isn’t limited.';
 
 export function firstQuarterHourCases({name, frontend, dashboard, apStatus, fundsData}) {
   const emptyWeek = {research_credits: 0, tested: 0, passed: 0, not_cleared: 0, paper_started: 0, paper_pnl: 0, paper_trades: 0,

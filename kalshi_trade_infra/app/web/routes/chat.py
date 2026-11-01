@@ -349,9 +349,11 @@ def _research_cap_line(cap: Optional[Dict]) -> str:
     """The story's line once the research cap stops new autopilot research, else ''."""
     if not cap or not cap.get("reached"):
         return ""
-    return ("It has reached its research cap: ${:,.2f} spent in the last 24 hours, and the cap is ${:,.2f} per 24 hours, "
-            "so it starts no new research until earlier spend rolls off. Research you start yourself isn’t "
-            "limited.".format(float(cap["spent_24h"]), float(cap["usd"])))
+    # It names what the cap counts: the research sessions started in the last 24 hours (agent.research_spend), not the
+    # day's debits, so "$X spent in the last 24 hours" can't sit beside Billing's larger figure for the same day.
+    return ("It has reached its research cap: research sessions started in the last 24 hours, your own included, have "
+            "cost ${:,.2f}, and the cap is ${:,.2f} per 24 hours, so it starts no new research until enough of them are "
+            "over 24 hours old. Research you start yourself isn’t limited.".format(float(cap["spent_24h"]), float(cap["usd"])))
 
 
 def _plural(n: int, one: str, many: str = "") -> str:

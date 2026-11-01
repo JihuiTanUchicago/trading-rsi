@@ -3893,13 +3893,15 @@
     const ar = d && d.reload_failed ? null : me.auto_reload;
     const cap = ar ? `each time your balance falls to ${usd(ar.threshold)}, auto-reload charges your card${reloadIn ? '' : ` ${usd(ar.charge)} for ${usd(ar.amount)} more`} and research carries on.${me.min_run_balance != null ? ` With auto-reload off, it pauses when your balance is under ${usd(me.min_run_balance)}.` : ''}`
       : `it uses credits${me.min_run_balance != null ? ` until your balance is under ${usd(me.min_run_balance)}, then pauses` : ''}.`;
-    // Its research cap (the status's research_cap: the cap and the last 24 hours' research spend, your own sessions
-    // included) is a daily limit: "It has no daily spending cap" stood under a $240 cap (walk 2026-11-01). Without
-    // one (no cap, or an older server) the line is as before.
+    // Its research cap (the status's research_cap: the cap and what the research sessions started in the last 24 hours
+    // cost, your own included) is a daily limit: "It has no daily spending cap" stood under a $240 cap (walk 2026-11-01).
+    // Without one (no cap, or an older server) the line is as before. It names the sessions it counts: "$5.96 spent in
+    // the last 24 hours" sat beside Billing's $11.60 for the day, a session started yesterday still spending (walk
+    // 2026-11-01).
     const rc = d && d.research_cap && +d.research_cap.usd > 0 ? d.research_cap : null;
     const limit = !rc ? `It has no daily spending cap: ${cap}`
-      : `${rc.reached ? `Its research reached its cap of ${usd(rc.usd)} per 24 hours: <b>${usd(rc.spent_24h)}</b> spent in the last 24 hours, your own sessions included, so it starts no new research until earlier spend rolls off`
-        : `Its research is capped at ${usd(rc.usd)} per 24 hours: <b>${usd(rc.spent_24h)}</b> spent in the last 24 hours, your own sessions included. At the cap it starts no new research until earlier spend rolls off`}; research you start yourself isn’t limited. Within the cap, ${cap}`;
+      : `${rc.reached ? `Its research reached its cap of ${usd(rc.usd)} per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>${usd(rc.spent_24h)}</b>, so it starts no new research until enough of them are over 24 hours old`
+        : `Its research is capped at ${usd(rc.usd)} per 24 hours: research sessions started in the last 24 hours, your own included, have cost <b>${usd(rc.spent_24h)}</b>. At the cap it starts no new research until enough of them are over 24 hours old`}; research you start yourself isn’t limited. Within the cap, ${cap}`;
     return `<p class="ap-week-left">Credits left: <b>${usd(w.credits_left)}</b>${pace}.${est ? ' ' + est : ''} ${limit}${d && d.reload_failed ? ` <b>Auto-reload failed.</b> ${esc(d.reload_failed)} <a href="/billing">Update your card</a>.` : ''} <a href="/billing">Billing</a> lists every charge.</p>`;
   }
   // What a research session on the autopilot's model usually costs and how far the credits go at that rate
