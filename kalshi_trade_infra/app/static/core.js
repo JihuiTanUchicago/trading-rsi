@@ -1621,6 +1621,20 @@
     return kept.filter((r) => +r.id < low && !seen.has(r.id) && seen.add(r.id)).sort((a, b) => b.id - a.id);
   };
 
+  // The app was updated under an open page: every JSON reply names each theme's build as its page shell names it now
+  // (X-Tau-Build "tau:<hash>,meridian:<hash>", app/web/page_modules.builds_header). True when the reply names this
+  // theme's build and it isn't the one the page runs (window.__BUILD__). No build of its own, or none named: false.
+  const buildMoved = (said, theme, mine) => {
+    if (!mine || typeof said !== 'string') return false;
+    const hit = said.split(',').map((p) => p.trim().split(':')).find((p) => p[0] === theme);
+    return !!hit && /^[0-9a-f]{6,64}$/.test(hit[1] || '') && hit[1] !== String(mine);
+  };
+  // A box holding words the reader typed, which loading the page afresh would lose: a text field (never a switch, a
+  // picker or a file) whose value isn't the one it was drawn with, or one the reader is in (`focused`).
+  const typedField = (el, focused) => !!el && (el.tagName === 'TEXTAREA'
+    || (el.tagName === 'INPUT' && !/^(?:checkbox|radio|button|submit|reset|hidden|file|range|color|image)$/i.test(el.type || '')))
+    && !el.disabled && (!!focused || String(el.value || '') !== String(el.defaultValue || ''));
+
   window.TauCore = Object.freeze({
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
@@ -1639,6 +1653,6 @@
     demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,
-    pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly
+    pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
   });
 })();

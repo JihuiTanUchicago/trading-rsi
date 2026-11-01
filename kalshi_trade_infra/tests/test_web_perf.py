@@ -148,7 +148,9 @@ def test_a_client_that_hung_up_is_logged_499_not_a_server_error(web, monkeypatch
         time.sleep(0.01)
     line = [l for l in captured.splitlines() if l.startswith("[app] GET /api/version")][-1]
     assert line.split()[3] == "499" and "Traceback" not in captured
-    route = [r for r in webperf.summary()["routes"] if r["route"] == "GET /api/version"][0]
+    # Every route, not the top 25 by waiting time: the process-wide rows hold other tests' routes too, and a fast
+    # one-request route can rank below 25 of them (it did once more tests began recording requests).
+    route = [r for r in webperf.summary(top=10**6)["routes"] if r["route"] == "GET /api/version"][0]
     assert route["5xx"] == 0
 
 

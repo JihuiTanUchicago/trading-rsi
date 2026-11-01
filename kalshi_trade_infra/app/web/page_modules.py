@@ -96,6 +96,19 @@ def build_version(theme: str, versions: Dict[str, str]) -> str:
     return hashlib.sha256(",".join(parts).encode()).hexdigest()[:10]
 
 
+_BUILDS_SAID: Dict[str, object] = {"of": None, "said": ""}
+
+
+def builds_header(versions: Dict[str, str]) -> str:
+    """Every JSON reply's X-Tau-Build: each theme's build as its page knows it ("tau:<hash>,meridian:<hash>").
+    A page left open across a deploy learns it runs an older build from the replies it already reads, with no
+    request of its own (api() in both bundles, core.js buildMoved). Worked out once per versions read (the dict
+    is new only when a static file changed)."""
+    if _BUILDS_SAID["of"] is not versions:
+        _BUILDS_SAID.update(of=versions, said=",".join("%s:%s" % (t, build_version(t, versions)) for t in BUNDLE))
+    return str(_BUILDS_SAID["said"])
+
+
 def preload(theme: Optional[str], path: str, versions: Dict[str, str], signed_in: bool = True) -> str:
     """The <link rel="preload"> for the page file this path's view needs in this theme, else ''.
     An unknown theme (boot.js picks it) preloads nothing: the bundle fetches the file when it runs.

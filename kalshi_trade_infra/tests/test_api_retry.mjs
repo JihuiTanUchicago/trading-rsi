@@ -29,6 +29,8 @@ function loadApi(file) {
   const ctx = {
     window: {__tauReport: (kind, err) => reports.push([kind, err])},
     S: {gen: 1, me: {}}, go: () => {}, clearTimeout: () => {}, AbortController,
+    // A page left open across a deploy (stale_tab_frontend_cases.mjs has those): no reply here names a newer build.
+    buildMoved: () => false, newBuild: () => {}, freshBuild: () => false, wake: () => {},
     // The retry back-off passes at once; a read's deadline (READ_MS) is held in `deadlines` for a test to fire.
     setTimeout: (fn, ms) => { if (ms >= 10000) { deadlines.push(fn); return 1; } fn(); return 0; },
     fetch: async (path, opts) => { calls.push(opts.method || 'GET'); signals.push(opts.signal || null); const r = replies.shift(); if (r instanceof Error) throw r; return r; },
