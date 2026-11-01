@@ -29,6 +29,7 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
+from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.trading.markets import MARKETS
@@ -506,7 +507,18 @@ def _paper_rollup(rows: List[Dict]) -> Dict:
     }
 
 
-def paper_outcomes(cur, user_id: int) -> Dict:
+def paper_progress_of(trips_by: Dict[int, List[Dict]]) -> Dict[int, Tuple[int, float]]:
+    """repo.paper_progress worked out from those strategies' round trips already read
+    (repo.paper_round_trips_by_strategy: the same rows, one per order_ref, open slices left out): each
+    strategy's trips and their P&L summed exactly (money.exact, as the SQL's DECIMAL sum), so the figures
+    are the ones that read gives. A strategy with no closed trip is absent from both."""
+    from trading_core.domain.money import exact
+    return {int(sid): (len(trips), float(sum((exact(t["pnl"]) for t in trips), Decimal(0))))
+            for sid, trips in trips_by.items() if trips}
+
+
+def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
+                   trips_by: Optional[Dict[int, List[Dict]]] = None) -> Dict:
     """RSI part 3: what research's passes earned once they met the live book on paper. The other
     half of the loop's scorecard: the scoreboard counts what passed the backtest gate, this counts
     what survived realistic fills (the live kernel over SimulatedVenue). Per family (same keys as
@@ -514,15 +526,20 @@ def paper_outcomes(cur, user_id: int) -> Dict:
     yields gate passes which then bleed on paper stops looking like a winner.
 
     Read-only. Strategies with too few trips to clear the paper gate, or down on them, skip the
-    (bootstrap) live-ready check, so this stays cheap enough for the panel."""
+    (bootstrap) live-ready check, so this stays cheap enough for the panel. `all_deps` is
+    repo.list_deployments(include_stopped=True) and `trips_by` repo.paper_round_trips_by_strategy for
+    every strategy those ran on paper, when the caller has already read them (the scoreboard, which
+    hands the same rows to the tournament); without them they are read here."""
     from app.research import agent
     from app import repository as repo
-    deps = [d for d in repo.list_deployments(cur, user_id, include_stopped=True) if d.get("mode") == "paper"]
+    if all_deps is None:
+        all_deps = repo.list_deployments(cur, user_id, include_stopped=True)
+    deps = [d for d in all_deps if d.get("mode") == "paper"]
     by_strategy: Dict[int, Dict] = {}
     for d in deps:
         by_strategy.setdefault(int(d["strategy_id"]), d)
     ids = sorted(by_strategy)
-    progress = repo.paper_progress(cur, user_id, ids)
+    progress = paper_progress_of(trips_by) if trips_by is not None else repo.paper_progress(cur, user_id, ids)
     playbooks = _playbook_of(cur, ids)
     rows = []
     for sid in ids:

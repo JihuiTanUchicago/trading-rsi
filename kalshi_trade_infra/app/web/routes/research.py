@@ -718,14 +718,23 @@ def _research_scoreboard(cur, uid: int, days: int) -> Dict:
         board["scout"] = rsi_scout.ranking(cur, 10)
     except Exception:  # noqa: BLE001 - the scan table may not exist before the first deploy's schema run
         board["scout"] = []
+    from app.research import tournament
+    # The paper outcomes and the tournament read the same deployments (stopped ones included) and the same
+    # strategies' paper round trips: read once here and handed to both. A failed read hands neither, and
+    # each reads for itself as before (and fails into its own None).
+    deps = trips_by = None
     try:
-        board["paper"] = rsi.paper_outcomes(cur, uid)
+        deps = repo.list_deployments(cur, uid, include_stopped=True)
+        trips_by = repo.paper_round_trips_by_strategy(cur, uid, tournament.paper_strategy_ids(deps))
+    except Exception:  # noqa: BLE001 - informational
+        deps = trips_by = None
+    try:
+        board["paper"] = rsi.paper_outcomes(cur, uid, deps, trips_by)
     except Exception:  # noqa: BLE001 - informational; the research half of the board still renders
         board["paper"] = None
-    from app.research import tournament
     try:
         # Each reason for taking a strategy off paper in the words the autopilot feed says it (customer_text).
-        board["tournament"] = customer_text.tournament_standings(tournament.standings(cur, uid))
+        board["tournament"] = customer_text.tournament_standings(tournament.standings(cur, uid, deps, trips_by))
     except Exception:  # noqa: BLE001 - informational; the table may not exist before the first schema run
         board["tournament"] = None
     try:

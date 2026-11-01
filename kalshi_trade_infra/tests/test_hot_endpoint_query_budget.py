@@ -825,6 +825,54 @@ def test_the_research_scoreboard_reads_the_same_for_two_paper_strategies_as_for_
     assert counts[0] == counts[1], counts
 
 
+# The scoreboard's three reads of the paper book: the deployments (stopped ones included), every paper strategy's
+# round trips at once, and the trips' count and net per strategy (repo.paper_progress).
+SB_DEPLOYMENTS = "FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id LEFT JOIN app_positions p"
+SB_TRIPS = "SELECT d.strategy_id, p.order_ref, SUM(p.pnl) AS pnl, MIN(p.opened_at)"
+SB_PROGRESS = "SELECT t.strategy_id, COUNT(*) AS trips"
+
+
+def _paper_trips(k):
+    """Each of _paper_book(k)'s strategies' 40 realistic round trips, as repo.paper_round_trips_by_strategy reads
+    them: down $2.50 in all, in 4-place amounts that don't add up evenly as floats."""
+    t0 = datetime(2026, 10, 22)
+    return [{"strategy_id": s, "pnl": (0.1235 if i % 2 else -0.2485), "opened_at": t0 + timedelta(hours=i),
+             "closed_at": t0 + timedelta(hours=i, minutes=14), "ticker": "KXBTC15M-26OCT22%02d00-00" % (i % 24)}
+            for s in range(1, k + 1) for i in range(40)]
+
+
+def test_the_research_scoreboard_reads_the_paper_book_once_for_its_paper_outcomes_and_its_tournament(production):
+    """The research loop board's paper outcomes and its tournament each read the deployments (stopped ones
+    included), and the paper outcomes summed the same round trips the tournament reads (repo.paper_progress).
+    Read once and handed to both: measured 2026-11-01 on a seeded heavy account (80 strategies, 46 deployments,
+    1,400 closed trades, 60 sessions), 69 -> 66 statements cold. Each half answers as it does reading for itself."""
+    from app.research import rsi, tournament
+
+    server._SHARED.clear()
+    rows = dict(_paper_book(6), **{SB_TRIPS: _paper_trips(6)})
+    log = []
+    board = server.research_scoreboard(_ctx(log, 10.0, query={"days": "14"}, extra=rows))
+    assert sum(SB_DEPLOYMENTS in s for s, _ in log) == 1, [s for s, _ in log if SB_DEPLOYMENTS in s]
+    assert sum(SB_TRIPS in s for s, _ in log) == 1
+    assert not [s for s, _ in log if SB_PROGRESS in s]  # the trips' count and net come from the trips read
+    # Each half reading for itself (paper_progress summing the same trips in SQL) answers the same.
+    alone = dict(rows, **{SB_PROGRESS: [{"strategy_id": s, "trips": 40, "pnl": Decimal("-2.5000")} for s in range(1, 7)]})
+    cur = CountingCursor([], alone)
+    assert board["paper"] == rsi.paper_outcomes(cur, 7)
+    assert board["paper"]["total"]["round_trips"] == 240 and board["paper"]["total"]["net_pnl"] == -15.0
+    assert board["tournament"] == server.customer_text.tournament_standings(tournament.standings(cur, 7))
+
+
+def test_the_paper_progress_worked_out_from_the_trips_is_the_sums_read():
+    """rsi.paper_progress_of gives what repo.paper_progress reads: each strategy's trips and their exact sum
+    (amounts that drift as floats: 0.1 + 0.2 is not 0.3), and nothing for a strategy with no closed trip."""
+    from app.research import rsi
+
+    trips = {4: [{"pnl": 0.1}, {"pnl": 0.2}, {"pnl": -0.3}], 9: [{"pnl": 0.1235}] * 7 + [{"pnl": -0.0005}], 11: []}
+    assert rsi.paper_progress_of(trips) == {4: (3, 0.0), 9: (8, 0.864)}
+    assert sum(t["pnl"] for t in trips[4]) != 0.0  # what adding the floats would have said
+
+
 # The positions' version (services.book_memo) and the full-history sums a page keeps behind it.
 VERSION = "COALESCE(MAX(id),0) AS top FROM app_positions"  # repo.positions_version (the paper ledger has its own)
 HEAVY = ("SUM(pnl) OVER (PARTITION BY deployment_id", "LEFT JOIN (SELECT p.deployment_id", "AS paper_all",
