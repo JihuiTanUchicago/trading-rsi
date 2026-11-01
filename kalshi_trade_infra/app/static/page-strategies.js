@@ -149,9 +149,11 @@ window.TauPage('strategies', (T) => {
       // counts them per status (counts.examples) and lists the kept ones under Kept, as its matched total does.
       // Grouped in thousands as every count is: a busy autopilot's "Kept (1234)".
       const exKept = Object.keys(ex).filter((st) => st !== 'failed' && st !== 'rejected').reduce((a, st) => a + exN(st), 0);
-      root.querySelectorAll('[data-f="status"]').forEach((b) => { const v = b.dataset.v; b.textContent = v ? `${CLABEL[v]} (${num(c(v) + exN(v))})` : `Kept (${num(kept + exKept)})`; if (v === 'not_cleared') b.hidden = !c(v) && !exN(v) && f.status !== v; });
+      // Each written only when its words changed: the minute's poll rewrote all seven chips with the same counts.
+      const chipText = (b, t) => { if (b.textContent !== t) b.textContent = t; };
+      root.querySelectorAll('[data-f="status"]').forEach((b) => { const v = b.dataset.v; chipText(b, v ? `${CLABEL[v]} (${num(c(v) + exN(v))})` : `Kept (${num(kept + exKept)})`); if (v === 'not_cleared') { const hide = !c(v) && !exN(v) && f.status !== v; if (b.hidden !== hide) b.hidden = hide; } });
       const depChip = root.querySelector('[data-toggle="deployed"]');
-      if (depChip && counts.deployed != null) depChip.textContent = `Deployed (${num(counts.deployed)})`;
+      if (depChip && counts.deployed != null) chipText(depChip, `Deployed (${num(counts.deployed)})`);
       if (!d.matched) {
         // A new user's default view, not a filter miss. The Passed filter with nothing passed is that view too: the
         // dashboard's "See passed strategies" lands there after a first session where every idea failed, and

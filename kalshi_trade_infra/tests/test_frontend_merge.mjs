@@ -36,6 +36,7 @@ import {exploreSpotListCases} from './explore_spot_list_frontend_cases.mjs';
 import {explorePollCases} from './explore_poll_frontend_cases.mjs';
 import {exploreListWalkCases} from './explore_list_walk_frontend_cases.mjs';
 import {loadPollCases} from './load_poll_frontend_cases.mjs';
+import {browserCostCases} from './browser_cost_frontend_cases.mjs';
 import {phoneSpeedCases} from './phone_speed_frontend_cases.mjs';
 import {kalshiWaitCases} from './kalshi_wait_frontend_cases.mjs';
 import {heavyAccountCases} from './heavy_account_frontend_cases.mjs';
@@ -92,7 +93,7 @@ import {outageSpeechCases} from './outage_speech_frontend_cases.mjs';
 const require = createRequire(import.meta.url);
 const brokerConnections = require('../app/static/broker-connections.js');
 // What the checks read from the bundle and its page files (bundle_source.mjs).
-const EXPOSE = ['S', 'api', 'attachMention', 'PAGES', 'viewDevLog', 'armed', 'apMoveText', 'apPillLabel', 'apIdleLine', 'sinceStrip', 'renderAutopilot', 'refreshAutopilot', 'apLoadChat', 'routes', 'viewExample', 'equityChart', 'runControls', 'runFeed', 'clearTimers', 'runRow', 'feedMd', 'viewStrategy', 'viewStrategies', 'strategySlip', 'postSnapshot', 'viewCommunity', 'viewRun', 'viewFunds', 'viewBilling', 'viewDashboard', 'viewDeploy', 'viewResearch', 'viewExplore', 'marketPicker', 'wireMarketPicker', 'paintDashAp', 'apUpdate', 'apYield', 'tabEdges', 'trCurve', 'trackRecordPanel', 'mountTrackRecord', 'viewMarketDetail', 'viewSystem', 'viewAdmin', 'viewSettings', 'render', 'paymentGate', 'hotRowHtml', 'rpUnderwater', 'hotOpen', 'renderHotRail'];
+const EXPOSE = ['S', 'api', 'attachMention', 'PAGES', 'viewDevLog', 'armed', 'apMoveText', 'apPillLabel', 'apIdleLine', 'sinceStrip', 'renderAutopilot', 'refreshAutopilot', 'apLoadChat', 'routes', 'viewExample', 'equityChart', 'runControls', 'runFeed', 'clearTimers', 'runRow', 'feedMd', 'viewStrategy', 'viewStrategies', 'strategySlip', 'postSnapshot', 'viewCommunity', 'viewRun', 'viewFunds', 'viewBilling', 'viewDashboard', 'viewDeploy', 'viewResearch', 'viewExplore', 'marketPicker', 'wireMarketPicker', 'paintDashAp', 'apUpdate', 'apYield', 'tabEdges', 'trCurve', 'trackRecordPanel', 'mountTrackRecord', 'viewMarketDetail', 'viewSystem', 'viewAdmin', 'viewSettings', 'render', 'paymentGate', 'hotRowHtml', 'rpUnderwater', 'hotOpen', 'renderHotRail', 'wakers', 'dayWatch'];
 const source = bundleSource('app.js', {expose: EXPOSE});
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {
@@ -311,6 +312,7 @@ explorePollCases({name: 'Tau', frontend, railOpenWide: [['tau_hotrail', '1']],
 exploreListWalkCases({name: 'Tau', frontend});
 loadPollCases({name: 'Tau', frontend, railOpenWide: [['tau_hotrail', '1']],
   storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
+browserCostCases({name: 'Tau', frontend, Element, dashboard: () => emptyDashboard()});
 pageFileCases({name: 'Tau', frontend, prefix: 'app-', pagesKey: 'tauPages',
   storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 settingsCases({name: 'Tau', frontend, current: 'tau', cardWallOpts: () => ({stripe: STRIPE_STUB}),

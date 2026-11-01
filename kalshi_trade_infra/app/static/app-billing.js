@@ -73,7 +73,7 @@ window.TauPage('billing', (T) => {
     let shown = null;  // the read the page shows; the poll keeps its figures current
     let arSync = null;  // the auto-reload controls follow a saved change the poll reads (set once they are drawn)
     // The estimate (or the autopilot's model) landing repaints the figures, as it does the dashboard card.
-    apCostWatch.add(() => { if (gen !== S.gen) return false; if (shown) paintFigs(shown); });
+    apCostWatch.add(Object.assign(() => { if (gen !== S.gen) return false; if (shown) paintFigs(shown); }, { gen }));
     const load = async () => {
       const d = await api('/api/billing?tz=' + new Date().getTimezoneOffset());  // the statement's days are yours
       syncMeBilling(d);
@@ -271,11 +271,11 @@ window.TauPage('billing', (T) => {
     poll(refresh, 30000, 'bill-stale');
     // Past the reader's midnight the statement's "Today" is the day's date: drawn again from the lines it holds, no
     // read. It changed only when the balance did, so the morning's lines sat under "Today" after midnight (walk 2026-11-01).
-    dayWatch.add(() => {
+    dayWatch.add(Object.assign(() => {
       if (gen !== S.gen) return false;
       const ledger = root.querySelector('#bledger');
       if (shown && shown.ledger && ledger) paint(ledger, ledgerTable(shown));
-    });
+    }, { gen }));
   }
   // What a ledger line is, under its name: usage is one model call (the memo names the model), and credits
   // bought show the credits, while the card paid those plus the purchase fee. Amounts are the server's.

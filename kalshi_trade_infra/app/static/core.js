@@ -701,7 +701,7 @@
     const vals = curve.map((p) => +p[1]), lo = Math.min(...vals), hi = Math.max(...vals);
     const range = lo === hi ? `flat at ${usd(lo, true)}` : `low ${usd(lo, true)}, high ${usd(hi, true)}`;
     // And its period and first figure: it said where it ended, its low and its high, not over which days or where it began.
-    const day = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const day = (t) => dateFmt(new Date(t * 1000), MON_DAY);  // one formatter, not one a call: Deploy drew 46 sparklines a poll
     const span = day(t0) === day(t1) ? `on ${day(t0)}` : `from ${day(t0)} to ${day(t1)}`;
     const label = `${SPARK_BOOK[mode] ? SPARK_BOOK[mode] + ' cumulative' : 'Cumulative'} P&L, ${usd(last, true)} over ${num(n)} trade${n === 1 ? '' : 's'} ${span}; ${usd(+curve[0][1], true)} after the first; ${range}`;
     return `<svg class="spark ${last > 0 ? 'up' : last < 0 ? 'down' : 'flat'}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" preserveAspectRatio="none" role="img" aria-label="${esc(plain(label))}"><line class="spark-zero" x1="0" x2="${W}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" vector-effect="non-scaling-stroke"/><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>`;
@@ -723,7 +723,7 @@
     // The same time span and date labels as the equity curve drawn above it, so the two line up.
     const span = curve && curve.length > 1 ? curve : src;
     const t0 = Math.min(span[0][0], src[0][0]), t1 = Math.max(span[span.length - 1][0], src[src.length - 1][0]);
-    const day = (t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const day = (t) => dateFmt(new Date(t * 1000), MON_DAY);  // one formatter, not one a call
     const minDd = Math.min(0, ...dd.map((p) => p[1])), lo = minDd < 0 ? minDd : -0.5;
     const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
     const y = (v) => T + (1 - (v - lo) / (0 - lo)) * (H - T - B);

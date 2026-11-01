@@ -1036,8 +1036,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // sits on a page not read yet stands alone (strays) until that page is read, then moves onto its card.
     let olderAt = null, strays = [], ended = false;
     const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 60;
-    const toLatest = () => { log.scrollTop = log.scrollHeight; unseen = 0; jump.hidden = true; };
-    log.addEventListener('scroll', () => { if (atBottom()) { unseen = 0; jump.hidden = true; } });
+    // The jump button is hidden only when it shows: each 2s poll of a live session set it hidden again.
+    const toLatest = () => { log.scrollTop = log.scrollHeight; unseen = 0; if (!jump.hidden) jump.hidden = true; };
+    log.addEventListener('scroll', () => { if (atBottom()) { unseen = 0; if (!jump.hidden) jump.hidden = true; } });
     jump.onclick = toLatest;
     const seal = (sx) => { if (sx.think) { sx.think.seal(); sx.think = null; } };
     const sealThink = () => seal(live);
@@ -1421,35 +1422,46 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       links.forEach((l) => l.classList.toggle('is-flow', live && l.getAttribute('data-into') === stage));
     }
 
+    // The live line is drawn every second and on each 2s poll: each part is written only when it changed. It set the
+    // badge's class and words, the wait line and the phase line's hidden every time, and took the panel's quiet class off
+    // and put it back on a silent session: some 15 DOM changes a second on a live session left open (walk 2026-11-01).
+    const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+    const setCls = (el, c) => { if (el.className !== c) el.className = c; };
+    const setHidden = (el, h) => { if (el.hidden !== h) el.hidden = h; };
+    let quiet = false;
     function paintLive() {
-      host.classList.remove('is-quiet');
+      quiet = false;
+      liveLine();
+      host.classList.toggle('is-quiet', quiet);
+    }
+    function liveLine() {
       const w = ['queued', 'running'].includes(runState) ? waitNow() : null, late = !!(w && w.overdue);
       // A queued session's place in line (the server's `ahead`) is said from its first read, overdue or not.
       const inLine = late || !!(runState === 'queued' && w && w.state === 'queued' && w.ahead != null);
-      waitEl.hidden = !inLine;
-      if (inLine) waitEl.textContent = runWaitLine(w);
+      setHidden(waitEl, !inLine);
+      if (inLine) setText(waitEl, runWaitLine(w));
       // An overdue run's wait line takes the phase line's place: a queued one's says what "Waiting for the
       // agent to start." said, and more; a silent one's last phase ("Working") sat over "No word from the agent".
-      if (inLine) { phaseEl.hidden = true; waitHidPhase = true; }
-      else if (waitHidPhase) { waitHidPhase = false; phaseEl.hidden = !['queued', 'running', 'paused'].includes(runState) || phaseStep; }
-      if (late && runState === 'queued') { liveWrap.className = 'rsiobs-live is-stall'; liveText.textContent = lateLabel(w); return; }
-      if (late) { host.classList.add('is-quiet'); liveWrap.className = 'rsiobs-live is-stall'; liveText.textContent = 'Silent ' + waitSpan(w.seconds); return; }
-      if (runState === 'paused') { liveWrap.className = 'rsiobs-live is-paused'; liveText.textContent = 'Paused'; return; }
-      if (runState === 'queued') { liveWrap.className = 'rsiobs-live is-wait'; liveText.textContent = 'Queued'; return; }
-      if (runState !== 'running') { liveWrap.className = 'rsiobs-live is-done'; liveText.textContent = doneRun ? runDoneText(doneRun) : runState === 'succeeded' ? 'Finished' : runState === 'cancelled' ? 'Stopped by you' : 'Stopped'; return; }
+      if (inLine) { setHidden(phaseEl, true); waitHidPhase = true; }
+      else if (waitHidPhase) { waitHidPhase = false; setHidden(phaseEl, !['queued', 'running', 'paused'].includes(runState) || phaseStep); }
+      if (late && runState === 'queued') { setCls(liveWrap, 'rsiobs-live is-stall'); setText(liveText, lateLabel(w)); return; }
+      if (late) { quiet = true; setCls(liveWrap, 'rsiobs-live is-stall'); setText(liveText, 'Silent ' + waitSpan(w.seconds)); return; }
+      if (runState === 'paused') { setCls(liveWrap, 'rsiobs-live is-paused'); setText(liveText, 'Paused'); return; }
+      if (runState === 'queued') { setCls(liveWrap, 'rsiobs-live is-wait'); setText(liveText, 'Queued'); return; }
+      if (runState !== 'running') { setCls(liveWrap, 'rsiobs-live is-done'); setText(liveText, doneRun ? runDoneText(doneRun) : runState === 'succeeded' ? 'Finished' : runState === 'cancelled' ? 'Stopped by you' : 'Stopped'); return; }
       const secs = Math.max(0, Math.round((Date.now() - lastAt) / 1000)), stalled = secs >= 75;
-      host.classList.toggle('is-quiet', stalled);
-      liveWrap.className = 'rsiobs-live' + (stalled ? ' is-stall' : '');
+      quiet = stalled;
+      setCls(liveWrap, 'rsiobs-live' + (stalled ? ' is-stall' : ''));
       // A backtest or a long model call can go minutes without a line while the server still hears from the
       // worker (a silent one is caught above, from the server's own clock). Raw seconds read "quiet 13246s —
       // likely a long model call" three hours on; the age reads in minutes and hours, in each theme's words.
       if (!tau) {
         const age = secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs / 60)}m` : `${Math.floor(secs / 3600)}h`;
-        liveText.textContent = secs < 6 ? 'Just updated' : `Last event ${age} ago`;
+        setText(liveText, secs < 6 ? 'Just updated' : `Last event ${age} ago`);
         return;
       }
       const age = secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs / 60)} min` : `${Math.floor(secs / 3600)} hr`;
-      liveText.textContent = secs < 6 ? 'live' : stalled ? `Last step ${age} ago${SEP}still working` : `active ${age} ago`;
+      setText(liveText, secs < 6 ? 'live' : stalled ? `Last step ${age} ago${SEP}still working` : `active ${age} ago`);
     }
     // 1s ticker keeps "Ns ago" honest between the 2s polls and flips to the quiet state on its own.
     S.timers.push(setInterval(paintLive, 1000));
@@ -1512,7 +1524,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         });
         // A finished run's last phase ("Recording the verdict") read as still working; the live
         // badge already says Finished / Cancelled / Stopped. Meridian folds a session done when it opened.
-        if (tau) phaseEl.hidden = !['queued', 'running', 'paused'].includes(runState);
+        if (tau) setHidden(phaseEl, !['queued', 'running', 'paused'].includes(runState));
         else if (!['queued', 'running', 'paused'].includes(runState)) {
           phaseEl.hidden = true;
           if (firstUpdate) progress.open = false;
@@ -1800,7 +1812,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' }); else go('/strategies/' + b.dataset.goto);
     });
     const stream = runFeed(root.querySelector('#runfeed'));
-    { const gen = S.gen; dayWatch.add(() => { if (gen !== S.gen) return false; stream.days(); }); }
+    { const gen = S.gen; dayWatch.add(Object.assign(() => { if (gen !== S.gen) return false; stream.days(); }, { gen })); }
     const obs = rsiObservatory(root.querySelector('#rsiobs'));
     if (!tau) root.querySelector('#run-artifacts').addEventListener('click', (e) => { if (e.target.closest('[data-allstrats]')) { showAllStrats = true; load(); } });
     // A finished session's cost beside what the research form says sessions like it usually cost: the same
