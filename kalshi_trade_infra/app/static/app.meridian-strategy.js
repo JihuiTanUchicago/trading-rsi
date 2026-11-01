@@ -858,7 +858,7 @@ window.TauPage('strategy', (T) => {
             </div><div id="delflash"></div>
           </section>
           <section class="panel"><h3>Share</h3>
-            <p class="hint" style="margin-bottom:8px" id="share-what">${restricted ? 'Share a research-only copy using their Tau sign-in email. It keeps the same simulation limits and cannot be deployed.' : 'Use their Tau sign-in email. They keep a permanent copy.'} It carries its rules, thesis and backtest, marked as shared by you; never your deployments, trades, balances or keys, nor its held-out test record.</p>
+            <p class="hint" style="margin-bottom:8px" id="share-what">${restricted ? 'Share a research-only copy using their Tau sign-in email. It keeps the same simulation limits and cannot be deployed.' : 'Use their Tau sign-in email. They keep a permanent copy.'} It carries its rules, thesis and backtest, marked as shared by you; never your deployments, trades, balances or keys, nor its held-out test record.${restricted ? '' : ' They can deploy it like their own.'}</p>
             <form id="share-form" style="display:grid;gap:8px">
               <input class="input" id="share-email" type="email" autocomplete="off" placeholder="friend@email.com" aria-label="Friend’s email" aria-describedby="share-what">
               <button class="btn sm" type="submit">Share strategy</button>

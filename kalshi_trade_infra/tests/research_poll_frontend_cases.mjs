@@ -271,8 +271,10 @@ export function researchPollCases({name, frontend}) {
       const figs = f.root.querySelector('#rfigs');
       const said = words(figs.innerHTML) + ' ' + (figs.getAttribute('title') || '');
       assert.doesNotMatch(said, /(^|[^\d])0\.0%|of ideas tested/, JSON.stringify(totals));
-      if (f.root.querySelector('#rstatus .said')) assert.match(words(figs.innerHTML), tau, JSON.stringify(totals));
-      else assert.equal(figs.getAttribute('title'), mer, JSON.stringify(totals));
+      // Under the Passed figure in both themes (parity walk 2026-11-01: Meridian said it only in the hover title,
+      // which a phone never shows); Meridian keeps the title too.
+      assert.match(words(figs.innerHTML), tau, JSON.stringify(totals));
+      if (!f.root.querySelector('#rstatus .said')) assert.equal(figs.getAttribute('title'), mer, JSON.stringify(totals));
       f.clearTimers();
     }
   });

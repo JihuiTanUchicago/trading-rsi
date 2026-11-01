@@ -16,7 +16,7 @@
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
-    depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
+    depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, glueTarget, compactCondition, marketSpot, MKT_GONE, vsHtml, spotListNote,
     EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons, exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord,
@@ -1992,8 +1992,8 @@
   const PACE_HEAD_TIP = 'What these same closed trades would have made at the backtest’s average per trade after its split date: held out for a strategy with a gatekeeper record, later-period (the slice that picked it) for one without';
   // A strategy from a research session keeps its unseen-data result with the gatekeeper, not in its backtest, so its
   // row has no figure to scale: every autopilot strategy's first Deployed row read a bare "—" here, as though it had
-  // never been tested (walk 2026-10-31). It says where that result is instead, as Meridian leaves the fact out.
-  const PACE_HELD = (d) => `<span class="sub-fig bt-held">Its unseen-data result is on <a href="/strategies/${encodeURIComponent(d.strategy_id)}">its page</a></span>`;
+  // never been tested (walk 2026-10-31). It says where that result is instead, as Meridian's Details fold does (paceHeld).
+  const PACE_HELD = (d) => `<span class="sub-fig bt-held">${paceHeld(d)}</span>`;
   const DEP_HEAD = (controls) => `<thead><tr><th>Strategy</th><th>Market</th><th>Status</th><th class="num">${gl('Realized', 'realized')}</th><th class="num">${gl('Unrealized', 'unrealized')}</th><th class="num">Trades</th><th class="num" title="${PACE_HEAD_TIP}">${gl('Backtest estimate', 'pace')}</th><th>Since</th>${controls ? '<th class="act"><span class="vh">Actions</span></th>' : ''}</tr></thead>`;
   const deploymentTable = (rows, controls) => `<div class="sheet dep-sheet"><table class="stack t-dep">${DEP_HEAD(controls)}<tbody>${rows}</tbody></table></div>`;
   // A demo row says what it is: Kalshi's sandbox with play money, a copy of its paper run when it has
@@ -2012,12 +2012,11 @@
   const resumeButton = (d, why = resumeBlock(d)) => `<button class="btn sm" data-dep="${d.id}" data-act="resume"${why ? ` disabled title="${esc(why)}"` : ''}>Resume<span class="vh"> ${esc(d.title)}, ${esc(d.mode)} book${esc(d._apart || '')}${why ? ': ' + esc(why) : ''}</span></button>`;
   // `reloaded`: the dashboard's demo book was reloaded, so a demo row says its figure counts from its first demo trade.
   function deploymentSlip(d, regs, controls, reloaded = false) {
-    const exp = d.backtest && d.backtest.out_of_sample;
     // Realized beside what the backtest's unseen-data average per trade says the same trades should
     // have made: the comparable number, not the backtest's own total over a different trade count.
     // Before the first close it gives that average, a trade (what the estimate will scale): "no paper trades closed
     // yet" there spoke for the paper book under a backtest heading, and Realized's "None yet" already says it.
-    const pace = exp && +exp.trades > 0 ? (+exp.pnl || 0) / +exp.trades : null;
+    const pace = btPace(d);
     const live = d.mode === 'live', idle = depIdle(d);
     // No Unrealized figure says why, as Meridian's monitor row does: nothing open, or open with no price yet.
     // A bare "—" said neither. A figure from an old mark is dimmed and says how old its oldest mark is (withMarkAge).
@@ -2035,7 +2034,7 @@
       <td class="num" data-lab="Realized">${realizedCell(d)}${demoRowSince(d, reloaded) ? `<div class="sub-fig dep-since">${demoRowSince(d, reloaded)}</div>` : ''}${spark(d.curve, regs && regs[d.mode], d.closed_trades, d.mode)}</td>
       <td class="num" data-lab="Unrealized">${d.unrealized_pnl == null ? `<span class="sub-fig">${+d.open_positions ? NOT_MARKED : 'None open'}</span>` : markFig(d.oldest_mark_ts, money(d.unrealized_pnl))}${d.unrealized_pnl != null && d.open_positions ? `<div class="sub-fig">est.${markOld(d.oldest_mark_ts) ? ' ' + markedAt(d.oldest_mark_ts) : ''}${markedOf(d.marked_open, d.open_positions) ? `${SEP}${markedOf(d.marked_open, d.open_positions)} marked` : ''}</div>` : ''}</td>
       <td class="num" data-lab="Trades">${num(d.closed_trades)}${d.open_positions ? `<div class="sub-fig">+${num(d.open_positions)} open</div>` : ''}</td>
-      <td class="num" data-lab="Backtest estimate" title="${d.void_no_record ? PACE_TIP_VOID : d.backtest_only ? PACE_TIP_LATER : PACE_TIP}">${pace == null ? (d.backtest_only ? '\u2014' : PACE_HELD(d)) : d.closed_trades ? `${usd(pace * d.closed_trades, true)}<div class="sub-fig">same ${num(d.closed_trades)} trade${d.closed_trades === 1 ? '' : 's'}</div>` : `<span class="sub-fig bt-per-trade"><span class="amt">${usd(pace, true)}</span> a trade, on average</span>`}</td>
+      <td class="num" data-lab="Backtest estimate" title="${d.void_no_record ? PACE_TIP_VOID : d.backtest_only ? PACE_TIP_LATER : PACE_TIP}">${pace == null ? (d.backtest_only ? '\u2014' : PACE_HELD(d)) : d.closed_trades ? `${usd(pace * d.closed_trades, true)}<div class="sub-fig">same ${num(d.closed_trades)} trade${d.closed_trades === 1 ? '' : 's'}</div>` : `<span class="sub-fig bt-per-trade">${btPerTrade(pace)}</span>`}</td>
       <td data-lab="Since">${when(d.created_at)}</td>
       ${actions}
     </tr>`;
@@ -2512,7 +2511,7 @@
         ${apFirst ? '' : sinceStrip(d, '#dash-deps')}
         <section id="dash-ap" class="apcard" aria-label="Autopilot"></section>${apFirst ? sinceStrip(d, '#dash-deps') : ''}
         <dl class="figures measure">
-          ${fig('<span class="mk live">Real</span> Kalshi cash', lv.connected ? (liveCf ? liveCf[0] : lv.balance == null ? 'Unavailable' : usd(lv.balance)) : 'Not connected', { small: (lv.connected ? (liveCf ? [liveCf[1], mSub(lv, '')].filter(Boolean).join(SEP) : lv.balance == null ? ['Couldn\u2019t read your Kalshi balance just now', mSub(lv, '')].filter(Boolean).join(SEP) : [cashAt(lv), mSub(lv, LIVE_IDLE())].filter(Boolean).join(SEP)) : ['Connect your Kalshi account on <a href="/funds#connect-kalshi">Funds</a> ' + (liveOpen() ? 'to trade real money' : 'to see your real cash at Kalshi. Live trading isn\u2019t open yet, so Tau places no live trades'), mSub(lv, '')].filter(Boolean).join(SEP)) + tradesCsv('live', lv) })}
+          ${fig('<span class="mk live">Real</span> Kalshi cash', lv.connected ? (liveCf ? liveCf[0] : lv.balance == null ? 'Unavailable' : usd(lv.balance)) : 'Not connected', { small: (lv.connected ? (liveCf ? [liveCf[1], mSub(lv, '')].filter(Boolean).join(SEP) : lv.balance == null ? ['Couldn\u2019t read your Kalshi balance just now', mSub(lv, '')].filter(Boolean).join(SEP) : [cashAt(lv), mSub(lv, LIVE_IDLE())].filter(Boolean).join(SEP)) : [kalshiConnect(liveOpen()), mSub(lv, '')].filter(Boolean).join(SEP)) + tradesCsv('live', lv) })}
           ${(demoKeyless(d.demo) ? fig(`<span class="mk dep">Demo</span> ${DEMO_BOOK}`, 'No demo key', { small: DEMO_NO_KEY }) : fig(`<span class="mk dep">Demo</span> ${DEMO_BOOK}`, usd(d.demo.equity), { v: d.demo.realized_pnl, small: `${d.demo.health ? demoHealthLine(d.demo.health) + '<br>' : ''}${(d.demo.open_positions || d.demo.running || d.demo.realized_pnl || d.demo.closed_trades) ? `${demoCapital(d.demo)}${SEP}${num(d.demo.open_positions)} open${SEP}${demoPnl(d.demo, d.demo.realized_pnl)}` : `${demoCapital(d.demo)}${SEP}no demo strategies yet`}${SEP}${DEMO_WHAT}${tradesCsv('demo', d.demo)}${demoToday(d.demo, d.recent_closed, readAt)}` }))}
           ${fig('<span class="mk">Paper</span> Simulation', usd(p.equity), { v: p.realized_pnl, small: paperUsed ? `${usd(p.cash)} cash${hasOpen(p) ? `${SEP}${openCost(p)}${inBalance(p) ? ', ' + inBalance(p) : ''}` : ''}${SEP}${hasClosed(p) ? `${pnlWin('all')} <span class="amt">${usd(p.realized_pnl, true)}</span> ${gl('realized', 'realized')}, ${tradesCsv('paper', p, 'paperfills', PAPER_NET)}${slipEstGl(p.slippage_estimate)}${paperToday(p)}` : PAPER_NO_CLOSE}` : `${usd(p.cash)} of practice money${SEP}no paper strategies yet` })}
         </dl><p class="stale-note" id="dash-stale" role="status"></p>${d.live.connected && d.live.open_positions ? `<p class="recon ${(d.reconcile && d.reconcile.length) ? 'warn' : 'ok'}">${(d.reconcile && d.reconcile.length) ? reconWarn(d.reconcile) : `${ICON.check} Live book reconciled with Kalshi`}</p>` : ''}`;

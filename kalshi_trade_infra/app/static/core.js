@@ -945,6 +945,22 @@
     return `<div class="sub-fig dep-instant">${gl(`${lead}, left out of the track record and of the count of realistic paper trades toward live.`, 'instantfill')}</div>`;
   };
   const demoRowLine = (d) => d.mode !== 'demo' ? '' : `<div class="sub-fig demo-row">${d.demo_copy ? 'Demo copy of its paper run: the same rules on Kalshi’s sandbox, with play money' : 'On Kalshi’s sandbox, with play money'}. It proves orders place, fill and book before live money; the demo book is thin, so fills differ from paper’s.</div>`;
+  // A Deploy row's backtest estimate (Tau's Backtest estimate cell, Meridian's Details fold, on Deploy and the
+  // dashboard alike): the backtest's average per trade after its split date, which the row scales by its own closed
+  // trades, or null with no later-period slice to divide. Display only.
+  // Before the first close each theme gives that average a trade; with no figure, a strategy from a research session
+  // (not backtest-only) says where its unseen-data result is. Walked 2026-11-01 in both themes: Meridian's Details said
+  // neither, so a row Tau read "+$0.06 a trade, on average" or "Its unseen-data result is on its page" said only when
+  // it was deployed there.
+  const btPace = (d) => {
+    const oos = d && d.backtest && d.backtest.out_of_sample;
+    return oos && +oos.trades > 0 ? (+oos.pnl || 0) / +oos.trades : null;
+  };
+  const btPerTrade = (pace) => `<span class="amt">${usd(pace, true)}</span> a trade, on average`;
+  const paceHeld = (d) => `Its unseen-data result is on <a href="/strategies/${encodeURIComponent(d.strategy_id)}">its page</a>`;
+  // The dashboard's Kalshi cash with no key: where to connect one and, while live is closed, that Tau places no live
+  // trades. Meridian's Accounts menu said only "Connect Kalshi" (walked 2026-11-01), without the closed-live fact.
+  const kalshiConnect = (open) => `Connect your Kalshi account on <a href="/funds#connect-kalshi">Funds</a> ${open ? 'to trade real money' : 'to see your real cash at Kalshi. Live trading isn’t open yet, so Tau places no live trades'}`;
 
   // ---------- track record ----------
   // What an allocator would check: realized results from closed trades only, one money bucket at a
@@ -1566,7 +1582,7 @@
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
-    depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
+    depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
