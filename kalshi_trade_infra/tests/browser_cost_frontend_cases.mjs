@@ -9,6 +9,10 @@
 // - the chart's hidden text-size probe sat in the page's layout, so the next width read laid the whole page out again.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import v8 from 'node:v8';
+import vm from 'node:vm';
+
+v8.setFlagsFromString('--expose-gc');  // a fresh context's gc(), to check a page left is let go
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -287,5 +291,45 @@ export function browserCostCases({name, frontend, Element, dashboard}) {
     assert.equal(probe.style.cssText, 'display:none', 'no box in the layout: a width read after it lays nothing out');
     assert.equal(probe.removed, true);
     assert.match(svg, /\$1\.6k/, 'measured at 200% text, labels compact as before');
+  });
+
+  // Heap snapshot 2026-11-01 (Meridian, heavy account, 1366px): after Home and a round of other pages, the first Home
+  // (~15,600 nodes) was still in memory on every page and came back as a second copy beside the new Home (30,906
+  // nodes). Two things held it: the track record's tab (trAp, kept to repaint on an autopilot flip) and its re-read
+  // (S.trReread), each holding the record's section; and the window's resize listener, made inside tabEdges, whose
+  // shared scope held the first page's tab strip. Each old element's tree holds the whole page it was on.
+  test(`${name}: a page left is let go, not held by the track record's tab or re-read or the tab strip's resize listener`, async () => {
+    const gc = vm.runInNewContext('gc');
+    const tr = {generated_at: Date.UTC(2026, 9, 27, 17, 31) / 1000, default_mode: 'paper', method: ['A trade is one entry fill.'], thresholds: {min_sharpe_days: 14, min_trades: 30},
+      modes: {live: {trades: 0, label: 'Live money'}, demo: {trades: 0, label: 'Kalshi demo'}, paper: {trades: 0, label: 'Paper'}}};
+    const resize = [];
+    const f = frontend({globals: {addEventListener: (type, fn) => { if (type === 'resize') resize.push(fn); }, Event: class { constructor(type) { this.type = type; } }}, fetchImpl: (path) => (
+      path.startsWith('/api/dashboard') ? response(dashboard()) : path === '/api/track-record' ? response(tr) : research(path))});
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, 'parentNode');
+    Object.defineProperty(Element.prototype, 'parentNode', {get() { return this.parent; }, configurable: true});
+    try {
+      f.location.pathname = '/';
+      await f.render(); await settle();
+      const record = new WeakRef(f.root.querySelector('#track-record')), strip = new WeakRef(f.root.querySelector('.services-in'));
+      assert.ok(record.deref() && strip.deref(), 'Home drew its record and the tab strip');
+      assert.equal(typeof f.S.trReread, 'function', "the dashboard poll's re-read of the record");
+      assert.ok(resize.length >= 1, 'the tab strip listens for the window resizing');
+      for (const path of ['/research', '/research/9']) { f.location.pathname = path; await f.render(); await settle(); }
+      assert.equal(f.S.trReread, null, 'the re-read went with Home');
+      // The resize listener still marks the strip showing: it hands that strip a scroll.
+      f.document.querySelector = (sel) => f.document.body.querySelector(sel);
+      const now = f.root.querySelector('.services-in');
+      let scrolled = 0;
+      now.dispatchEvent = () => { scrolled++; return true; };
+      resize.forEach((fn) => fn());
+      assert.ok(scrolled >= 1, 'the strip showing is marked again on a resize');
+      delete now.dispatchEvent; delete f.document.querySelector;
+      f.clearTimers(); f.timeouts.clear();
+      await settle(); gc(); await settle(); gc();
+      assert.equal(record.deref(), undefined, "Home's track record (and the page it was on) let go");
+      assert.equal(strip.deref(), undefined, "the first page's tab strip let go");
+    } finally {
+      if (had) Object.defineProperty(Element.prototype, 'parentNode', had); else delete Element.prototype.parentNode;
+    }
   });
 }
