@@ -58,6 +58,26 @@ def test_the_answer_is_the_gates_and_is_kept_until_the_record_moves(monkeypatch)
     assert len(calls) == 3
 
 
+def test_kept_is_the_answer_failing_would_serve_without_reading_the_gate(monkeypatch):
+    """paper_checks.kept (the research scoreboard's live-ready count) gives exactly the answer `failing` would
+    serve from memory, and None wherever `failing` would read the gate: nothing kept, the record moved, the
+    answer lapsed with no worker to read it again, or past STALE_MAX. It never reads the gate itself."""
+    calls = []
+    monkeypatch.setattr(agent, "paper_evidence", _gate({4: {"net_pnl": True, "demo": False}}, calls))
+    assert paper_checks.kept(7, 4, REC) is None
+    assert paper_checks.failing("c", 7, 4, REC) == ["demo"] and len(calls) == 1
+    assert paper_checks.kept(7, 4, REC) == ["demo"] == paper_checks.failing("c", 7, 4, REC) and len(calls) == 1
+    assert paper_checks.kept(7, 4, (56, 40, 72.0)) is None and paper_checks.kept(8, 4, REC) is None
+    _age((7, 4) + REC, paper_checks.FAILING_TTL + 1)
+    assert paper_checks.kept(7, 4, REC) is None  # off the web server a lapsed answer is read again, by failing
+    monkeypatch.setitem(paper_checks._BACKGROUND, "on", True)
+    monkeypatch.setattr(paper_checks, "_refresh_later", lambda key: True)  # queued for the worker
+    assert paper_checks.kept(7, 4, REC) == ["demo"]
+    _age((7, 4) + REC, paper_checks.STALE_MAX)
+    assert paper_checks.kept(7, 4, REC) is None
+    assert len(calls) == 1
+
+
 def test_off_the_web_server_a_lapsed_answer_is_read_in_the_request(monkeypatch):
     calls = []
     answers = {8: {"edge": False}}

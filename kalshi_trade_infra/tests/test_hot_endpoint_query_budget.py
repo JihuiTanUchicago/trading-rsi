@@ -863,6 +863,68 @@ def test_the_research_scoreboard_reads_the_paper_book_once_for_its_paper_outcome
     assert board["tournament"] == server.customer_text.tournament_standings(tournament.standings(cur, 7))
 
 
+# The research scoreboard cold, with each paper strategy's checks kept by the Deploy board (its startup warm-up or
+# its polls): the statements it sends whatever the number of paper strategies up on paper with enough trips.
+SCOREBOARD_KEPT_BUDGET = 10
+
+
+def _up_book(k):
+    """_paper_book(k) with each strategy 40 realistic trips in and up $3.40: the paper outcomes ask whether each
+    clears the live check."""
+    rows = dict(_paper_book(k), **{SB_TRIPS: [dict(t, pnl=0.085) for t in _paper_trips(k)]})
+    for d in rows[SB_DEPLOYMENTS]:
+        d.update(realized_pnl=3.4, closed_trades=40)
+    return rows
+
+
+def test_the_research_scoreboard_takes_live_ready_from_the_deploy_boards_kept_checks(production, monkeypatch):
+    """Each paper strategy up on paper with 30+ realistic trips asked agent.paper_evidence whether it clears the
+    live check (~5 reads and a bootstrap each): most of a cold board. The Deploy board keeps that answer per paper
+    record (services.paper_checks), and the board now takes it when kept. Measured 2026-11-01 on a seeded heavy
+    account (12 such strategies, 3 of them live-ready), local MariaDB, after the startup warm-up: 66 -> 17
+    statements and ~165 -> ~95ms cold, byte-identical JSON. Nothing kept: the gate is asked, as before."""
+    from app.research import agent
+    from app.services import paper_checks
+    from app.web.routes.deployments import _paper_record
+
+    asked = []
+    ready_ids = {2, 5}
+
+    def evidence(cur, uid, sid):
+        asked.append(sid)
+        checks = {"realistic_trades": True, "net_pnl": True, "demo": sid in ready_ids}
+        return {"ready": all(checks.values()), "checks": checks}
+
+    monkeypatch.setattr(agent, "paper_evidence", evidence)
+    monkeypatch.setattr(agent, "_is_deployment_candidate", lambda cur, sid: sid != 5)
+    counts, boards = [], []
+    for k in (2, 6):
+        rows = _up_book(k)
+        paper_checks.KEPT.clear()
+        server._SHARED.clear()
+        asked.clear()
+        alone = server.research_scoreboard(_ctx([], 10.0, query={"days": "14"}, extra=rows))["paper"]
+        assert sorted(asked) == list(range(1, k + 1))  # nothing kept: the gate, for each one
+        # The Deploy board keeps each one's checks ("candidate" for 5, which live-ready never asked).
+        trips = {}
+        for t in rows[SB_TRIPS]:
+            trips.setdefault(t["strategy_id"], []).append(t)
+        for sid, ts in trips.items():
+            rec = _paper_record(ts)
+            assert paper_checks.failing(None, 7, sid, (rec["trades"], rec["events"], rec["span_hours"])) == (
+                ["candidate"] if sid == 5 else []) + ([] if sid in ready_ids else ["demo"])
+        server._SHARED.clear()
+        asked.clear()
+        log = []
+        board = server.research_scoreboard(_ctx(log, 10.0, query={"days": "14"}, extra=rows))
+        assert asked == [] and board["paper"] == alone
+        assert board["paper"]["total"]["live_ready"] == len(ready_ids & set(range(1, k + 1)))
+        counts.append(len(log))
+        boards.append(board)
+    assert counts[0] == counts[1] <= SCOREBOARD_KEPT_BUDGET, counts
+    paper_checks.KEPT.clear()
+
+
 def test_the_paper_progress_worked_out_from_the_trips_is_the_sums_read():
     """rsi.paper_progress_of gives what repo.paper_progress reads: each strategy's trips and their exact sum
     (amounts that drift as floats: 0.1 + 0.2 is not 0.3), and nothing for a strategy with no closed trip."""

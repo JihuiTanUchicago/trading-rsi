@@ -16,7 +16,8 @@ paper strategies, and it ran on the request every five minutes.
   check from before the user's own change.
 
 Display only: the live gate (agent._proven_on_paper) and Road to live call paper_evidence themselves,
-and the answer here is that function's, unchanged.
+and the answer here is that function's, unchanged. The research scoreboard's live-ready count takes a
+kept answer when there is one (kept), so the two displays agree and the board skips the gate's reads.
 """
 from __future__ import annotations
 
@@ -52,16 +53,27 @@ def failing_checks(cur, uid: int, sid: int) -> List[str]:
 
 def failing(cur, uid: int, sid: int, record: Tuple) -> List[str]:
     """failing_checks for the strategy whose paper record is `record`, kept as the module says."""
+    val = kept(uid, sid, record)
+    if val is not None:
+        return val
+    key = (int(uid), int(sid)) + tuple(record)
+    gen = _GEN.get(key[0], 0)
+    val = failing_checks(cur, uid, sid)
+    _keep(key, val, gen)
+    return list(val)
+
+
+def kept(uid: int, sid: int, record: Tuple) -> Optional[List[str]]:
+    """The answer `failing` would serve for this record without reading the gate (kept and fresh, or
+    lapsed and queued for the worker), else None. For another display of the same answer (the
+    research scoreboard's live-ready count), which reads the gate itself when nothing is kept."""
     key = (int(uid), int(sid)) + tuple(record)
     hit = KEPT.get(key)
     if hit is not None:
         age = time.time() - hit[0]
         if age < FAILING_TTL or (age < STALE_MAX and _refresh_later(key)):
             return list(hit[1])
-    gen = _GEN.get(key[0], 0)
-    val = failing_checks(cur, uid, sid)
-    _keep(key, val, gen)
-    return list(val)
+    return None
 
 
 def forget(uid: int, strategy_id: Optional[int] = None) -> None:

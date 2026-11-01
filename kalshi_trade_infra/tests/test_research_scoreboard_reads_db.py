@@ -7,6 +7,9 @@ still open and partial exits that share an order_ref, in 4-place amounts that do
 - The trips' count and net worked out from the round trips already read (rsi.paper_progress_of) are what
   repo.paper_progress sums in SQL, and the board's paper outcomes and tournament, handed the deployments and the
   trips it reads once, are what each gives reading for itself.
+- With the Deploy board's checks kept (services.paper_checks, as its startup warm-up and its polls keep them), the
+  board's live-ready count asks the gate for none of the strategies the Deploy board kept, and its whole answer is
+  the one it gives with nothing kept.
 """
 import os
 import random
@@ -143,3 +146,43 @@ def test_the_boards_paper_outcomes_and_tournament_read_the_book_once_and_answer_
     # The book the board describes: four strategies on paper, one of them live-ready (the demo record's).
     assert board["paper"]["total"]["strategies"] == 4 and board["paper"]["total"]["live_ready"] == 1
     assert board["paper"]["total"]["round_trips"] == 80 + 60 + 50 + 12
+
+
+def test_the_boards_live_ready_count_is_the_deploy_boards_kept_checks(conn, book, frozen, monkeypatch):
+    from app import server
+    from app.research import agent
+    from app.services import paper_checks
+
+    calls = []
+    gate = agent.paper_evidence
+    monkeypatch.setattr(agent, "paper_evidence", lambda cur, u, sid: calls.append(sid) or gate(cur, u, sid))
+    paper_checks.KEPT.clear()
+    agent._EDGE_P.clear()
+    alone = _board(conn, book["user"])
+    asked = sorted(calls)
+    assert asked == sorted(book["sids"][:2])  # up on paper with enough trips: the gate, for each
+    # The Deploy board reads (and keeps) each running paper strategy's checks once its counts are in.
+    server._ROADS.clear()
+    server.list_deployments(server.Ctx(conn, book["user"], (), {}, {}, None))
+    assert {k[1] for k in paper_checks.KEPT if k[0] == book["uid"]} >= set(asked)
+    calls.clear()
+    log = []
+    real = conn.cursor
+
+    class Counting:
+        def __init__(self, cur):
+            self._cur = cur
+
+        def execute(self, sql, args=None):
+            log.append(" ".join(str(sql).split()))
+            return self._cur.execute(sql, args)
+
+        def __getattr__(self, name):
+            return getattr(self._cur, name)
+
+    monkeypatch.setattr(conn, "cursor", lambda: Counting(real()))
+    kept = _board(conn, book["user"])
+    monkeypatch.setattr(conn, "cursor", real)
+    assert calls == [] and kept == alone and kept["paper"]["total"]["live_ready"] == 1
+    assert not [q for q in log if "FROM app_order_intents" in q]  # no demo record read: the gate wasn't asked
+    paper_checks.KEPT.clear()

@@ -12,11 +12,12 @@ from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.research import agent, dreaming
-from app.services import customer_text, gate_explain, research_list, run_stop
+from app.services import customer_text, gate_explain, paper_checks, research_list, run_stop
 from app.services import markets as market_service
 from app.trading.markets import MARKETS
 from app.web.caches import _shared, _shared_kept
 from app.web.http import ApiError, Ctx, _int_param
+from app.web.routes.deployments import _paper_record
 from app.web.routes.explore import _efloat, _explore_feed, _feed_mid, _ticker_close_at
 from app.web.routes.strategies import (HELD_BACK, _attach_no_record, _attach_session_real_records, _autopilot_puts_on_paper,
                                        _held_back_lines, _later_verdicts, _owned_strategy, _research_pass_verdicts, _strategy_card, warm_dev_curves)
@@ -703,6 +704,19 @@ def _board_ledger_spend(cur, uid: int, board: Dict) -> None:
             row["cost_usd"] = credit_usd(by_family.get(fam, Decimal(0)))
 
 
+def _kept_live_ready(uid: int, trips_by: Dict[int, List[Dict]]):
+    """The board's live-ready answer for a strategy from the Deploy board's kept checks (services.paper_checks,
+    keyed by the same paper record the board counts from these trips): True when they list nothing but the
+    gatekeeper's candidate check (which live-ready never asked), None when nothing is kept, so the paper
+    outcomes ask agent.paper_evidence as before. The gate's ~5 reads and its bootstrap per strategy were
+    most of a cold board, and the Deploy board and the startup warm-up already hold the same answers."""
+    def ready(sid: int) -> Optional[bool]:
+        rec = _paper_record(trips_by.get(sid, []))
+        failing = paper_checks.kept(uid, sid, (rec["trades"], rec["events"], rec["span_hours"]))
+        return None if failing is None else not [k for k in failing if k != "candidate"]
+    return ready
+
+
 def _research_scoreboard(cur, uid: int, days: int) -> Dict:
     from app.research import rsi, rsi_playbook
     board = rsi.load_scoreboard(cur, days, uid)
@@ -729,7 +743,8 @@ def _research_scoreboard(cur, uid: int, days: int) -> Dict:
     except Exception:  # noqa: BLE001 - informational
         deps = trips_by = None
     try:
-        board["paper"] = rsi.paper_outcomes(cur, uid, deps, trips_by)
+        board["paper"] = rsi.paper_outcomes(cur, uid, deps, trips_by,
+                                            _kept_live_ready(uid, trips_by) if trips_by is not None else None)
     except Exception:  # noqa: BLE001 - informational; the research half of the board still renders
         board["paper"] = None
     try:

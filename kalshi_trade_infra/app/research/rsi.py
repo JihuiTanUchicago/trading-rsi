@@ -30,7 +30,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.trading.markets import MARKETS
 
@@ -518,7 +518,8 @@ def paper_progress_of(trips_by: Dict[int, List[Dict]]) -> Dict[int, Tuple[int, f
 
 
 def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
-                   trips_by: Optional[Dict[int, List[Dict]]] = None) -> Dict:
+                   trips_by: Optional[Dict[int, List[Dict]]] = None,
+                   kept_ready: Optional[Callable[[int], Optional[bool]]] = None) -> Dict:
     """RSI part 3: what research's passes earned once they met the live book on paper. The other
     half of the loop's scorecard: the scoreboard counts what passed the backtest gate, this counts
     what survived realistic fills (the live kernel over SimulatedVenue). Per family (same keys as
@@ -529,7 +530,9 @@ def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
     (bootstrap) live-ready check, so this stays cheap enough for the panel. `all_deps` is
     repo.list_deployments(include_stopped=True) and `trips_by` repo.paper_round_trips_by_strategy for
     every strategy those ran on paper, when the caller has already read them (the scoreboard, which
-    hands the same rows to the tournament); without them they are read here."""
+    hands the same rows to the tournament); without them they are read here. `kept_ready(strategy_id)`,
+    when given, is a display's kept answer to whether paper_evidence clears the strategy (the Deploy
+    board's, services.paper_checks), or None to ask paper_evidence as before."""
     from app.research import agent
     from app import repository as repo
     if all_deps is None:
@@ -551,10 +554,14 @@ def paper_outcomes(cur, user_id: int, all_deps: Optional[List[Dict]] = None,
         # `net` is the same trips' P&L summed exactly (DECIMAL); below zero, paper_evidence's net check
         # refuses it whatever else it reads, so its five reads and its bootstrap are skipped.
         if trips >= agent.MIN_REALISTIC_PAPER_TRADES and net >= 0:
-            try:
-                ready = bool(agent.paper_evidence(cur, user_id, sid)["ready"])
-            except Exception:  # noqa: BLE001 - informational; never fail the scoreboard
-                ready = False
+            kept = kept_ready(sid) if kept_ready is not None else None
+            if kept is not None:
+                ready = kept
+            else:
+                try:
+                    ready = bool(agent.paper_evidence(cur, user_id, sid)["ready"])
+                except Exception:  # noqa: BLE001 - informational; never fail the scoreboard
+                    ready = False
         rows.append({"strategy_id": sid, "family": family(d.get("market")), "playbook_id": playbooks.get(sid),
                      "round_trips": int(trips), "net_pnl": float(net),
                      "backtest_per_trade": float(oos.get("pnl") or 0) / n_bt if n_bt else None,
