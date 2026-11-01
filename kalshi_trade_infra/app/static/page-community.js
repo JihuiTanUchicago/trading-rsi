@@ -362,12 +362,25 @@ window.TauPage('community', (T) => {
       const to = chip || box.querySelector('[data-react-add]');
       if (to) to.focus();
     };
-    // One reaction at a time per post: each send toggles, so a double tap took it straight back off.
+    // A post its author took down (in another tab or on another device) while this feed still showed it: a press on it
+    // came back "No such post." and the post stayed up until the next read, up to 20s, offering the same press again
+    // (walk 2026-11-01). The server's words are said, the post goes now, and the feed reads again.
+    const postGone = (pid, art, err) => {
+      if (!err || err.status !== 404) return false;
+      alert0(err.message);
+      art.remove(); bodies.delete(String(pid)); lastFeed = '';
+      load(true).catch(() => {});
+      return true;
+    };
+    // One reaction at a time per post: a double tap took it straight back off. The press says what it asks for (on),
+    // from the pill as drawn here: a feed behind another tab's reaction took a press meant to add it back off.
     const react = async (pid, art, emoji) => {
       if (art.dataset.reacting) return;
       art.dataset.reacting = '1';
-      try { const r = await api(`/api/community/${pid}/react`, { emoji }); renderReactions(art, r.reactions); }
-      catch (err) { alert0(err.message); }
+      const shown = Array.from(art.querySelectorAll('.rx[data-emoji]')).find((b) => b.dataset.emoji === emoji);
+      const on = !(shown && shown.getAttribute('aria-pressed') === 'true');
+      try { const r = await api(`/api/community/${pid}/react`, { emoji, on }); renderReactions(art, r.reactions); }
+      catch (err) { if (!postGone(pid, art, err)) alert0(err.message); }
       finally { delete art.dataset.reacting; }
     };
     feed.addEventListener('click', async (e) => {
@@ -383,7 +396,7 @@ window.TauPage('community', (T) => {
       if (act.dataset.act === 'delete') {
         armed(act, 'Confirm delete', async () => {
           try { await api(`/api/community/${pid}/delete`, {}); art.remove(); bodies.delete(pid); lastFeed = ''; await refreshed(load(true)); }
-          catch (err) { alert0(err.message); }
+          catch (err) { if (!postGone(pid, art, err)) alert0(err.message); }
         });
         return;
       }

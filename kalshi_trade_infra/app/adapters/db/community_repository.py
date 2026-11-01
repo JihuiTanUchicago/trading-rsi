@@ -142,6 +142,19 @@ def toggle_reaction(cur, post_id: int, user_id: int, emoji: str) -> bool:
     return True
 
 
+def set_reaction(cur, post_id: int, user_id: int, emoji: str, on: bool) -> bool:
+    """Put one emoji reaction on, or take it off, whatever it was: a press from a feed drawn before another tab changed
+    it does what the reader saw it would. Returns True if now reacted."""
+    if not on:
+        cur.execute("DELETE FROM app_post_reactions WHERE post_id=%s AND user_id=%s AND emoji=%s", (post_id, user_id, emoji))
+        return False
+    cur.execute("SELECT 1 FROM app_post_reactions WHERE post_id=%s AND user_id=%s AND emoji=%s", (post_id, user_id, emoji))
+    if cur.fetchone() is None:
+        cur.execute("INSERT INTO app_post_reactions (post_id, user_id, emoji, created_at) VALUES (%s,%s,%s,%s)",
+                    (post_id, user_id, emoji, now_utc()))
+    return True
+
+
 def toggle_like(cur, post_id: int, user_id: int) -> bool:
     """Returns True if now liked, False if unliked. Keeps likes_count in sync."""
     cur.execute("DELETE FROM app_post_likes WHERE post_id=%s AND user_id=%s", (post_id, user_id))

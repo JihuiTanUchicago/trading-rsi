@@ -268,9 +268,18 @@ def edit_community_post(ctx: Ctx):
 def delete_community_post(ctx: Ctx):
     """The author takes their post down, with its replies and photo. A notice that still links it
     opens the feed saying the post is gone."""
-    if not repo.delete_post(ctx.cur, _int_param(ctx), ctx.uid):
+    pid = _int_param(ctx)
+    if not repo.delete_post(ctx.cur, pid, ctx.uid):
+        # Taken down already (from another tab or device, whose feed still showed it): said so, not "your own posts".
+        if not repo.post_exists(ctx.cur, pid):
+            raise ApiError(404, POST_GONE_ALREADY)
         raise ApiError(403, "You can only delete your own posts.")
     return {"ok": True}
+
+
+# A post its author took down while another reader's feed (or the author's other tab) still showed it.
+POST_GONE = "This post was deleted."
+POST_GONE_ALREADY = "This post was already deleted."
 
 
 def community_image(ctx: Ctx):
@@ -291,7 +300,7 @@ def _default_share_text(kind: str, snap: Optional[Dict]) -> str:
 def like_post(ctx: Ctx):
     pid = _int_param(ctx)
     if not repo.post_exists(ctx.cur, pid):
-        raise ApiError(404, "No such post.")
+        raise ApiError(404, POST_GONE)
     return {"liked": repo.toggle_like(ctx.cur, pid, ctx.uid)}
 
 
@@ -308,8 +317,15 @@ def react_post(ctx: Ctx):
     if emoji not in REACTION_EMOJI:
         raise ApiError(400, "Pick one of the reactions in the list.")
     if not repo.post_exists(ctx.cur, pid):
-        raise ApiError(404, "No such post.")
-    repo.toggle_reaction(ctx.cur, pid, ctx.uid, emoji)
+        raise ApiError(404, POST_GONE)
+    # `on` is what the press asked for, from the pill as the reader's screen drew it: a feed behind another tab or
+    # device (the reaction already added there) took a press meant to add it straight back off, and said so only by
+    # the count going down (walk 2026-11-01). Without it, a press toggles, as before.
+    want = ctx.body.get("on")
+    if isinstance(want, bool):
+        repo.set_reaction(ctx.cur, pid, ctx.uid, emoji, want)
+    else:
+        repo.toggle_reaction(ctx.cur, pid, ctx.uid, emoji)
     return {"reactions": _reactions_out(repo.reactions_for(ctx.cur, [pid], ctx.uid).get(pid, []))}
 
 
@@ -339,7 +355,7 @@ def create_comment(ctx: Ctx):
         raise ApiError(400, "Keep comments under 1,000 characters.")
     author = repo.post_author(ctx.cur, pid)
     if not author:
-        raise ApiError(404, "No such post.")
+        raise ApiError(404, POST_GONE)
     repo.add_comment(ctx.cur, pid, ctx.uid, body)
     commenter = customer_text.display_name((repo.get_user(ctx.cur, ctx.uid) or {}).get("name"), "Someone")
     _notify_mentions(ctx.cur, ctx.uid, commenter, body, post_link(pid), told=author["user_id"], where="a reply")
