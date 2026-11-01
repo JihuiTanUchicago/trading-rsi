@@ -95,7 +95,7 @@ def test_deploys_board_split_is_said_where_it_differs_from_the_dashboards_figure
     # last reload" beside Deploy's demo row's $11.17.
     deps = [_dep(1, realized=5.4226), _dep(2, mode="demo", realized=11.1704), _dep(3, mode="live", realized=-1.0251)]
     _wire(monkeypatch, deps=deps, dev_key="k",
-          closed_book_totals=lambda cur, uid, day: ({"paper": (7.8501, 0.66), "demo": (11.1704, 2.86), "live": (-1.0251, 0.0)},
+          closed_book_totals=lambda cur, uid, day, visit=None: ({"paper": (7.8501, 0.66), "demo": (11.1704, 2.86), "live": (-1.0251, 0.0)},
                                                     {"paper": 3, "demo": 5, "live": 4}, {}),
           demo_equity=lambda cur, uid, realized=None: {"equity": 505.67, "realized": 5.67, "before_reload": 5.50})
     ctx = agent._copilot_context(None, USER)
