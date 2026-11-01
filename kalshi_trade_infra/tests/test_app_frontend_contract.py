@@ -1004,6 +1004,24 @@ def test_engine_line_counts_strategies_not_their_deployments():
     assert 'so your strategy can’t buy or sell' in idle['line'] and 'it carries on' in idle['line']
 
 
+def test_your_n_paper_strategies_counts_strategies_not_their_deployments():
+    """Audit 2026-11-01: a strategy deployed twice on paper is two deployments but one strategy. "Your 3 paper
+    strategies" sat over two of them, as the card's "3 paper" did; each line counts strategies, as stratCount does."""
+    twice = [dict(_paper('Fade tails'), strategy_id=7, id=1), dict(_paper('Fade tails'), strategy_id=7, id=2),
+             dict(_paper('Rain tails'), strategy_id=8, id=3)]
+    idle = server._idle_reason(_idle_d(paper_running=2), twice, [], 20, [])
+    assert idle['code'] == 'starting' and 'your 2 paper strategies haven’t had their first look' in idle['line']
+    idle = server._idle_reason(_idle_d(paper_running=1), twice[:2], [], 20, [])
+    assert idle['line'].startswith('No trades yet: Fade tails went on paper')
+    # Two paused deployments of one strategy are that strategy paused, not "your 2 paper strategies are paused".
+    paused = [dict(strategy_id=7, id=1, title='Fade tails', status_reason='By you'),
+              dict(strategy_id=7, id=2, title='Fade tails', status_reason='By you')]
+    idle = server._idle_reason(_idle_d(), [], paused, None, [])
+    assert idle['line'].startswith('Nothing is trading: Fade tails is paused: you paused it.'), idle['line']
+    # Each book on its own: a row with no strategy id counts as its own.
+    assert chat_routes._strat_count(twice) == 2 and chat_routes._strat_count([_paper(), _paper()]) == 2
+
+
 def test_idle_reason_skips_the_engine_when_its_beat_cannot_be_read():
     d = _idle_d(paper_running=1)
     assert server._idle_reason(d, [_paper()], [], server._UNKNOWN, [])['code'] == 'starting'

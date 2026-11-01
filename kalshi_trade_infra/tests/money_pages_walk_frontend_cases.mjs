@@ -24,6 +24,9 @@ const AT = '(?:[A-Z][a-z]{2} \\d{1,2}, )?\\d\\d:\\d\\d \\S+';
 const pos = (extra) => ({title: 'Fade', ticker: 'KXBTC15M-26OCT301815-15', side: 'yes', qty: 12, entry_price: .41, entry_fee: .17, cost: 5.09,
   at_cost: 4.92, mark: .47, value: 5.64, unrealized: .55, mark_ts: new Date(Date.now() - 150e3).toISOString(), mode: 'paper', deployment_id: 1,
   opened_at: '2026-10-30T05:20:00Z', market_close_time: new Date(Date.now() + 9 * 60e3).toISOString(), ...extra});
+// Meridian's paper chart (Home's Closed P&L, by the server's UTC days) names UTC days; Tau has none, and its chart, as
+// every other, names the reader's days.
+const PAPER_UTC = (name) => name === 'Meridian';
 const markClock = (iso) => { const d = new Date(iso); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 
 export function moneyPagesWalkCases({name, frontend, strategyFrontend, detailStrategy, dashboard}) {
@@ -130,19 +133,21 @@ export function moneyPagesWalkCases({name, frontend, strategyFrontend, detailStr
 
   test(`${name}: a chart's date axis names each day once`, () => {
     const f = frontend();
-    const noon = (d) => Date.parse(d + 'T12:00:00Z') / 1000;
+    // Noon of the day each chart names: Meridian's paper chart (Home's Closed P&L) names UTC days, the server's; every
+    // other chart, Tau's too (it has no paper chart), names the reader's. Noon UTC is the next day in Auckland.
+    const noon = (d) => Date.parse(d + 'T12:00:00') / 1000, paperNoon = PAPER_UTC(name) ? (d) => Date.parse(d + 'T12:00:00Z') / 1000 : noon;
     const axis = (svg, height) => {
       f.root.innerHTML = svg;
       return f.root.querySelectorAll('svg.chart text').filter((t) => t.getAttribute('y') === String(height - 6)).map((t) => t.textContent);
     };
     const unique = (dates) => assert.equal(new Set(dates).size, dates.length, dates.join(', '));
     // Two days of closed P&L (the dashboard's chart, drawn as paper in Meridian): "Oct 29, Oct 30", not "Oct 29, Oct 30, Oct 30".
-    const two = axis(f.equityChart([[noon('2026-10-29'), 1], [noon('2026-10-30'), 3]], null, null, {paper: true, height: 180, endLabel: false}), 180)
-      .concat(axis(f.equityChart([[noon('2026-10-29'), 1], [noon('2026-10-30'), 3]], null, null, {paper: true, height: 180, endLabel: false}), 236));
+    const two = axis(f.equityChart([[paperNoon('2026-10-29'), 1], [paperNoon('2026-10-30'), 3]], null, null, {paper: true, height: 180, endLabel: false}), 180)
+      .concat(axis(f.equityChart([[paperNoon('2026-10-29'), 1], [paperNoon('2026-10-30'), 3]], null, null, {paper: true, height: 180, endLabel: false}), 236));
     assert.equal(two.length, 2, two.join(', ')); unique(two);
     assert.match(two[0], /29/); assert.match(two[1], /30/);
     // Three days keep their middle tick.
-    const three = [[noon('2026-10-28'), 1], [noon('2026-10-29'), 2], [noon('2026-10-30'), 3]];
+    const three = [[paperNoon('2026-10-28'), 1], [paperNoon('2026-10-29'), 2], [paperNoon('2026-10-30'), 3]];
     const paper3 = axis(f.equityChart(three, null, null, {paper: true, height: 180}), 180).concat(axis(f.equityChart(three, null, null, {paper: true, height: 180}), 236));
     unique(paper3); assert.ok(paper3.length >= 2);
     // A backtest curve inside one day labels it once, as the drawdown plot beside it does.
@@ -163,9 +168,15 @@ export function moneyPagesWalkCases({name, frontend, strategyFrontend, detailStr
   // equityChart names the two ends, and passes the same checks.
   test(`${name}: the Closed P&L chart's dates are its own days, each once, for a day, two days, a week and months`, () => {
     const f = frontend();
-    const DAY = 86400, noonOf = (d) => Date.parse(d + 'T12:00:00Z') / 1000;
-    const daily = (from, n, step = 1) => Array.from({length: n}, (_, i) => [noonOf(from) + i * step * DAY, i % 3 - 1]);
-    const named = (t) => [{}, {year: 'numeric'}].map((y) => new Date(t * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...y, timeZone: 'UTC'}));
+    // Each date in the zone the chart names its days in (PAPER_UTC), from that zone's noon: a day's step from noon UTC
+    // was the next day's 01:00 in Auckland, and Tau's chart rightly named that day.
+    const utc = PAPER_UTC(name), zone = utc ? {timeZone: 'UTC'} : {};
+    const noonOf = (d) => Date.parse(d + (utc ? 'T12:00:00Z' : 'T12:00:00')) / 1000;
+    const daily = (from, n, step = 1) => Array.from({length: n}, (_, i) => {
+      const [y, m, dd] = from.split('-').map(Number), at = new Date(Date.UTC(y, m - 1, dd + i * step)).toISOString().slice(0, 10);
+      return [noonOf(at), i % 3 - 1];
+    });
+    const named = (t) => [{}, {year: 'numeric'}].map((y) => new Date(t * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...y, ...zone}));
     const ticks = (curve, width) => {
       f.root.innerHTML = f.equityChart(curve, null, null, {paper: true, width, height: 180, endLabel: false});
       // The date axis: y is the chart's height less 6 (Meridian takes the height asked for, Tau draws 236 high).

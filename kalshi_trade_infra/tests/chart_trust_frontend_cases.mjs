@@ -109,17 +109,20 @@ export function chartTrustCases({name, frontend, detailStrategy, strategyFronten
   });
 
   test(`${name}: a deployment's sparkline leaves out a null point and names its book, low and high`, async () => {
+    // Its points inside one of the reader's days, on the reader's clock: from 1760000000 (08:53 UTC) they crossed
+    // Chatham's midnight, and the label rightly said "from Oct 9 to Oct 10" there.
+    const t0 = Date.parse('2025-10-09T09:00:00') / 1000;
     const dep = (id, mode, curve, closed) => ({id, strategy_id: id, title: 'Spark ' + id, market: 'btc15m', mode, status: 'running', stake: 5,
       max_positions: 2, backtest: {out_of_sample: null}, created_at: '2026-10-17T10:00:00Z', realized_pnl: 2, unrealized_pnl: null,
       closed_trades: closed, open_positions: 0, curve});
     const f = frontend({fetchImpl: (path) => path === '/api/deployments'
-      ? response({open_positions: [], deployments: [dep(1, 'demo', [[1760000000, -40], [1760003600, null], [1760007200, 2]], 30), dep(2, 'paper', [[1760000000, 0], [1760003600, 0]], 2)]})
+      ? response({open_positions: [], deployments: [dep(1, 'demo', [[t0, -40], [t0 + 3600, null], [t0 + 7200, 2]], 30), dep(2, 'paper', [[t0, 0], [t0 + 3600, 0]], 2)]})
       : response({})});
     f.location.pathname = '/deploy';
     await f.viewDeploy(); await settle();
     const html = f.root.querySelector('#deps').innerHTML;
     const sparks = [...html.matchAll(/<svg class="spark[^"]*"[^>]*aria-label="([^"]*)"[^>]*>[\s\S]*?<\/svg>/g)];
-    const d9 = new Date(1760000000e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+    const d9 = new Date(t0 * 1e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
     assert.deepEqual(sparks.map((m) => m[1]).sort(), [`Demo cumulative P&amp;L, +$2.00 over 30 trades on ${d9}; −$40.00 after the first; low −$40.00, high +$2.00`,
       `Paper cumulative P&amp;L, $0.00 over 2 trades on ${d9}; $0.00 after the first; flat at $0.00`]);
     assert.doesNotMatch(html, /NaN/);

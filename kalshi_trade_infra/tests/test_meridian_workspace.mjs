@@ -2776,7 +2776,8 @@ test('Community: another trader’s strategy card says whose it is instead of a 
   assert.match(host.querySelector('.snap-kind').textContent, /All time/);
   host.innerHTML = f.postSnapshot({kind: 'pnl', paper_pnl: -2, live_pnl: 5, paper_trades: 1, live_trades: 3});
   assert.deepEqual(host.querySelectorAll('dd').map(dd => dd.textContent), ['−$2.00on 1 trade', '+$5.00on 3 trades']);
-  host.innerHTML = f.postSnapshot({kind: 'deployment', id: 7, title: 'Fade', market: 'btc15m', mode: 'demo', realized_pnl: 7.2, closed_trades: 4, since: '2026-10-03T12:00:00Z'});
+  // Since noon on the reader's clock, so Oct 3 is the reader's day in any zone (noon UTC is Oct 4 in Auckland).
+  host.innerHTML = f.postSnapshot({kind: 'deployment', id: 7, title: 'Fade', market: 'btc15m', mode: 'demo', realized_pnl: 7.2, closed_trades: 4, since: new Date('2026-10-03T12:00:00').toISOString()});
   assert.equal(host.querySelector('.snap-head .mk').textContent, 'Demo'); assert.match(host.querySelector('.snap-since').textContent, /^since Oct 3, 2026$/);
 });
 
@@ -4142,10 +4143,13 @@ test('autopilot says why it is not trading: the card and the panel lead with one
 const sparkDeployment = (id, mode, closed, curve) => ({id, strategy_id: id, title: `Spark ${id}`, market: 'btc15m', mode,
   status: 'running', stake: 5, max_positions: 2, backtest: {out_of_sample: null}, created_at: '2026-10-17T10:00:00Z',
   realized_pnl: curve.length ? curve[curve.length - 1][1] : 0, unrealized_pnl: null, closed_trades: closed, open_positions: 0, curve});
+// The points sit inside one of the reader's days, on the reader's clock: from 1760000000 (08:53 UTC) the paper curve
+// crossed Chatham's midnight, and its label rightly said "from Oct 9 to Oct 10" there.
+const SPARK_T0 = Date.parse('2025-10-09T09:00:00') / 1000;
 const sparkPayload = () => ({...dashboardData(), deployments: [
-  sparkDeployment(1, 'paper', 48, [[1760000000, 2], [1760003600, -1], [1760007200, 500], [1760010800, 12.4]]),
-  sparkDeployment(2, 'live', 2, [[1760000000, -1], [1760003600, -3]]),
-  sparkDeployment(3, 'paper', 1, [[1760000000, 1]]),
+  sparkDeployment(1, 'paper', 48, [[SPARK_T0, 2], [SPARK_T0 + 3600, -1], [SPARK_T0 + 7200, 500], [SPARK_T0 + 10800, 12.4]]),
+  sparkDeployment(2, 'live', 2, [[SPARK_T0, -1], [SPARK_T0 + 3600, -3]]),
+  sparkDeployment(3, 'paper', 1, [[SPARK_T0, 1]]),
 ]});
 for (const [label, view, endpoint, selector] of [['Overview', 'viewDashboard', '/api/dashboard', '#main'], ['Deploy', 'viewDeploy', '/api/deployments', '#deps']]) {
   test(`${label} draws a cumulative P&L sparkline per deployment, by mode, with a labelled sign`, async () => {
@@ -4160,7 +4164,7 @@ for (const [label, view, endpoint, selector] of [['Overview', 'viewDashboard', '
     assert.equal(svgs.length, 2, html);  // the one-trade deployment draws none
     const [up, down] = [svgs.find((m) => m[1] === 'up'), svgs.find((m) => m[1] === 'down')];
     // Its name says its period and its first figure too (2026-11-01): it said only where it ended, its low and its high.
-    const d9 = new Date(1760000000e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+    const d9 = new Date(SPARK_T0 * 1e3).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
     assert.equal(up[2], `Paper cumulative P&amp;L, +$12.40 over 48 trades on ${d9}; +$2.00 after the first; low −$1.00, high +$500.00`);
     assert.equal(down[2], `Live cumulative P&amp;L, −$3.00 over 2 trades on ${d9}; −$1.00 after the first; low −$3.00, high −$1.00`);
     for (const m of svgs) {
@@ -4971,17 +4975,20 @@ test('Billing ledger says why each line was charged and where the receipt is; am
 });
 
 test('Billing statement: a heading per day, one line per session a day that links it, each card charge with its Stripe ref, and a sum that closes', async () => {
+  // Each line's time on the reader's clock (`wall`), so its day is the one named in any zone: in UTC times, the 20:01
+  // check-in fell on Jan 15 in Kolkata (01:31) and the statement rightly listed it under Jan 15 there.
+  const wall = (t) => new Date(`2026-01-${t}:00`).toISOString(), done = wall('15T08:50');
   const f = billingPage(cardedBilling({
     math: {days: 30, start: 12.5, bought: 35, purchases: 2, other: 0, usage: 40.08, end: 7.42},
     ledger: [
       {kind: 'usage', amount: -12.9494, memo: 'Research session · Claude Opus 4.6', item: 'Research session', model: 'Claude Opus 4.6', calls: 57,
-        created_at: '2026-01-15T08:50:00Z', first_at: '2026-01-15T08:01:00Z', day: '2026-01-15',
+        created_at: done, first_at: wall('15T08:01'), day: '2026-01-15',
         session: {id: 108, prompt: '<b>Fade</b> the open', market: 'btc15m', direction: 'momentum'}},
-      {kind: 'autoreload', amount: 25, memo: 'Auto-reload $25', created_at: '2026-01-15T08:01:00Z', first_at: '2026-01-15T08:01:00Z',
+      {kind: 'autoreload', amount: 25, memo: 'Auto-reload $25', created_at: wall('15T08:01'), first_at: wall('15T08:01'),
         day: '2026-01-15', card_charge: 26.38, stripe_ref: 'pi_3Synthetic<x>'},
       {kind: 'usage', amount: -0.0126, memo: 'Autopilot check-in · Claude Haiku 4.5', item: 'Autopilot check-in', model: 'Claude Haiku 4.5', calls: 3,
-        created_at: '2026-01-14T20:01:00Z', first_at: '2026-01-14T20:00:00Z', day: '2026-01-14'},
-      {kind: 'topup', amount: 10, memo: 'Added $10 credits', created_at: '2026-01-14T14:00:00Z', first_at: '2026-01-14T14:00:00Z',
+        created_at: wall('14T20:01'), first_at: wall('14T20:00'), day: '2026-01-14'},
+      {kind: 'topup', amount: 10, memo: 'Added $10 credits', created_at: wall('14T14:00'), first_at: wall('14T14:00'),
         day: '2026-01-14', card_charge: 10.55, stripe_ref: 'pi_3SyntheticTopup'},
     ], ledger_cut: true}));
   await f.viewBilling(); await flush();
@@ -4995,7 +5002,7 @@ test('Billing statement: a heading per day, one line per session a day that link
   const rows = f.root.querySelectorAll('.t-ledger tbody tr').map((r) => r.innerHTML);
   assert.equal(rows.length, 6);  // two day headings and four lines
   assert.match(rows[0], /<td colspan="3" data-lab="Day"><b>[A-Z][a-z]{2}, Jan 15<\/b><span class="vh">, <\/span><span class="day-sum">\$12\.95 used\u00a0· \+\$25\.00 credits<\/span><\/td>/);
-  assert.match(rows[1], /<time datetime="2026-01-15T08:50:00Z">\d\d:\d\d–\d\d:\d\d/);  // the span of the session's calls
+  assert.ok(rows[1].includes(`<time datetime="${done}">`)); assert.match(rows[1], /<time [^>]*>\d\d:\d\d–\d\d:\d\d/);  // the span of the session's calls
   assert.match(rows[1], /Research session<div class="sub-fig"><a href="\/research\/108">&lt;b&gt;Fade&lt;\/b&gt; the open<\/a>\u00a0· Claude Opus 4\.6\u00a0· 57 model calls<\/div>[\s\S]*−\$12\.95/);
   assert.match(rows[2], /Auto-reload<div class="sub-fig">Card charged \$26\.38: \$25\.00 credits plus the 5\.5% purchase fee\u00a0· Stripe ref <span class="ref">pi_3Synthetic&lt;x&gt;<\/span><\/div>[\s\S]*\+\$25\.00/);
   assert.match(rows[3], /<b>[A-Z][a-z]{2}, Jan 14<\/b><span class="vh">, <\/span><span class="day-sum">\$0\.01 used\u00a0· \+\$10\.00 credits<\/span>/);
