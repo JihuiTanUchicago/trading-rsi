@@ -9,7 +9,7 @@ from typing import Dict, Iterable, List, Optional, Set
 from app import repository as repo
 from app.adapters.ses import notify
 from app.services import customer_text
-from app.web.http import ApiError, Ctx, _int_param
+from app.web.http import ApiError, Ctx, _body_id, _int_param, _int_query
 from app.web.routes.strategies import _later_verdicts
 from data_pipeline.common import get_db_conn
 from trading_core.domain.money import cents
@@ -136,7 +136,7 @@ MAX_FEED_POSTS = 300
 
 
 def community(ctx: Ctx):
-    before = int(ctx.query.get("before") or 0)
+    before = _int_query(ctx, "before")
     mine_only = str(ctx.query.get("mine") or "") in ("1", "true")
     try:
         limit = min(max(int(ctx.query.get("limit") or FEED_PAGE), 1), MAX_FEED_POSTS)
@@ -222,11 +222,12 @@ def create_community_post(ctx: Ctx):
     cur = ctx.cur
     if repo.recent_posts_count(cur, ctx.uid, repo.now_utc() - timedelta(hours=1)) >= MAX_POSTS_PER_HOUR:
         raise ApiError(429, "You’ve posted a lot this hour. Give it a minute.")
+    # The shared row is read before the photo is stored, so a refused share stores nothing.
+    snapshot = _post_snapshot(cur, ctx.uid, kind, _body_id(ctx.body.get("ref_id"))) if kind != "note" else None
     image_id = None
     if image:
         ctype, raw = _decode_image(str(image))
         image_id = repo.store_image(cur, ctx.uid, ctype, raw)
-    snapshot = _post_snapshot(cur, ctx.uid, kind, int(ctx.body.get("ref_id") or 0)) if kind != "note" else None
     pid = repo.create_post(cur, ctx.uid, body or _default_share_text(kind, snapshot), kind, snapshot, image_id)
     author = customer_text.display_name((repo.get_user(cur, ctx.uid) or {}).get("name"), "A trader")
     told = _notify_mentions(cur, ctx.uid, author, body, post_link(pid))

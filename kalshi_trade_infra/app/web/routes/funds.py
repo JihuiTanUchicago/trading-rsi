@@ -262,7 +262,8 @@ def delete_kalshi_dev_key(ctx: Ctx):
 
 
 def waitlist(ctx: Ctx):
-    email = str(ctx.body.get("email") or "").strip().lower()
+    email = ctx.body.get("email")
+    email = email.strip().lower() if isinstance(email, str) else ""  # ["a@b.co"] read as "['a@b.co']" and was kept
     note = str(ctx.body.get("note") or "").strip()[:500]
     if not repo.EMAIL_RE.match(email) or len(email) > 320:
         raise ApiError(400, "Enter a valid email address.")

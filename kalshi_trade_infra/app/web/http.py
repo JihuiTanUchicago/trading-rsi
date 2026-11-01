@@ -75,3 +75,29 @@ def _num(body: Dict, key: str, lo: float, hi: float, default: Optional[float] = 
 
 def _int_param(ctx: Ctx, i: int = 0) -> int:
     return int(ctx.params[i])
+
+
+# The largest whole number a query may carry: MySQL reads a bigger LIMIT/OFFSET as a syntax error.
+_QUERY_INT_MAX = 2 ** 63 - 1
+
+
+def _int_query(ctx: Ctx, key: str, default: int = 0, lo: int = 0, hi: int = _QUERY_INT_MAX) -> int:
+    """A whole-number query value (a ?before= or ?after= cursor, a ?page=): `default` when it is missing or isn't a
+    plain whole number, else held within lo..hi. A stale page or a pasted link may carry any text there, and int()
+    of "abc", "1.5" or "€" failed the read with a 500."""
+    raw = str(ctx.query.get(key) or "").strip()
+    if not (raw.isascii() and raw.lstrip("-").isdigit() and len(raw) <= 30):
+        return default
+    return min(max(int(raw), lo), hi)
+
+
+def _body_id(v: Any) -> int:
+    """A row id sent in a JSON body: a whole number, or digits in a string. Anything else (a list, "abc", 1.5, true)
+    is 0, which no row has, so the caller answers as it does for a row that isn't there."""
+    if isinstance(v, bool):
+        return 0
+    if isinstance(v, int):
+        return v if 0 < v <= _QUERY_INT_MAX else 0
+    if isinstance(v, str) and v.strip().isascii() and v.strip().isdigit():
+        return min(int(v.strip()), _QUERY_INT_MAX)
+    return 0

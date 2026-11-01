@@ -17,7 +17,7 @@ from app.trading import backtest, track_record
 from app.trading import spec as specmod
 from app.trading.markets import MARKETS
 from app.web.caches import _forget_own_change
-from app.web.http import ApiError, Ctx, _int_param, _num
+from app.web.http import ApiError, Ctx, _int_param, _int_query, _num
 from app.web.views import (
     _deployment_out,
     _demo_key_back,
@@ -123,16 +123,17 @@ def _with_why(rows: List[Dict], deps: List[Dict]) -> List[Dict]:
     return rows
 
 
+# Past this page the list is empty anyway; ?page=99999999999999999999 made an OFFSET MySQL can't read (a 500).
+MAX_LIST_PAGE = 1_000_000
+
+
 def list_strategies(ctx: Ctx):
     q = ctx.query
     direction, status, market = q.get("direction") or None, q.get("status") or None, q.get("market") or None
     search = (q.get("q") or "").strip()[:80] or None  # cap: a search box, not a query language
     deployed = q.get("deployed") in ("1", "true")
-    try:
-        page = max(0, int(q.get("page") or 0))
-    except ValueError:
-        page = 0
     per = 50
+    page = _int_query(ctx, "page", hi=MAX_LIST_PAGE)
     counts = repo.count_strategies(ctx.cur, ctx.uid, direction, market, search, deployed)  # true per-status totals, not a capped page
     # Every pass under these filters, and every void or rejected probation strategy that passed on paper,
     # is judged for a later check that left it uncleared (Missed final test, Held back), in one read for

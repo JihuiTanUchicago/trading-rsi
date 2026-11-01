@@ -16,7 +16,7 @@ from app.services import customer_text, gate_explain, paper_checks, research_lis
 from app.services import markets as market_service
 from app.trading.markets import MARKETS
 from app.web.caches import _shared, _shared_kept
-from app.web.http import ApiError, Ctx, _int_param
+from app.web.http import ApiError, Ctx, _int_param, _int_query
 from app.web.routes.deployments import _paper_record
 from app.web.routes.explore import _efloat, _explore_feed, _feed_mid, _ticker_close_at
 from app.web.routes.strategies import (HELD_BACK, _attach_no_record, _attach_session_real_records, _autopilot_puts_on_paper,
@@ -308,10 +308,10 @@ def get_run(ctx: Ctx):
     run = repo.get_run(ctx.cur, ctx.uid, _int_param(ctx))
     if run is None or run["kind"] != "research":
         raise ApiError(404, "No such research session.")
-    before = int(ctx.query.get("before") or 0)
+    before = _int_query(ctx, "before")
     if before > 0:
         return _earlier_run_events(ctx, run, before)
-    after = int(ctx.query.get("after") or 0)
+    after = _int_query(ctx, "after")
     # This run's gated strategies, live — so the Hypotheses table fills as each chunk clears
     # the gate (a run_forever run never reaches "succeeded", so we can't wait for it).
     strategies = repo.list_strategies(ctx.cur, ctx.uid, run_id=run["id"])
@@ -435,9 +435,9 @@ def create_run(ctx: Ctx):
     # Which LLM runs this research; None = the server's default model. Validated
     # against the registry so billing only ever meters a model with a known price.
     model = ctx.body.get("model") or None
-    if model is not None and model not in catalog.MODELS:
+    if model is not None and (not isinstance(model, str) or model not in catalog.MODELS):
         raise ApiError(400, "Pick a model from the list, or leave it on the default.")
-    if market is not None and market not in MARKETS:
+    if market is not None and (not isinstance(market, str) or market not in MARKETS):
         raise ApiError(400, "Pick a market Tau can research, or let the agent choose.")
     unavailable = agent.research_unavailable_reason(market)
     if unavailable:
@@ -491,7 +491,7 @@ def dig_deeper(ctx: Ctx):
     if unavailable:
         raise ApiError(409, unavailable)
     model = ctx.body.get("model") or None
-    if model is not None and model not in catalog.MODELS:
+    if model is not None and (not isinstance(model, str) or model not in catalog.MODELS):
         raise ApiError(400, "Pick a model from the list, or leave it on the default.")
     try:
         max_hyp = int(ctx.body.get("max_hypotheses") or agent.DEFAULT_HYPOTHESES)

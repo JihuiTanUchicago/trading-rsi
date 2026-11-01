@@ -852,13 +852,17 @@ class Handler(BaseHTTPRequestHandler):
         self._body_read = False
         self._timed("POST")
 
+    def _body_length(self) -> Optional[int]:
+        """The request's Content-Length, or None when it isn't a plain whole number ("abc", "1.5", "-1"):
+        int() took "-1", and rfile.read(-1) waited for the client to hang up, holding the request open."""
+        v = self.headers.get("Content-Length") or "0"
+        return int(v) if v.isascii() and v.isdigit() else None
+
     def _unread_body(self) -> bool:
         if getattr(self, "command", None) != "POST" or getattr(self, "_body_read", True):
             return False
-        try:
-            return int(self.headers.get("Content-Length") or 0) > 0
-        except ValueError:
-            return True
+        length = self._body_length()
+        return length is None or length > 0
 
     def _perf(self, query: str) -> None:
         """Rolling latency/error stats for the on-box watchdog. Loopback only: through CloudFront the
@@ -906,7 +910,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body: Dict[str, Any] = {}
             if method == "POST":
-                length = int(self.headers.get("Content-Length") or 0)
+                length = self._body_length()
+                if length is None:
+                    raise ApiError(400, BAD_REQUEST)
                 if length > BODY_LIMITS.get(path, MAX_BODY):
                     raise ApiError(413, TOO_LARGE)
                 raw = self.rfile.read(length) if length else b""
