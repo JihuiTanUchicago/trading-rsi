@@ -61,16 +61,26 @@ def me(ctx: Ctx):
 
 
 def notifications(ctx: Ctx):
+    """The bell. With ?before=<notice id> (the `next_before` of the page above it) it is the next page of older
+    notices, read and grouped as the first page is (bell.page): {items, older, next_before} only, with no count, and
+    nothing is marked read by it (that stays POST /api/notifications/read). A bad `before` reads the first page."""
+    try:
+        before = max(0, int(ctx.query.get("before") or 0))
+    except (TypeError, ValueError):
+        before = 0
     # One row past the window says, in the same read, whether any notice is older than the bell lists (`older`).
-    read = customer_text.notification_rows(repo.list_notifications(ctx.cur, ctx.uid, limit=bell.READ_ROWS + 1))
+    read = customer_text.notification_rows(repo.list_notifications(ctx.cur, ctx.uid, limit=bell.READ_ROWS + 1, before=before))
     rows = read[:bell.READ_ROWS]
-    items = bell.grouped(rows)
+    items, older, next_before = bell.page(read)
+    if before:
+        return {"items": items, "older": older, "next_before": next_before}
     return {"unread": repo.count_unread_notifications(ctx.cur, ctx.uid), "items": items,
             # unread_kinds counts the newest READ_ROWS notices only, while `unread` counts them all: the bell's
             # summary says which window its parts cover when the two differ ("131 new; the newest 100: …").
             "unread_kinds": bell.unread_kinds(rows), "unread_kinds_of": bell.READ_ROWS,
-            # The bell lists its newest notices only, and says so under them when there are older ones.
-            "older": bell.older(read, items),
+            # The bell lists its newest notices only, and says so under them when there are older ones; Show older
+            # notices reads the next page with ?before=next_before (a cursor, never shown).
+            "older": older, "next_before": next_before,
             # Unread notices the listed lines stand for: `unread` past them are older ones, said under the list.
             "unread_listed": bell.unread_listed(rows, items)}
 

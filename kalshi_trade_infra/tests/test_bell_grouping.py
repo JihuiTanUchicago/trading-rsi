@@ -44,13 +44,13 @@ def test_the_list_stops_at_its_size_and_a_trailing_run_still_counts():
 def test_the_endpoint_reads_a_bounded_window_and_groups_it(monkeypatch):
     asked = {}
 
-    def rows(cur, uid, limit=20):
+    def rows(cur, uid, limit=20, before=0):
         asked["limit"] = limit
         return [_row(3, "comment", "/community", read=False), _row(2, "comment", "/community"), _row(1, "share", "/strategies/9")]
 
     monkeypatch.setattr(server.repo, "list_notifications", rows)
     monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 1)
-    out = server.notifications(type("C", (), {"cur": None, "uid": 1})())
+    out = server.notifications(type("C", (), {"cur": None, "uid": 1, "query": {}})())
     # The window and one row past it, in the same read: whether any notice is older than the list.
     assert asked["limit"] == bell.READ_ROWS + 1
     assert out["unread"] == 1 and [(n["id"], n["more"], n["read"]) for n in out["items"]] == [(3, 1, False), (1, 0, True)]
@@ -131,19 +131,19 @@ def test_a_pause_opens_at_since_deploying_and_a_failed_reload_at_billings_notice
 def test_the_bell_says_when_older_notices_are_past_its_lines(monkeypatch):
     many = [_row(500 - i, "share", "/strategies/%d" % i) for i in range(bell.READ_ROWS + 1)]
     monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 0)
-    ctx = type("C", (), {"cur": None, "uid": 1})()
+    ctx = type("C", (), {"cur": None, "uid": 1, "query": {}})()
     for rows, older in ((many, True), (many[:bell.SHOWN], False), (many[:bell.SHOWN + 1], True), ([], False)):
-        monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20, rows=rows: rows[:limit])
+        monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20, before=0, rows=rows: rows[:limit])
         out = server.notifications(ctx)
         assert out["older"] is older, len(rows)
         assert len(out["items"]) == min(len(rows), bell.SHOWN)
     # The 101st row only says there is more: the summary still counts the window of 100.
     unread = [dict(r, read_at=None) for r in many]
-    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20: unread[:limit])
+    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20, before=0: unread[:limit])
     assert server.notifications(ctx)["unread_kinds"] == {"share": bell.READ_ROWS}
     # One group that swallows the whole window still has older rows behind it.
     run = [_row(300 - i, "comment", "/community#post-1") for i in range(bell.READ_ROWS + 1)]
-    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20: run[:limit])
+    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20, before=0: run[:limit])
     out = server.notifications(ctx)
     assert (len(out["items"]), out["items"][0]["more"], out["older"]) == (1, bell.READ_ROWS - 1, True)
 
@@ -153,9 +153,9 @@ def test_the_bell_says_how_many_unread_notices_its_lines_stand_for(monkeypatch):
     rows = [_row(500 - i, "deployed", "/strategies/%d" % i, read=True) for i in range(bell.READ_ROWS + 1)]
     for r in rows[:47]:
         r["read_at"] = None
-    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20: rows[:limit])
+    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20, before=0: rows[:limit])
     monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 47)
-    out = server.notifications(type("C", (), {"cur": None, "uid": 1})())
+    out = server.notifications(type("C", (), {"cur": None, "uid": 1, "query": {}})())
     assert len(out["items"]) == bell.SHOWN and out["unread_listed"] == bell.SHOWN and out["older"] is True
     # A grouped line counts every unread notice it stands for, and a read one in it none.
     grouped = [_row(9, "comment", "/community#post-4", read=False), _row(8, "comment", "/community#post-4"),
@@ -163,3 +163,60 @@ def test_the_bell_says_how_many_unread_notices_its_lines_stand_for(monkeypatch):
     assert bell.unread_listed(grouped, bell.grouped(grouped)) == 3
     assert bell.unread_listed(grouped, bell.grouped(grouped, shown=1)) == 2
     assert bell.unread_listed([], []) == 0
+
+
+def test_show_older_notices_reads_the_next_page_by_cursor_grouped_alike_with_no_count_and_no_mark(monkeypatch):
+    # "Older notices aren't listed here" led nowhere: past the newest 20 lines nothing older could be read. ?before=<id>
+    # (the page above's next_before) reads the next page through the same endpoint, grouped as the first page is.
+    asked = []
+    store = [_row(400 - i, "comment", "/community#post-%d" % (i // 5), read=i % 3 == 0) for i in range(230)]
+
+    def rows(cur, uid, limit=20, before=0):
+        asked.append((limit, before))
+        return [dict(r) for r in store if not before or r["id"] < before][:limit]
+
+    def boom(*a, **k):
+        raise AssertionError("an older page neither counts nor marks anything read")
+
+    monkeypatch.setattr(server.repo, "list_notifications", rows)
+    monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 77)
+    monkeypatch.setattr(server.repo, "mark_notifications_read", boom)
+    ctx = lambda q=None: type("C", (), {"cur": None, "uid": 1, "query": dict(q or {})})()
+    first = server.notifications(ctx())
+    assert asked[-1] == (bell.READ_ROWS + 1, 0)
+    assert first["older"] is True and first["unread"] == 77
+    assert first["next_before"] == 301, "the oldest notice the 20 lines stand for (20 runs of 5)"
+    monkeypatch.setattr(server.repo, "count_unread_notifications", boom)
+    seen, pages, page = sum(1 + n["more"] for n in first["items"]), 1, first
+    while page["older"]:
+        cursor = page["next_before"]
+        page = server.notifications(ctx({"before": str(cursor)}))
+        assert asked[-1] == (bell.READ_ROWS + 1, cursor), "the same bounded read, older than the cursor"
+        assert set(page) == {"items", "older", "next_before"}
+        assert all(n["more"] == 4 for n in page["items"]), "grouped as the first page: one line per post's 5 replies"
+        assert not any(n["read"] for n in page["items"]), "each run holds an unread one, and says so"
+        seen += sum(1 + n["more"] for n in page["items"])
+        pages += 1
+    assert (seen, pages) == (len(store), 3), "every notice, once"
+    assert page["next_before"] is None
+    # A bad cursor reads the first page, never an error page.
+    monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 77)
+    for bad in ("x", "-5", "0", ""):
+        assert server.notifications(ctx({"before": bad}))["unread"] == 77
+
+
+def test_a_run_the_window_cuts_off_is_left_whole_for_the_next_page():
+    # 16 single lines, then 90 replies to one post: the 100-row window cuts that run at its 84th reply. Kept, the first
+    # page read "and 83 more" and the next page started with the same post's last 6 as a line of its own.
+    rows = [_row(500 - i, "share", "/strategies/%d" % i) for i in range(16)]
+    rows += [_row(484 - i, "comment", "/community#post-1") for i in range(90)]
+    items, older, nxt = bell.page(rows[:bell.READ_ROWS + 1])
+    assert [n["kind"] for n in items] == ["share"] * 16 and older is True and nxt == rows[15]["id"]
+    rest, _, _ = bell.page([r for r in rows if r["id"] < nxt][:bell.READ_ROWS + 1])
+    assert (rest[0]["kind"], rest[0]["more"]) == ("comment", 89), "the whole run on one line"
+    # A run that ends with the window is kept: the row past it is about something else.
+    ended = rows[:bell.READ_ROWS] + [_row(1, "passed", "/strategies/9")]
+    items, older, nxt = bell.page(ended)
+    assert (len(items), items[-1]["more"], older, nxt) == (17, 83, True, ended[bell.READ_ROWS - 1]["id"])
+    # Nothing older: no cursor.
+    assert bell.page(rows[:5])[1:] == (False, None)

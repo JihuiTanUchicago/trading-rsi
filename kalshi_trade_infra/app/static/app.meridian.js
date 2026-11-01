@@ -1042,13 +1042,47 @@
       const inner = `${n.read ? '' : '<span class="vh notif-new">New: </span>'}${esc(n.body)}${n.gone ? `<span class="notif-more">${BELL_GONE}</span>` : ''}${n.more ? `<span class="notif-more">${esc(bellMore(n))}</span>` : ''}${bellTime(n.created_at)}`;
       return !n.gone && /^\/(?!\/)/.test(n.link || '') ? `<a class="notif ${n.read ? '' : 'unread'}" href="${esc(n.link)}">${inner}</a>` : `<p class="notif ${n.read ? '' : 'unread'}">${inner}</p>`;
     };
+    // Show older notices, under the list when older ones are past it: the next page of the same read (?before=, the
+    // server's next_before, a cursor never shown), grouped as the first page is. Its lines go under the ones shown and
+    // focus goes to the first of them; with none left it says so, and a read that fails says so with Try again (on a
+    // press only). A read: nothing is marked read by it. A repaint (a fresh list) drops a page still reading.
+    const BELL_MORE = 'Show older notices';
+    let olderAt = null, paints = 0;
+    const moreFoot = (note) => `<div class="bell-foot">${note}<p class="bell-more-note" role="status"></p><button type="button" class="btn sm bell-more" data-bell-more>${BELL_MORE}</button></div>`;
+    const showOlder = async (btn) => {
+      const foot = btn.closest('.bell-foot'), note = foot && foot.querySelector('.bell-more-note');
+      if (btn.dataset.busy || !olderAt || !foot) return;
+      const at = paints;
+      btn.dataset.busy = '1'; btn.setAttribute('aria-disabled', 'true'); btn.textContent = 'Loading older notices\u2026'; note.textContent = '';
+      let d = null;
+      try { d = await api(`/api/notifications?before=${encodeURIComponent(olderAt)}`, undefined, { keep: true }); } catch (e) { d = null; }
+      if (at !== paints || !foot.isConnected) return;  // the list was painted afresh meanwhile
+      delete btn.dataset.busy; btn.removeAttribute('aria-disabled');
+      if (!d || !Array.isArray(d.items)) { btn.textContent = 'Try again'; note.textContent = 'Older notices didn\u2019t load just now.'; if (btn.scrollIntoView) btn.scrollIntoView({ block: 'nearest' }); return; }
+      const done = !(d.older && d.next_before);
+      olderAt = done ? null : d.next_before;
+      const hold = document.createElement('div');
+      hold.innerHTML = d.items.map(item).join('');
+      const added = [...hold.children];
+      added.forEach((n) => list.insertBefore(n, foot));
+      const first = added[0];
+      const old = foot.querySelector('.bell-older'); if (old) old.remove();  // they are listed now, as far as they go
+      btn.textContent = BELL_MORE;
+      if (first && !takesFocus(first)) first.setAttribute('tabindex', '-1');  // a line with no page to open still takes focus
+      if (first) first.focus({ preventScroll: true });
+      if (!done) return;
+      if (!first) menu.focus({ preventScroll: true });  // off the button before it goes
+      foot.innerHTML = '<p class="bell-empty bell-end" tabindex="-1">No older notices.</p>';
+      if (!first) foot.querySelector('.bell-end').focus({ preventScroll: true });
+    };
     const paint = (d) => {
+      paints++; olderAt = d.older && d.next_before ? d.next_before : null;
       dot.hidden = !d.unread;
       trig.setAttribute('aria-label', d.unread ? `Notifications, ${num(d.unread)} unread` : 'Notifications');  // the dot alone is colour
       head.innerHTML = '<b>Notifications</b>' + (d.unread ? `<span class="bell-new">${num(d.unread)} new</span>` : '');
       // Empty, it says what rings it: through a new user's first research session it said only "No notifications yet."
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
-      list.innerHTML = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? `<p class="bell-empty bell-older">${bellOlder(d)}</p>` : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
+      list.innerHTML = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card.</p>`;
     };
     // A list that didn't load still opens, says so and offers Try again; the next read (bellTick) fills it
     // too. It used to leave the bell dead for the rest of the visit: a tap did nothing and no dot ever came.
@@ -1063,7 +1097,7 @@
       else staleEl.innerHTML = '';
       staleEl.hidden = !(on && data);
     };
-    const unloaded = () => { list.innerHTML = '<p class="bell-empty">Notifications didn\u2019t load just now. <button type="button" class="btn sm" data-bell-retry>Try again</button></p>'; };
+    const unloaded = () => { paints++; olderAt = null; list.innerHTML = '<p class="bell-empty">Notifications didn\u2019t load just now. <button type="button" class="btn sm" data-bell-retry>Try again</button></p>'; };
     // Focus goes into the list (its first notice, or the list itself when it is empty), so Tab and a
     // screen reader carry on from what just opened; Esc brings it back to the bell.
     const focusIn = () => (list.querySelector('a.notif') || menu).focus({ preventScroll: true });
@@ -1142,8 +1176,8 @@
     });
     // Opening a notice closes the list first, so its click-outside listener doesn't outlive the page.
     list.addEventListener('click', (e) => {
-      const again = e.target.closest('[data-bell-retry]');
-      if (again) retry(again); else if (e.target.closest('a.notif')) close();
+      const again = e.target.closest('[data-bell-retry]'), more = e.target.closest('[data-bell-more]');
+      if (again) retry(again); else if (more) showOlder(more); else if (e.target.closest('a.notif')) close();
     });
     if (staleEl) staleEl.addEventListener('click', (e) => { const again = e.target.closest('[data-bell-retry]'); if (again) retry(again); });
   }

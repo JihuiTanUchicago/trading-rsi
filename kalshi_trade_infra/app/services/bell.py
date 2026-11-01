@@ -15,7 +15,7 @@ A notice opens its page at what it is about (`link`, as shown; the stored link i
 a pause at the strategy's Since deploying, where each book's pause and its reason are listed, and a failed
 auto-reload at Billing's notice of it. Either page falls back to its heading when that part isn't there."""
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 SHOWN = 20      # lines the bell lists
 READ_ROWS = 100  # newest rows read to fill them; a fixed bound however many notices a user has
@@ -71,6 +71,26 @@ def grouped(rows: List[Dict], shown: int = SHOWN) -> List[Dict]:
     for n in out:
         n["from_more"] = len(n.pop("_others"))
     return out
+
+
+def page(read: List[Dict]) -> Tuple[List[Dict], bool, Optional[int]]:
+    """One page of the bell from `read`: up to READ_ROWS + 1 rows newest first, the one past the window saying
+    whether any are older. Returns (items, older, next_before): the grouped lines, whether notices older than the
+    ones they stand for are left, and the notice id the next page reads before (?before=, the oldest row the lines
+    stand for), None when none are left. The first page and every older one are read and grouped alike.
+
+    A run of one kind about one page that the window cut off (the row past it goes on with the last line's run)
+    is left to the next page, which then holds it whole: "and 4 more" on this page and the rest of the same
+    replies as its own line on the next read as two different things. A run longer than the window still splits."""
+    rows = read[:READ_ROWS]
+    items = grouped(rows)
+    used = sum(1 + n["more"] for n in items)
+    if used == len(rows) < len(read) and len(items) > 1:
+        run, nxt = rows[used - 1], read[used]  # the window's oldest row is in the last line's run
+        if nxt.get("link") and nxt.get("kind") == run.get("kind") and nxt.get("link") == run.get("link"):
+            used -= 1 + items.pop()["more"]
+    left = used < len(read)
+    return items, left, (rows[used - 1]["id"] if left and used else None)
 
 
 def older(rows: List[Dict], items: List[Dict]) -> bool:

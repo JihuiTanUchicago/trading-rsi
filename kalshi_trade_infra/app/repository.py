@@ -414,16 +414,22 @@ def add_notification_collapsed(cur, user_id: int, kind: str, body: str, link: st
     return add_notification(cur, user_id, kind, body, link)
 
 
-def list_notifications(cur, user_id: int, limit: int = 20) -> List[Dict]:
-    """The user's newest notices. `gone` is 1 for one about a strategy that is no longer theirs (deleted since,
-    as a shared copy can be): its strategy row, joined by primary key in the same read (one eq_ref lookup a
-    row; the owner is checked after the join, so the user's index of strategies is never walked), is missing."""
+def list_notifications(cur, user_id: int, limit: int = 20, before: int = 0) -> List[Dict]:
+    """The user's newest notices (older than notice id `before`, when given: the bell's next page). `gone` is 1 for
+    one about a strategy that is no longer theirs (deleted since, as a shared copy can be): its strategy row, joined
+    by primary key in the same read (one eq_ref lookup a row; the owner is checked after the join, so the user's
+    index of strategies is never walked), is missing.
+
+    An older page reads the user's own index (idx_notif_user, as the first page does): left to itself on a small
+    table the optimizer walked the primary key down from `before`, through every user's notices. No index has
+    (user_id, id), so both pages sort the user's rows (filesort, LIMIT-bounded output)."""
+    older = " FORCE INDEX (idx_notif_user)" if before else ""
     cur.execute(
         "SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at, "
-        "(n.link LIKE '/strategies/%%' AND (st.id IS NULL OR st.user_id<>n.user_id)) AS gone FROM app_notifications n "
+        "(n.link LIKE '/strategies/%%' AND (st.id IS NULL OR st.user_id<>n.user_id)) AS gone FROM app_notifications n" + older + " "
         "LEFT JOIN app_strategies st ON n.link LIKE '/strategies/%%' AND st.id=CAST(SUBSTRING(n.link, 13) AS UNSIGNED) "
-        "WHERE n.user_id=%s ORDER BY n.id DESC LIMIT %s",
-        (user_id, limit),
+        "WHERE n.user_id=%s" + (" AND n.id<%s" if before else "") + " ORDER BY n.id DESC LIMIT %s",
+        (user_id, before, limit) if before else (user_id, limit),
     )
     return cur.fetchall()
 
