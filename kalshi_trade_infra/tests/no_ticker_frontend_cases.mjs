@@ -81,12 +81,17 @@ export function noTickerCases({name, frontend, strategyFrontend, detailStrategy,
     assert.equal(links.length, POSITIONS.length);
     const paperSol = links.slice(0, 5);
     assert.equal(new Set(paperSol).size, 5, paperSol.join(' | '));
-    for (const l of paperSol) assert.match(l, /^Solana up or down in 15 minutes \(\d\d:\d\d [^)]+\)$/, l);
+    // A window settling on the reader's next day says its date before the time ("Nov 2, 00:07 UTC"), as settleAt does:
+    // the windows sit an hour or two out, so after about 22:00 on the reader's clock they cross midnight.
+    const solName = (i, tail) => new RegExp(`^Solana up or down in 15 minutes \\(${
+      new Date(POSITIONS[i].market_close_time).toDateString() === new Date().toDateString() ? '' : '[A-Z][a-z]{2} \\d{1,2}, '
+    }\\d\\d:\\d\\d ${tail ? `[^,)]+${tail}` : '[^)]+'}\\)$`);
+    paperSol.forEach((l, i) => assert.match(l, solName(i, ''), l));
     // A demo copy of a paper window holds the same contract: on the other side, its side tells it apart where its time
     // doesn't; on the same side nothing of the contract does (its book and strategy do), so it reads as the paper one.
     assert.equal(links[5], links[0]);
-    assert.match(links[6], /^Solana up or down in 15 minutes \(\d\d:\d\d [^,)]+, YES\)$/, links[6]);
-    assert.match(links[1], /^Solana up or down in 15 minutes \(\d\d:\d\d [^,)]+, NO\)$/, links[1]);
+    assert.match(links[6], solName(6, ', YES'), links[6]);
+    assert.match(links[1], solName(1, ', NO'), links[1]);
     assert.equal(links[7], 'Bitcoin $110,000 or above at 5pm ET');
     assert.ok(links.includes('Kalshi contract'), 'a series no market covers reads as a contract, never its code');
     // The board's deployments have a heading of their own between the page's h1 and "Open positions".
