@@ -298,3 +298,27 @@ def test_funds_names_each_books_open_positions_and_paper_matches_the_dashboard(m
     assert out["demo"]["equity"] == 753.77  # demo's own figure, untouched by paper or live
     # The dashboard's buckets read the same helper, so the two pages agree to the cent.
     assert server._open_book(pos, "paper") == {"open_at_cost": 8.09, "open_cost": 8.09, "open_positions": 2}
+
+
+def test_paper_withdraw_refusal_groups_thousands(monkeypatch):
+    """A refused paper withdrawal says the free cash as every other figure does: "$2,050.00", not "$2050.00"."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from app.web.http import ApiError
+    from app.web.routes import funds as funds_routes
+
+    @contextmanager
+    def tx(conn):
+        yield object()
+
+    monkeypatch.setattr(funds_routes.repo, "transaction", tx)
+    monkeypatch.setattr(funds_routes.repo, "lock_user", lambda cur, uid: None)
+    monkeypatch.setattr(funds_routes.repo, "paper_balance", lambda cur, uid: 2050.0)
+    ctx = SimpleNamespace(body={"kind": "withdraw", "amount": 5000}, conn=object(), uid=7)
+    try:
+        funds_routes.paper_transfer(ctx)
+    except ApiError as e:
+        assert str(e) == "You only have $2,050.00 of paper cash free." or getattr(e, "message", "") == "You only have $2,050.00 of paper cash free."
+    else:
+        raise AssertionError("the withdrawal was not refused")
