@@ -145,7 +145,10 @@ test('live autopilot with autopilot off says plainly that autopilot (paper) come
 test('catalog failure and a response after shell replacement cannot populate a stale picker', async () => {
   const failed = frontend(() => response({error: 'Synthetic catalog failure'}, 503));
   failed.apBuildShell(failed.box); await flush();
-  assert.equal(failed.box.querySelector('#apf-model').options.length, 0); assert.equal(posts(failed).length, 0);
+  // A failed catalog says so in the box, locked (it was left empty for good: walk 2026-11-01); nothing is written.
+  const none = failed.box.querySelector('#apf-model');
+  assert.equal(none.options.length, 1); assert.match(none.innerHTML, /Didn’t load\. Tau keeps trying\./); assert.equal(none.disabled, true);
+  assert.equal(posts(failed).length, 0);
   const pending = deferred(), f = frontend(() => pending.promise);
   f.apBuildShell(f.box); const old = f.box.querySelector('#apf-model'), writes = old.writes;
   f.box.innerHTML = '<button>Collapsed</button>';
