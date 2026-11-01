@@ -659,6 +659,8 @@ class Handler(BaseHTTPRequestHandler):
         account = getattr(self, "_account", None)
         if account is not None:
             extra.append(("X-Tau-Account", str(int(account))))
+        # The build each theme's page shell names now: a tab still running an older bundle finds out from this reply.
+        extra.append(("X-Tau-Build", page_modules.builds_header(_static_versions())))
         self._send(status, "application/json; charset=utf-8", body, extra)
 
     def _shell_theme(self, path: str) -> Tuple[Optional[str], List[str]]:

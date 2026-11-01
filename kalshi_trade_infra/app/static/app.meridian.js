@@ -24,7 +24,7 @@
     shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode,
-    sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly
+    sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
   } = window.TauCore;
 
   const root = document.getElementById('app');
@@ -311,7 +311,7 @@
   // A read started by a page the user has since left never settles, so the old page can't paint
   // over the new one (or arm its poll there). Widgets that outlive a page pass { keep: true }.
   const STALE = () => new Promise(() => {});
-  const TRANSIENT = new Set([502, 503, 504]), RETRY_MS = [700, 1800];
+  const TRANSIENT = new Set([502, 503, 504]), RETRY_MS = [700, 1800], ROUTE_MOVED = new Set([400, 404, 405, 410, 422]);
   // How long a read waits before the page says it failed and offers Try again: the edge gives up on the
   // server at 30s too. Writes wait as long as it takes, since Tau may still be doing them.
   const READ_MS = 30000;
@@ -369,6 +369,9 @@
     const limit = body === undefined ? (cfg && cfg.timeoutMs) || READ_MS : 0;
     if (limit) { ctl = new AbortController(); opts.signal = ctl.signal; tid = setTimeout(() => ctl.abort(), limit); }
     let res;
+    // A write out (S.writing, until its reply or its failure) keeps the page from being loaded afresh under it
+    // (freshBuild, a link to a newer build): the load would cut it off, and nobody would learn whether it went through.
+    if (body !== undefined) S.writing = (S.writing || 0) + 1;
     // A GET that hits a restart (a deploy takes the server away for a second, and CloudFront
     // answers 502/503/504 with its own non-JSON page) retries twice before the page shows an
     // error. A JSON error is Tau itself answering, so it is final. Writes never retry.
@@ -383,6 +386,7 @@
         if (body === undefined && attempt < 2 && !(ctl && ctl.signal.aborted)) { await sleep(RETRY_MS[attempt]); continue; }
         if (tid) clearTimeout(tid);
         if (!(ctl && ctl.signal.aborted)) apiBroke(path, body !== undefined, 'got no reply');
+        if (body === undefined) S.unreached = true; else S.writing--;
         throw new ApiError(0, body !== undefined ? failText(0, true) : ctl && ctl.signal.aborted ? "Tau is taking too long to respond." : failText(0));
       }
       if (body === undefined && attempt < 2 && TRANSIENT.has(res.status)) {
@@ -393,10 +397,19 @@
       }
       break;
     }
+    if (body !== undefined) S.writing--;
     if (tid) clearTimeout(tid);
     let data = null;
     try { data = await res.json(); } catch (e) { /* non-JSON: the edge's error page, or a reply cut off */ }
+    // Tau answering again after reads that got no reply (a deploy's restart, a dropped line): the page's polls read now
+    // (wake), as on coming back online. Each sat out its back-off instead, up to two minutes after a 20s restart, saying
+    // "Last updated 40s ago, retrying" over a server that was back (walk 2026-11-01). Reads only; a write is never resent.
+    const tauSaid = res.ok || (!!data && typeof data === 'object');
+    if (body === undefined && !tauSaid && TRANSIENT.has(res.status)) S.unreached = true;
+    else if (tauSaid && S.unreached) { S.unreached = false; Promise.resolve().then(wake); }
     if (scoped && gen !== S.gen) return STALE();
+    // A reply from a newer build than this page runs: the app was updated under it (newBuild).
+    if (!S.newBuild && buildMoved(res.headers && typeof res.headers.get === 'function' ? res.headers.get('X-Tau-Build') : null, 'meridian', window.__BUILD__)) newBuild();
     // Several reads can come back 401 at once: the first one goes to sign-in and keeps the page as next.
     // A session that ended mid-use says so on the sign-in page (a write: that it wasn't saved), instead of
     // dropping the reader on the landing page with no word why.
@@ -407,6 +420,9 @@
     if (S.accountMoved || accountMoved(res, body !== undefined)) return STALE();
     const said = data && typeof data === 'object' && typeof data.error === 'string' && data.error;
     if (!res.ok) {
+      // A read of a route the newer build moved or reshaped: this page's code is what's out of date, so it loads afresh
+      // when that loses nothing (freshBuild), instead of saying the thing is gone or retrying for good.
+      if (body === undefined && S.newBuild && ROUTE_MOVED.has(res.status) && freshBuild()) return STALE();
       if (res.status >= 500) apiBroke(path, body !== undefined, `failed (${res.status})`);
       throw new ApiError(res.status, said || failText(res.status, body !== undefined));
     }
@@ -514,7 +530,7 @@
     if (replace) history.replaceState(null, '', path); else history.pushState(null, '', path);
     render();
   }
-  window.addEventListener('popstate', render);
+  window.addEventListener('popstate', () => { if (S.newBuild && calm(true)) location.reload(); else render(); });
   document.addEventListener('click', (e) => {
     // In-page "#id" links scroll to their target: letting the hash navigate fires popstate, whose
     // re-render dropped the reader back at the top of the page.
@@ -531,6 +547,9 @@
     }
     const a = e.target.closest('a[href^="/"]');
     if (!a || a.target || e.metaKey || e.ctrlKey || e.shiftKey || a.hasAttribute('download') || a.dataset.native != null) return;
+    // The app was updated under this page: the browser follows the link itself, a full load of the new build, unless a
+    // write is out or words typed in what stays (the autopilot panel) would go.
+    if (S.newBuild && calm(true)) return;
     e.preventDefault();
     go(a.getAttribute('href'));
   });
@@ -590,7 +609,7 @@
       let run; try { run = Promise.resolve(read(POLL_READ)); } catch (e) { run = Promise.reject(e); }
       return run.then(
         () => { fails = 0; okAt = Date.now(); },
-        () => { fails++; wait = Math.min(2 ** fails, Math.ceil(POLL_MAX_GAP / ms)) - 1; },
+        (e) => { if (!(e instanceof ApiError)) freshBuild(); fails++; wait = Math.min(2 ** fails, Math.ceil(POLL_MAX_GAP / ms)) - 1; },
       ).finally(() => { busy = false; mark(); });
     };
   }
@@ -712,6 +731,30 @@
     if (Date.now() - whoAt < FOCUS_ASK_MS) return;
     askWho();
   });
+  // SPA deploys only take effect on a full reload. Every JSON reply names the build the page shell carries now
+  // (X-Tau-Build, core.js buildMoved), so a page left open learns it is out of date from the reads it already makes,
+  // with no request or timer of its own. Meridian shows no notice of it (its update banner was taken out, d3b92d55);
+  // a link pressed loads the new build (the click handler), and a read or a page the new build broke loads afresh by
+  // itself when nothing would be lost (freshBuild).
+  function newBuild() { S.newBuild = true; }
+  // Nothing a fresh load would lose: no write out (S.writing) and no words typed (core.js typedField). `leaving`: a link
+  // press, which leaves the page's own boxes behind anyway, so only those that stay (the autopilot panel's) count.
+  function calm(leaving) {
+    if (S.writing) return false;
+    const a = document.activeElement, all = document.body && document.body.querySelectorAll ? document.body.querySelectorAll('textarea, input') : [];
+    return ![...all].some((el) => !(leaving && root.contains(el)) && typedField(el, el === a));
+  }
+  // A read or a page this page's code can't draw since the app was updated under it: load it afresh when calm, once per
+  // build per tab, so a fault the new build shares can never loop. Without storage it never loads by itself.
+  function freshBuild() {
+    if (!S.newBuild || !calm()) return false;
+    try {
+      if (sessionStorage.getItem('tau_build_reload') === String(window.__BUILD__)) return false;
+      sessionStorage.setItem('tau_build_reload', String(window.__BUILD__));
+    } catch (e) { return false; }
+    location.reload();
+    return true;
+  }
   // A new page in the app names itself in the tab title and puts keyboard focus on its heading, as a
   // full page load would: a screen reader says where it landed, and Tab starts from the page instead of
   // from the link the repaint removed. The first page of a visit and a repaint of the same page leave
@@ -849,6 +892,8 @@
     if (!match) return go('/', true);
     root.setAttribute('aria-busy', 'true');
     try { await match[1](...match[0].slice(1)); if (gen === S.gen) recoverTry = 0; } catch (e) {
+      // A page file from the newer build, or a view that broke on a reply after the app was updated: loads afresh when calm.
+      if (gen === S.gen && (e.build || !(e instanceof ApiError)) && freshBuild()) return;
       if (gen === S.gen && e.status === 404) {
         // A deleted or mistyped strategy or session: Try again can't bring it back, so offer its list.
         const up = path.replace(/\/\d+$/, ''), label = { '/strategies': 'All strategies', '/research': 'All research sessions' }[up];
@@ -859,7 +904,7 @@
         const off = e.status === 0 && offline();
         shell(sectionOf(path), boardTitle(off ? 'You’re offline' : 'This page didn’t load'), loadFail(off ? 'This page loads by itself once you’re back online.' : errText(e)));
         root.querySelector('[data-retry]').onclick = () => render();
-        if (!off && (e.status === 0 || e.status === 429 || e.status >= 500)) recoverFails();
+        if (!off && !e.build && (e.status === 0 || e.status === 429 || e.status >= 500)) recoverFails();
       }
     }
     if (gen !== S.gen) return;  // the user moved on while this page loaded
@@ -4251,6 +4296,7 @@
   const pageWaits = {};  // name -> its load in flight
   const PAGE_WAIT_MS = 20000, PAGE_PREFETCH_MS = 3000;
   const PAGE_FAIL = 'This page didn\u2019t load. Check your connection and try again.';
+  const PAGE_NEW = 'Tau was updated since this page opened. Reload the page to open this one.';
   // Each file's version from the page shell ("research:<hash>,strategies:<hash>"), or none without one.
   function pageVersions() {
     const boot = document.getElementById('tau-boot'), out = {};
@@ -4322,7 +4368,7 @@
     sessionNo, sessionTitle, settleAt, stampAt, dayAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark, strategySlip, strategyTable,
     stripeFail, syncMeBilling, theme: 'meridian', tone, topupCharge, tradePrice, trDay, tzName, usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord,
     localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker, ageAt, ageKey, ageTick, ageOnly
-  }, { get: (all, k) => { if (!(k in all)) throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); return all[k]; } }));
+  }, { get: (all, k) => { if (!(k in all)) { newBuild(); throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); } return all[k]; } }));
   // A page file calls this as it runs: make(shared()) returns the file's views. Once per name.
   window.TauPage = (name, make) => { if (!PAGES[name]) PAGES[name] = make(shared()); };
   function pageLoad(name) {
@@ -4338,7 +4384,8 @@
         if (ok && PAGES[name]) return void resolve(PAGES[name]);
         if (s.parentNode) s.parentNode.removeChild(s);
         apiBroke(src, false, 'did not load');
-        reject(new ApiError(0, PAGE_FAIL));
+        // One that ran but asked for what this build doesn't share is from the newer build: Try again can't help.
+        reject(ok && S.newBuild ? Object.assign(new ApiError(0, PAGE_NEW), { build: true }) : new ApiError(0, PAGE_FAIL));
       };
       s.onload = () => settle(true);
       s.onerror = () => settle(false);
