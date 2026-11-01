@@ -70,6 +70,7 @@ import {newcomerMoneyCases} from './newcomer_money_frontend_cases.mjs';
 import {firstWeekCases} from './first_week_frontend_cases.mjs';
 import {morningWalkCases} from './morning_walk_frontend_cases.mjs';
 import {themeFactsCases} from './theme_facts_frontend_cases.mjs';
+import {themeParityCases} from './theme_parity_frontend_cases.mjs';
 import {bookReconcileCases} from './book_reconcile_frontend_cases.mjs';
 import {demoReloadTruthCases} from './demo_reload_truth_frontend_cases.mjs';
 import {autopilotCostCases, billingCostCases} from './autopilot_cost_frontend_cases.mjs';
@@ -3578,7 +3579,10 @@ test('deployment details hold realized P&L against the backtest pace for the sam
   const text = id => visible(evidenceFor(f.root.querySelector('#dash-deps'), id).textContent);
   // $12 over 6 unseen trades = $2 a trade, so 5 closed trades -> +$10.00.
   assert.ok(text(1).includes('Backtest estimate +$10.00 for the same 5 trades\u00a0· Later-period P&amp;L +$12.00'), text(1));
-  assert.ok(!text(2).includes('Backtest estimate')); assert.ok(!text(3).includes('Backtest estimate'));
+  // Before the first close it gives the backtest's own average a trade, as Tau's Backtest estimate cell does (parity
+  // walk 2026-11-01): $12 over 6 trades is +$2.00 a trade. A slice with no trade count has no figure to give.
+  assert.ok(text(2).includes('Backtest estimate +$2.00 a trade, on average'), text(2));
+  assert.ok(!text(3).includes('Backtest estimate'));
 });
 
 test('Buying credits says how long the amount lasts at the user\'s own pace', async () => {
@@ -6976,6 +6980,7 @@ newcomerMoneyCases({name: 'Meridian', frontend, dashboard: dashboardData});
 firstWeekCases({name: 'Meridian', frontend, dashboard: () => dashboardData(), detailStrategy, strategyFrontend});
 morningWalkCases({name: 'Meridian', frontend, dashboard: dashboardData});
 themeFactsCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
+themeParityCases({name: 'Meridian', frontend, dashboard: () => dashboardData(), strategyFrontend, detailStrategy});
 bookReconcileCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 demoReloadTruthCases({name: 'Meridian', frontend, dashboard: () => dashboardData()});
 autopilotCostCases({name: 'Meridian', frontend, dashboard: dashboardData, apStatus});

@@ -523,7 +523,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         const rfigs = root.querySelector('#rfigs'), rtitle = tried ? `${upFirst(passShare(passed, tried))} passed, all time` : 'No strategies tested';
         // All time, every session (the server's totals), while the autopilot panel's figures are its last 7 days:
         // each says its window.
-        paint(rfigs, fig(gl('Passed', 'gate'), num(passed), { small: [ALL_TIME, fell ? `${num(fell)} ${fellWords}` : ''].filter(Boolean).join(SEP) }) + fig('Tested', num(tried), { small: ALL_TIME }));
+        // Its share of the ideas tested is said under it, as Tau's Passed every gate says it: only the figures' hover
+        // title said it here, so a phone never showed it (walked 2026-11-01).
+        paint(rfigs, fig(gl('Passed', 'gate'), num(passed), { small: [ALL_TIME, passShare(passed, tried), fell ? `${num(fell)} ${fellWords}` : ''].filter(Boolean).join(SEP) }) + fig('Tested', num(tried), { small: ALL_TIME }));
         if (rfigs.getAttribute('title') !== rtitle) rfigs.setAttribute('title', rtitle);
       }
       renderResearchLoop(root.querySelector('#rsimo'), d.policy, tried);

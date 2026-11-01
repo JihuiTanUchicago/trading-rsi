@@ -16,7 +16,7 @@
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
-    depInstant, demoRowLine, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
+    depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
@@ -2066,10 +2066,13 @@
     ${remove ? deploymentRemove(d) : ''}</div>`;
   // What the deployment's closed trades would have made at the unseen-data backtest's average per
   // trade: the number to hold realized P&L against (the backtest total covers a different trade count).
+  // Before the first close it gives the backtest's own average a trade (what the estimate will scale), and with no figure
+  // a research-session strategy's row says where its unseen-data result is, as Tau's Backtest estimate cell does (btPace).
   const backtestPace = (d) => {
-    const oos = d.backtest && d.backtest.out_of_sample, n = +d.closed_trades || 0;
-    if (!oos || !(+oos.trades > 0) || !n) return '';
-    return `Backtest estimate ${usd((+oos.pnl || 0) / +oos.trades * n, true)} for the same ${num(n)} trade${n === 1 ? '' : 's'}${SEP}`;
+    const pace = btPace(d), n = +d.closed_trades || 0;
+    if (pace == null) return d.backtest_only ? '' : `<span class="dep-fact bt-held">${paceHeld(d)}</span>${SEP}`;
+    if (!n) return `<span class="dep-fact bt-per-trade">Backtest estimate ${btPerTrade(pace)}</span>${SEP}`;
+    return `Backtest estimate ${usd(pace * n, true)} for the same ${num(n)} trade${n === 1 ? '' : 's'}${SEP}`;
   };
   // Each fact keeps its label with its value (.dep-fact never wraps inside): "· Deployed" ended one line and
   // "Oct 18" began the next, on a phone and in the Deploy table's name column on a desktop.
@@ -2651,7 +2654,7 @@
       // deployment, the usual case while live is closed), it sits under the paper figure as its own figure, never
       // added to it, and says when Kalshi was read, as Tau's dashboard does. Only a missing key stays in the menu.
       const cashInBand = !hasLive && lv.connected;
-      const liveFigure = fig('Kalshi cash', lv.connected ? (liveCf ? liveCf[0] : lv.balance == null ? 'Unavailable' : usd(lv.balance)) : 'Not connected', { cls: cashInBand ? 'kalshi-cash' : '', small: (lv.connected ? (liveCf ? [liveCf[1], mSub(lv, '')].filter(Boolean).join(SEP) : lv.balance == null ? ['Couldn\u2019t read your Kalshi balance just now', mSub(lv, '')].filter(Boolean).join(SEP) : [cashAt(lv), mSub(lv, LIVE_IDLE())].filter(Boolean).join(SEP)) : '<a href="/funds#connect-kalshi">Connect Kalshi</a>') + tradesCsv('live', lv) });
+      const liveFigure = fig('Kalshi cash', lv.connected ? (liveCf ? liveCf[0] : lv.balance == null ? 'Unavailable' : usd(lv.balance)) : 'Not connected', { cls: cashInBand ? 'kalshi-cash' : '', small: (lv.connected ? (liveCf ? [liveCf[1], mSub(lv, '')].filter(Boolean).join(SEP) : lv.balance == null ? ['Couldn\u2019t read your Kalshi balance just now', mSub(lv, '')].filter(Boolean).join(SEP) : [cashAt(lv), mSub(lv, LIVE_IDLE())].filter(Boolean).join(SEP)) : [kalshiConnect(liveOpen()), mSub(lv, '')].filter(Boolean).join(SEP)) + tradesCsv('live', lv) });
       // Each live figure in the band names its book, as "Live realized today (UTC)" does: beside a positions table headed
       // "2 paper · 1 live", a bare "Open positions 1" didn't say it counted only the live book (walked 2026-10-30).
       const liveSummary = `<div class="m live-summary"><dt class="lab vh">Kalshi cash</dt><dd class="portfolio-numbers"><div class="portfolio-group"><div><span class="lab" aria-hidden="true">Kalshi cash</span><strong class="fig${!lv.connected || (liveCf ? lv.last_balance == null : lv.balance == null) ? ' balance-state' : ''}">${lv.connected ? (liveCf ? liveCf[0] : lv.balance == null ? 'Unavailable' : usd(lv.balance)) : 'Not connected'}</strong><span class="portfolio-return">${lv.connected ? (liveCf ? `${liveCf[1]}${SEP}${money(lv.realized_pnl)} realized all time by Tau trades` : lv.balance == null ? `Couldn\u2019t read your Kalshi balance just now${SEP}${money(lv.realized_pnl)} realized all time by Tau trades` : [cashAt(lv), `${money(lv.realized_pnl)} realized all time by Tau trades`].filter(Boolean).join(SEP)) : '<a href="/funds#connect-kalshi">Connect Kalshi</a>'}${tradesCsv('live', lv)}</span></div><div class="portfolio-detail"><span class="lab">Live realized ${utcDayWord(readAt)} (UTC)</span><strong>${money(lv.today_pnl)}</strong></div></div><div class="portfolio-group"><div class="portfolio-detail"><span class="lab">Live open positions</span><strong>${esc(lv.open_positions)}</strong></div><div class="portfolio-detail"><span class="lab">Live open at ${openBasis(lv)}, not in cash</span><strong>${openFig(lv)}</strong></div></div></dd></div>`;
