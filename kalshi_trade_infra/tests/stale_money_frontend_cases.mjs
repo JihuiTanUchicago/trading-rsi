@@ -9,6 +9,7 @@
 // Reads only: nothing here sends, retries or times out a write (api() never does, test_api_retry.mjs).
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {shown} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -175,7 +176,10 @@ export function staleMoneyCases({name, frontend, detailStrategy, dashboard}) {
     assert.ok(held1().querySelectorAll('.mark-old').length >= 2, 'its figure and its book’s sum are dimmed');
     // An hour on, it says the hour.
     f.shiftClock(60 * 60e3); polls(f)[0](); await settle();
-    assert.match(held1().textContent, /as of 65 min ago/);
+    // Only the age moved: it is said again in place, and the part isn't written.
+    const drawn = held1();
+    assert.match(shown(held1()), /as of 65 min ago/);
+    assert.equal(held1(), drawn, 'the holding stays as drawn');
     assert.equal(writes(f).length, 0, 'the poll never writes');
     f.clearTimers();
   });

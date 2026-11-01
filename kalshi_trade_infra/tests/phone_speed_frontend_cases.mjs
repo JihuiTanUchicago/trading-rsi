@@ -2,6 +2,7 @@
 // asks the server for while it loads, so a phone on a slow network waits on as few round trips as it can.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -184,7 +185,7 @@ export function phoneSpeedCases({name, frontend, storageFor, railOpenWide, sourc
       ledger: [{created_at: '2026-10-17T10:00:00Z', memo: 'Paper deposit', amount: 1000}]},
   });
   const liveFig = (f) => f.root.querySelector('#ffigs').querySelectorAll('div.m')[0].textContent;
-  const spot = (f, name) => f.root.querySelector(`[data-cash="${name}"]`).innerHTML;
+  const spot = (f, name) => ageless(f.root.querySelector(`[data-cash="${name}"]`).innerHTML);
 
   test(`${name}: Funds draws a pending Kalshi cash as checking, never $0, then fills each book's in from its own read`, async () => {
     let answerLive;
@@ -470,7 +471,7 @@ export function phoneSpeedCases({name, frontend, storageFor, railOpenWide, sourc
     const exact = f.sinceStrip({since: {...since, passed: {...since.passed, n: 120, more: undefined, not_cleared_n: 30}}, deployments: []}, '#dash-deps');
     assert.match(exact, /120 strategies passed: .*<a href="\/strategies">117 more<\/a>/);
     assert.match(exact, /29 more\./);
-    assert.doesNotMatch(exact, /\+/);
+    assert.doesNotMatch(ageless(exact), /\+/);
     f.clearTimers();
   });
 

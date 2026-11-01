@@ -13,7 +13,7 @@ window.TauPage('explore', (T) => {
     exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiRef, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketShort, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
-    settleAt, dayAt, shell, sinceMin, smooth, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
+    settleAt, dayAt, shell, sinceMin, smooth, ageAt, spotListNote, spotSect, strikeIn, sum4, theme, tzName, usd, vsHtml, when
   } = T;
   // Each theme heads the list, sets out its figures, its rows and its sort its own way (Meridian's rows carry its
   // Context column and the Yes bid and ask), and says a market page short of history in its own words; the reads,
@@ -346,7 +346,7 @@ window.TauPage('explore', (T) => {
       if (exploreNoFeed(d)) return EXPLORE_NO_FEED;
       const atMs = Date.parse(d.at || ''), behind = Number.isFinite(atMs) && Date.now() - atMs > 180000;
       return fig('Markets tracked', num(d.total)) + fig('In this list', num(d.shown), { small: 'the most traded' }) + (f.q ? fig('Matching', num(d.matched)) : exploreShowFig(f.show) ? fig(exploreShowFig(f.show), num(d.matched)) : '') +
-        fig('Prices updated', sinceMin(d.at), behind ? { small: 'Behind: prices normally refresh each minute', cls: 'fig-behind' } : {});
+        fig('Prices updated', ageAt(d.at, 'since'), behind ? { small: 'Behind: prices normally refresh each minute', cls: 'fig-behind' } : {});
     };
     // How old the prices are, as Tau says it ("Prices updated 2m ago"); past three minutes it says the list is behind.
     // The snapshot's own time is the age's hover: "6m ago" beside a raw "2026-10-28 00:12:19 UTC" said it twice.
@@ -354,7 +354,7 @@ window.TauPage('explore', (T) => {
       if (exploreNoFeed(d)) { paint(figs, '<dl class="explore-counts">' + EXPLORE_NO_FEED + '</dl>'); return; }
       const snapshotAt = d.at ? Date.parse(d.at) : NaN;
       const snapshotOld = !Number.isFinite(snapshotAt) || Date.now() - snapshotAt > 180000;
-      paint(figs, '<dl class="explore-counts">' + fig('In this list', num(d.shown)) + (d.total !== d.shown ? fig('Tracked', num(d.total)) : '') + (exploreShowFig(f.show) && !f.q ? fig(exploreShowFig(f.show), num(d.matched)) : f.q || d.matched !== d.shown ? fig('Matching', num(d.matched)) : '') + '</dl><dl class="explore-freshness">' + fig('Prices updated', Number.isFinite(snapshotAt) ? `<time class="snapshot-age" datetime="${esc(d.at)}" title="${esc(new Date(snapshotAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC').replace('Z', ' UTC'))}">${sinceMin(d.at)}</time>${snapshotOld ? '<span class="snapshot-behind">Behind: prices normally refresh each minute</span>' : ''}` : 'Time unavailable', { cls: 'snapshot-time' + (Number.isFinite(snapshotAt) ? (snapshotOld ? ' snapshot-old' : '') : ' snapshot-unknown') }) + '</dl>');
+      paint(figs, '<dl class="explore-counts">' + fig('In this list', num(d.shown)) + (d.total !== d.shown ? fig('Tracked', num(d.total)) : '') + (exploreShowFig(f.show) && !f.q ? fig(exploreShowFig(f.show), num(d.matched)) : f.q || d.matched !== d.shown ? fig('Matching', num(d.matched)) : '') + '</dl><dl class="explore-freshness">' + fig('Prices updated', Number.isFinite(snapshotAt) ? `${ageAt(d.at, 'since', ` class="snapshot-age" title="${esc(new Date(snapshotAt).toISOString().replace('T', ' ').replace('.000Z', ' UTC').replace('Z', ' UTC'))}"`)}${snapshotOld ? '<span class="snapshot-behind">Behind: prices normally refresh each minute</span>' : ''}` : 'Time unavailable', { cls: 'snapshot-time' + (Number.isFinite(snapshotAt) ? (snapshotOld ? ' snapshot-old' : '') : ' snapshot-unknown') }) + '</dl>');
       figs.querySelector('.snapshot-time').setAttribute('title', Number.isFinite(snapshotAt) ? 'Source snapshot: ' + d.at : 'Source snapshot time unavailable');
     };
     // The list stays current while it shows (EXPLORE_POLL_MS, paused while the tab is hidden, read at once on

@@ -5,6 +5,7 @@
 // a demo key's save says its balance is being checked, then names it.
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -271,7 +272,7 @@ export function kalshiWaitCases({name, frontend, detailStrategy}) {
     assert.match(liveFig(f), /Live trading isn’t open yet, so Tau places no live trades\. 1 open live position \(\$2\.93 at cost[^)]*\) not included\.\s*$/);
     f.clearTimers();
   });
-  const spot = (f, name) => f.root.querySelector(`[data-cash="${name}"]`).innerHTML;
+  const spot = (f, name) => ageless(f.root.querySelector(`[data-cash="${name}"]`).innerHTML);
 
   test(`${name}: Funds draws a cash read under two minutes ago as current while its follow-up is out, an older one as checking`, async () => {
     for (const [age, current] of [[61000, true], [110000, true], [130000, false]]) {

@@ -8,7 +8,7 @@ window.TauPage('research', (T) => {
     alert0, announce, api, ApiError, apNudge, apWhenSpan, armed, boardTitle, busy, clearTimers, errText, loadFail, clipWords, esc, EXAMPLE_NOTE, exampleLine,
     failText, feedMd, fig, fillLiveRow, flash, gl, glo, GLOSSARY, go, ICON, liveOpen, loading, logTime, marketPicker, marketShort,
     markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
-    runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, waitSpan, when,
+    runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, waitSpan, ageAt,
     dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay,
     whyFailedHtml, wireMarketPicker
   } = T;
@@ -31,7 +31,7 @@ window.TauPage('research', (T) => {
     const body = pol.evolved
       ? `<p>The engine <b>rewrote its own search policy</b> from your history — and it beats the default.</p>
          ${pol.summary ? `<p class="rsi-what"><b>What it changed:</b> ${esc(pol.summary)}</p>` : ''}
-         <p class="rsi-last">Generalization score ${delta}${pol.evolved_at ? `${SEP}adopted ` + when(pol.evolved_at) : ''} <span class="rsi-note">(higher = catches more real out-of-sample winners, scored over shuffled orderings so it can’t overfit)</span></p>`
+         <p class="rsi-last">Generalization score ${delta}${pol.evolved_at ? `${SEP}adopted ` + ageAt(pol.evolved_at) : ''} <span class="rsi-note">(higher = catches more real out-of-sample winners, scored over shuffled orderings so it can’t overfit)</span></p>`
       : tau ? `<p>After each cycle the engine <b>tries new ways of choosing which ideas to test</b> and keeps one only if it would have found more real winners in your own history — scored over shuffled orderings, so it can’t overfit. It gets better the more you run it.</p>`
       : `<p>New search policies are scored against the current policy over shuffled history. Only an improvement is adopted.</p>`;
     // Demoted to a compact, collapsible line so the research page leads with the form, not panels. Meridian's keeps
@@ -744,7 +744,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
   // its page's clock in another zone (walked 2026-10-31).
   const createdAt = (iso) => {
     const d = new Date(iso || NaN);
-    return Number.isFinite(d.getTime()) ? `<time datetime="${esc(iso)}" title="${esc(dateFmt(d, LOG_STAMP))}">${when(iso)}</time>` : '';
+    return Number.isFinite(d.getTime()) ? ageAt(iso, 'when', ` title="${esc(dateFmt(d, LOG_STAMP))}"`) : '';
   };
   function runRow(r, newest) {
     const { ok } = runPassed(r);
@@ -1975,9 +1975,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
           ${d.rsi.evolved
             ? `<p>This agent <b>rewrote its own search policy</b> from your history — and it beats the default.</p>
                ${d.rsi.summary ? `<p class="rsi-what"><b>What it changed:</b> ${esc(d.rsi.summary)}</p>` : ''}
-               <p class="rsi-last">Generalization score ${delta}${d.rsi.evolved_at ? `${SEP}adopted ` + when(d.rsi.evolved_at) : ''} <span class="rsi-note">(higher = catches more real out-of-sample winners, scored over shuffled orderings so it can’t overfit)</span></p>`
+               <p class="rsi-last">Generalization score ${delta}${d.rsi.evolved_at ? `${SEP}adopted ` + ageAt(d.rsi.evolved_at) : ''} <span class="rsi-note">(higher = catches more real out-of-sample winners, scored over shuffled orderings so it can’t overfit)</span></p>`
             : `<p>The agent is <b>self-tuning</b>: after each research cycle it tries new ways of choosing which ideas to test, and keeps one only if it would have found more real winners in your own history (scored over shuffled orderings, so it can’t overfit).</p>
-               ${d.rsi.last_dream ? `<p class="rsi-last"><b>Last check${d.rsi.last_dream_at ? SEP + when(d.rsi.last_dream_at) : ''}:</b> ${esc(d.rsi.last_dream)}</p>` : `<p class="rsi-last">No check yet. The first one runs at the end of a session, once at least ${d.rsi.min_history || 12} ideas have been tested.</p>`}`}
+               ${d.rsi.last_dream ? `<p class="rsi-last"><b>Last check${d.rsi.last_dream_at ? SEP + ageAt(d.rsi.last_dream_at) : ''}:</b> ${esc(d.rsi.last_dream)}</p>` : `<p class="rsi-last">No check yet. The first one runs at the end of a session, once at least ${d.rsi.min_history || 12} ideas have been tested.</p>`}`}
           </div></details>`;
         if (!tau) paint(rsibox, rsiHtml);
         else if (rsibox.dataset.h !== rsiHtml) { rsibox.dataset.h = rsiHtml; rsibox.innerHTML = rsiHtml; }

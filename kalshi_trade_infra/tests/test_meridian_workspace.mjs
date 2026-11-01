@@ -3,6 +3,7 @@ import assert, {visible} from './assert_text.mjs';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {test} from 'node:test';
+import {ageless} from './age_text.mjs';
 import vm from 'node:vm';
 import {bundleSource, exposing} from './bundle_source.mjs';
 import {pageFileCases} from './page_files_frontend_cases.mjs';
@@ -48,6 +49,7 @@ import {fundsTrustCases} from './funds_trust_frontend_cases.mjs';
 import {demoBookCases} from './demo_book_frontend_cases.mjs';
 import {fundsWalkCases} from './funds_walk_frontend_cases.mjs';
 import {fundsDisplayCases} from './funds_display_frontend_cases.mjs';
+import {ageTickCases} from './age_tick_frontend_cases.mjs';
 import {fundsHistoryCases} from './funds_history_frontend_cases.mjs';
 import {fundsLongHistoryCases} from './funds_long_history_frontend_cases.mjs';
 import {moneyPagesWalkCases} from './money_pages_walk_frontend_cases.mjs';
@@ -969,7 +971,7 @@ test('Funds says when Kalshi cash was read, what each book has open, and matches
     d.paper = {...d.paper, cash: 991.91, equity: 1000, open_positions: 3, open_at_cost: 8.09, open_cost: 8.25}; return response(d); }});
   await f.viewFunds(); await flush();
   const figs = f.root.querySelector('#ffigs').innerHTML;
-  assert.match(figs, /Real money at Kalshi, read 5m ago\. 1 open live position \(\$3\.11 at cost \+ fees\) not included/);
+  assert.match(ageless(figs), /Real money at Kalshi, read 5m ago\. 1 open live position \(\$3\.11 at cost \+ fees\) not included/);
   assert.match(figs, /starting capital\u00a0· 2 open \(\$8\.25 at cost \+ fees, all of it in Tau’s demo book\)\u00a0· needs a demo key\u00a0· real fills/);
   assert.match(figs, /Paper balance[\s\S]*\$1,000\.00[\s\S]*\$991\.91 cash\u00a0· 3 open \(\$8\.25 at cost \+ fees, \$8\.09 of it in the balance\)\u00a0· practice money</); assert.doesNotMatch(figs, /Paper cash/);
   assert.doesNotMatch(figs, /\$1,120|\$2,120|\$1,991/);  // books are never summed
@@ -2680,7 +2682,7 @@ test('Meridian: the session at work leads the Research page, and its start says 
   const f = researchFrontend([silent, working]); await f.viewResearch(); await flush();
   const card = f.root.querySelector('#active-research');
   assert.equal(card.querySelector('a.active-open').getAttribute('href'), '/research/8');
-  assert.match(card.innerHTML, /Started <time datetime="2026-10-17T10:00:00Z" title="[^"]*\d{2}:\d{2}[^"]*">/);
+  assert.match(card.innerHTML, /Started <time data-age="when" datetime="2026-10-17T10:00:00Z" title="[^"]*\d{2}:\d{2}[^"]*">/);
   // With only the silent one at work, it still leads.
   const g = researchFrontend([silent]); await g.viewResearch(); await flush();
   assert.equal(g.root.querySelector('#active-research a.active-open').getAttribute('href'), '/research/9');
@@ -5878,7 +5880,7 @@ test('Funds says when the demo key\'s balance was read, as it does for Kalshi ca
     const f = frontend({fetchImpl: path => { assert.equal(path, '/api/funds');
       return response({...funds(), kalshi_dev: {connected: true, key_id: 'DEVK…1234', balance: 25, balance_at: at}}); }});
     await f.viewFunds();
-    assert.match(f.root.querySelector('#main').innerHTML, said);
+    assert.match(ageless(f.root.querySelector('#main').innerHTML), said);
   }
 });
 
@@ -6959,6 +6961,7 @@ fundsTrustCases({name: 'Meridian', frontend, fundsData: funds, dashboard: dashbo
 demoBookCases({name: 'Meridian', frontend, fundsData: funds, dashboard: dashboardData, detailStrategy, strategyFrontend});
 fundsWalkCases({name: 'Meridian', frontend, fundsData: funds, dashboard: dashboardData, detailStrategy, strategyFrontend});
 fundsDisplayCases({name: 'Meridian', frontend, fundsData: funds});
+ageTickCases({name: 'Meridian', frontend, fundsData: funds, dashboard: dashboardData});
 fundsHistoryCases({name: 'Meridian', frontend, fundsData: funds});
 fundsLongHistoryCases({name: 'Meridian', frontend, fundsData: funds});
 chatPanelCases({name: 'Meridian', frontend, storageFor: m => m});
@@ -7155,7 +7158,7 @@ test('a Deploy row’s details keep "Deployed" with its date and "Later-period P
     realized_pnl: 3, unrealized_pnl: null, closed_trades: 2, open_positions: 0, curve: []}], open_positions: []})});
   await f.viewDeploy();
   const html = f.root.querySelector('#deps').innerHTML;
-  assert.match(html, /Backtest estimate \+\$1\.20 for the same 2 trades · <span class="dep-fact" title="After its split date \(later period\u00a0· unseen data\)">Later-period P&amp;L \+\$12\.00<\/span> · <span class="nobr">unseen data<button[^>]*data-glo="unseen"[\s\S]*?<\/button><\/span> · <span class="dep-fact">Deployed [^<]+<\/span>/);
+  assert.match(html, /Backtest estimate \+\$1\.20 for the same 2 trades · <span class="dep-fact" title="After its split date \(later period\u00a0· unseen data\)">Later-period P&amp;L \+\$12\.00<\/span> · <span class="nobr">unseen data<button[^>]*data-glo="unseen"[\s\S]*?<\/button><\/span> · <span class="dep-fact">Deployed <time data-age="when" datetime="[^"]+">[^<]+<\/time><\/span>/);
 });
 newUserCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData, billingPage, cardedBilling, apStatus});
 sessionStateCases({name: 'Meridian', frontend, detailStrategy, strategyFrontend, dashboard: dashboardData});

@@ -200,7 +200,7 @@ export function researchPollCases({name, frontend}) {
       .format(new Date('2026-10-25T08:00:00Z'));
     assert.match(stamp, /\d\d:\d\d \S+$/);  // the zone, last
     const day = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'}).format(new Date('2026-10-25T08:00:00Z'));
-    assert.ok(html.includes(`<time datetime="2026-10-25T08:00:00Z" title="${stamp}">${day}</time>`), html);
+    assert.ok(html.includes(`<time data-age="when" datetime="2026-10-25T08:00:00Z" title="${stamp}">${day}</time>`), html);
     // A row with no readable date says none, not "Invalid Date".
     assert.doesNotMatch(html, /Invalid Date|NaN/);
     f.clearTimers();

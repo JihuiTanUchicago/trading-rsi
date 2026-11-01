@@ -152,14 +152,14 @@ export function moneyPollCases({name, frontend, stripe = () => ({})}) {
     // phone's stacked card set it on a row of its own under the card's labels, one more row a position.
     const tucked = () => [...open.innerHTML.matchAll(/data-lab="Unrealized">(.*?)<\/td>/g)].map((m) => m[1]);
     // An old mark's figure is dimmed (.mark-old).
-    assert.match(tucked()[0], /^<div class="pos-unreal"><span class="mark-old"><span class="[^"]*">\+\$0\.13<\/span><\/span><div class="sub-fig"><span class="mark-age" title="Last marked [^"]+">as of \d+ days ago<span class="vh">[^<]+<\/span><\/span><\/div><\/div>$/);
+    assert.match(tucked()[0], /^<div class="pos-unreal"><span class="mark-old"><span class="[^"]*">\+\$0\.13<\/span><\/span><div class="sub-fig"><span class="mark-age" title="Last marked [^"]+">as of <time data-age="ap" datetime="[^"]+">\d+ days ago<\/time><span class="vh">[^<]+<\/span><\/span><\/div><\/div>$/);
     assert.doesNotMatch(tucked()[1], /pos-unreal|as of|last mark/);
 
     // Marked again: the figure and its time move together.
     answer = {v: 'b1', same: true, marks: marks(.52, '2026-10-26T12:05:15Z'), unrealized: {1: null}};
     await pollOf(f, '/api/deployments');
     assert.deepEqual(cells(), [`+$0.41 as of ${aged('2026-10-26T12:05:15Z')}`, 'Not marked yet']);
-    assert.match(tucked()[0], /^<div class="pos-unreal"><span class="mark-old"><span class="[^"]*">\+\$0\.41<\/span><\/span><div class="sub-fig"><span class="mark-age" title="Last marked [^"]+">as of \d+ days ago<span class="vh">[^<]+<\/span><\/span><\/div><\/div>$/);
+    assert.match(tucked()[0], /^<div class="pos-unreal"><span class="mark-old"><span class="[^"]*">\+\$0\.41<\/span><\/span><div class="sub-fig"><span class="mark-age" title="Last marked [^"]+">as of <time data-age="ap" datetime="[^"]+">\d+ days ago<\/time><span class="vh">[^<]+<\/span><\/span><\/div><\/div>$/);
     f.clearTimers();
 
     // An answer that gives the figure without its time: it is still the last mark's, and says only that.

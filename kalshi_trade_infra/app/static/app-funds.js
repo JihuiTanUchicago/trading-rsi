@@ -5,7 +5,7 @@ window.TauPage('funds', (T) => {
   'use strict';
   const {
     announce, api, armed, BEHIND, boardTitle, busy, cashFig, cashNow, cashRead, contractName, DEMO_BOOK, DEMO_WHAT, demoCapital, demoKeyless, demoNoClose, demoSpan, errText, esc, fig, flash, holdFocus, ICON, inBalance, kalshiRef, liveOpen, loading, num, olderRows, openCost, pageAssets, PAPER_NET,
-    paint, painted, poll, refreshed, root, S, SEP, settleAt, dayAt, localDay, shell, slipEst, tone, usd, when
+    paint, painted, poll, refreshed, root, S, SEP, settleAt, dayAt, localDay, shell, slipEst, tone, usd, ageAt, ageOnly
   } = T;
 
   // ---------- funds ----------
@@ -49,7 +49,7 @@ window.TauPage('funds', (T) => {
   // `at` is when the balance memo was read (the server's balance_at), so the line says how old it is.
   const keyOk = (bal, kind, at) => bal == null
     ? `<p class="key-ok key-unread"><b>Key saved</b> (Kalshi didn’t send a balance for it just now)</p><p class="hint key-diff">If this lasts, the key may have been deleted on ${KALSHI_KEYS[kind === 'demo' ? 'demo' : 'live'].site}: ${kind === 'demo' ? 'remove it' : 'disconnect it'} and connect a new one.</p>`
-    : `<p class="key-ok"><b>Connected ✓</b> (${kind === 'demo' ? DEMO_CASH : 'balance'} ${usd(bal)}${at ? ', read ' + when(at) : ''})</p>`;
+    : `<p class="key-ok"><b>Connected ✓</b> (${kind === 'demo' ? DEMO_CASH : 'balance'} ${usd(bal)}${at ? ', read ' + ageAt(at) : ''})</p>`;
   // Kalshi refuses orders from a demo account with no cash, and a new one starts empty. Tau's demo balance is
   // Tau's own figure, so a $0.00 here would otherwise read as harmless.
   // `from` is the demo cash the autopilot's demo copies wait for (server: demo_twins), so a balance
@@ -102,7 +102,7 @@ window.TauPage('funds', (T) => {
   // A key's cash the shell's first read couldn't name without waiting on Kalshi (shell_reads.py) comes
   // pending (the bundle's cashFig and cashRead, which the dashboard shares): it reads Checking\u2026, never $0,
   // and a figure the server read earlier shows only with its age; a follow-up that fails says so plainly.
-  const lastRead = (b) => `${usd(b.last_balance)}, read ${when(b.last_balance_at)}`;
+  const lastRead = (b) => `${usd(b.last_balance)}, read ${ageAt(b.last_balance_at)}`;
   // The key line under a panel title, and the Cash at Kalshi cell, in the same states; keyOk otherwise.
   const cashName = (kind) => kind === 'demo' ? DEMO_CASH : 'balance';
   const keyLine = (b, kind) => b.pending ? `<p class="key-ok key-unread"><b>Key saved</b> (${b.last_balance != null ? cashName(kind) + ' ' + lastRead(b) + '; checking for the latest' : kind === 'demo' ? 'checking your Kalshi demo account cash' : 'checking your balance at Kalshi'}\u2026)</p>`
@@ -299,7 +299,7 @@ window.TauPage('funds', (T) => {
       const DEMO_SANDBOX = 'real fills, not real money';
       const demoNone = demoKeyless(dm, !!kd.connected);
       const cf = k.connected && cashFig(k);
-      paint(root.querySelector('#ffigs'), fig('Kalshi cash', k.connected ? (cf ? cf[0] : k.balance == null ? 'Unavailable' : usd(k.balance)) : 'Not connected', { cls: 'lead', small: !k.connected ? connectLive(kd) + (livePnl(k) ? '.' + livePnl(k) : liveOpen() ? '' : '.') : cf ? `${cf[1]}${livePnl(k)}${liveLeft(k)}` : k.balance == null ? KALSHI_UNREAD + livePnl(k) : `Your real cash at Kalshi${k.balance_at ? ', read ' + when(k.balance_at) : ''}.${livePnl(k)}${liveLeft(k)}` }) +
+      paint(root.querySelector('#ffigs'), fig('Kalshi cash', k.connected ? (cf ? cf[0] : k.balance == null ? 'Unavailable' : usd(k.balance)) : 'Not connected', { cls: 'lead', small: !k.connected ? connectLive(kd) + (livePnl(k) ? '.' + livePnl(k) : liveOpen() ? '' : '.') : cf ? `${cf[1]}${livePnl(k)}${liveLeft(k)}` : k.balance == null ? KALSHI_UNREAD + livePnl(k) : `Your real cash at Kalshi${k.balance_at ? ', read ' + ageAt(k.balance_at) : ''}.${livePnl(k)}${liveLeft(k)}` }) +
         (!demoNone ? fig(DEMO_BOOK, usd(dm.equity), { small: `${demoBroke(kd)}${demoCapital(dm)}${SEP}${openAt(dm, DEMO_HELD)}${bookPnl(dm, 'demo', dm.realized, demoSpan(dm))}${kd.connected ? '' : `needs a demo key${SEP}`}${DEMO_WHAT}` }) : fig(DEMO_BOOK, 'No demo key', { small: `<a href="#connect-kalshi">Connect a demo key</a> below to trade Kalshi’s sandbox: ${DEMO_SANDBOX}` })) +
         fig('Paper balance', usd(d.paper.equity == null ? d.paper.cash : d.paper.equity), { small: `${usd(d.paper.cash)} cash${SEP}${openAt(d.paper, inBalance(d.paper))}${bookPnl(d.paper, 'paper')}practice money${paperSlip(d.paper)}` }));
       // A new account (no Kalshi key of either kind) reads Paper first, the account the autopilot trades, and the
@@ -403,6 +403,9 @@ window.TauPage('funds', (T) => {
         return d;
       }
       if (cfg && (painted.get(host) === main || S.perps || inUse(host))) return;
+      // Only its relative times moved ("read just now" became "read 1m ago"): they say their words again in place, and
+      // the page isn't written (Connect Kalshi, the history's scroll and any selection stay as they are).
+      if (cfg && ageOnly(host, painted.get(host), main)) { painted.set(host, main); return; }
       // A poll's redraw keeps Connect Kalshi open if it was.
       const connectOpen = !!(host.querySelector('#connect-kalshi') || {}).open;
       host.innerHTML = main; painted.set(host, main);
