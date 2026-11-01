@@ -447,6 +447,9 @@ def test_each_books_running_count_is_its_strategies_not_their_deployments(conn, 
     out, _ = _status(Counting(conn), uid)
     assert (out["paper_running"], out["demo_running"], out["live_running"]) == (2, 1, 0)
     assert out["paper_progress"]["strategies"] == 2
+    # Across the books, the strategies themselves: fade (on paper and its demo copy) and rain are two, where the books'
+    # counts added up read 3 (Home's "The N strategies already running keep trading", audit 2026-11-01).
+    assert out["trading_strategies"] == 2
     assert out["idle"]["code"] == "starting" and "your 2 paper strategies" in out["idle"]["line"], out["idle"]
 
 

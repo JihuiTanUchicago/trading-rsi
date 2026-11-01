@@ -11,7 +11,7 @@ window.TauPage('strategy', (T) => {
     gl, glo, gloSep, go, ICON, isPerpetual, kalshiRef, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, marketShort, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
-    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly
+    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt
   } = T;
 
   // ---------- strategy research paper (RESEARCH_PIPELINE_DESIGN.md §D) ----------
@@ -27,6 +27,19 @@ window.TauPage('strategy', (T) => {
   // paired with a text label, never carried by colour alone.
   // A per-trade net return (net P&L over what the trade cost) as a percent of its stake: the unit the
   // gatekeeper judges and the "What it missed" lines use. It read as cents ("+3.10¢"), which it isn't.
+  // A backtest's history window and split are instants the server writes in UTC to the minute ("2026-09-09T14:22Z",
+  // backtest._iso): its first and last data point, and the point 70% of the way between them. The page said their UTC
+  // days with no zone named, a day ahead of the equity chart's split label (the reader's day) on an American evening
+  // (audit 2026-11-01). Each says the reader's day (localDay), the exact time and zone on hover (stampAt). A bare day
+  // with no time is a day already, said as written.
+  const dsDay = (iso) => {
+    const v = String(iso || '');
+    if (!v) return '—';
+    if (!v.includes('T')) return esc(v.slice(0, 10));
+    const at = v.replace(/T(\d\d:\d\d)Z$/, 'T$1:00Z');
+    const day = localDay(at);
+    return day ? `<time datetime="${esc(at)}" title="${esc(stampAt(at))}">${esc(day)}</time>` : esc(v.slice(0, 10));
+  };
   const rpRet = (v) => (v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(2) + '%');
   // What if…'s dials say their value in words (aria-valuetext): a screen reader read the stake dial as "5", the
   // slippage dial as "0" and the fees dial as "1", with no unit, where the page shows "$5", "0.0¢" and "1.0×".
@@ -712,8 +725,8 @@ window.TauPage('strategy', (T) => {
           <dl class="rp-grid">
             <div><dt>Market</dt><dd>${mktLink}</dd></div>
             <div><dt>Direction</dt><dd>${esc(dirLabel(s.direction))}</dd></div>
-            <div><dt>History window</dt><dd>${esc((s.dataset.start || '').slice(0, 10)) || '—'} → ${esc((s.dataset.end || '').slice(0, 10)) || '—'}</dd></div>
-            <div><dt>${splitOnly ? 'Split date' : 'Unseen (held out) from'}</dt><dd>${esc((s.dataset.out_of_sample_from || '').slice(0, 10)) || '—'}</dd></div>
+            <div><dt>History window</dt><dd>${dsDay(s.dataset.start)} → ${dsDay(s.dataset.end)}</dd></div>
+            <div><dt>${splitOnly ? 'Split date' : 'Unseen (held out) from'}</dt><dd>${dsDay(s.dataset.out_of_sample_from)}</dd></div>
           </dl>
           <p class="rp-sub" style="margin-top:8px">${perpetual ? 'The agent only saw the research partition. ' + PERPS_SCENARIO : (splitOnly ? (noPass ? 'The rule was fit on data before the split date; there’s no record that the data after it was held out. ' : 'The rule was fit on data before the split date; the data after it picked the rule, so none of it is held out. ') : 'The agent only ever saw data before the held-out date. ') + "Every simulated fill pays the ask or bid plus Kalshi’s taker fee — results are net of fees or they do not count."}</p></div>` : '';
     // What it does, in plain words: the paper's first section. It sat inside the Methodology fold,

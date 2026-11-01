@@ -6421,6 +6421,12 @@ test('the last move says the forward test verdict and drops the live-ready marke
   assert.match(g.root.querySelector('#dash-ap').innerHTML, /and it picks up on its own\. The strategy already running keeps trading\./);
   g.S.ap = {...paused, paper_running: 2, demo_running: 1}; g.paintDashAp();
   assert.match(g.root.querySelector('#dash-ap').innerHTML, /The 3 strategies already running keep trading\./);
+  // Audit 2026-11-01: a strategy on paper with a demo copy is one strategy. The status's cross-book count is used,
+  // not the per-book counts added up.
+  g.S.ap = {...paused, paper_running: 2, demo_running: 1, trading_strategies: 2}; g.paintDashAp();
+  assert.match(g.root.querySelector('#dash-ap').innerHTML, /The 2 strategies already running keep trading\./);
+  g.S.ap = {...paused, paper_running: 1, demo_running: 1, trading_strategies: 1}; g.paintDashAp();
+  assert.match(g.root.querySelector('#dash-ap').innerHTML, /The strategy already running keeps trading\./);
   g.S.ap = {...paused, paper_running: 0}; g.paintDashAp();
   assert.doesNotMatch(g.root.querySelector('#dash-ap').innerHTML, /keeps? trading/);
   g.clearTimers();

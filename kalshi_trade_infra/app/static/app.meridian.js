@@ -3850,8 +3850,11 @@
   const apFloorText = () => (S.me && S.me.min_run_balance != null ? `starting research needs ${usd(S.me.min_run_balance)} in credits.` : 'it’s out of credits.');
   // A billing pause stops the autopilot's research and check-ins; the engine keeps trading what is
   // already deployed (credits never gate a trade). "Paused" alone read as if every strategy had stopped.
+  // It counts strategies, from the status's cross-book trading_strategies: the per-book counts added up counted a
+  // strategy on paper with a demo copy twice (audit 2026-11-01). A status without it falls back to that sum.
   const apStillTrading = (d) => {
-    const n = (liveOpen() ? +d.live_running || 0 : 0) + (+d.demo_running || 0) + (+d.paper_running || 0);  // live places no orders while closed
+    const n = d.trading_strategies != null ? +d.trading_strategies || 0
+      : (liveOpen() ? +d.live_running || 0 : 0) + (+d.demo_running || 0) + (+d.paper_running || 0);  // live places no orders while closed
     return n ? ` ${n === 1 ? 'The strategy already running keeps' : `The ${num(n)} strategies already running keep`} trading.` : '';
   };
   // Off, the card said only what turning it on does, while what it had put on paper went on trading (walk 2026-10-31:

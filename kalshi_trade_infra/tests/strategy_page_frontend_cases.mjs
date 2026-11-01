@@ -1166,4 +1166,29 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     assert.deepEqual(pushed, []);
     if (f.clearTimers) f.clearTimers();
   });
+
+  // Audit 2026-11-01: "History window" and "Split date" said the UTC day of each instant (the server writes them in UTC to
+  // the minute) with no zone named: on a Chicago evening the split read a day ahead of the chart's. Each says the reader's
+  // day now, with the instant on the element and its time and zone on hover.
+  test(`${name}: the history window and split date say the reader's day, not the UTC one`, async () => {
+    const was = process.env.TZ;
+    process.env.TZ = 'America/Chicago';
+    try {
+      const f = await open({status: 'passed', experiment: null, out_of_sample: null, recent_trades: [],
+        dataset: {start: '2026-09-09T02:30Z', end: '2026-11-01T03:10Z', out_of_sample_from: '2026-10-15T01:00Z'}});
+      const dl = f.root.querySelector('.rp-grid').innerHTML;
+      assert.match(dl, /<dt>History window<\/dt><dd><time datetime="2026-09-09T02:30:00Z" title="[^"]+">2026-09-08<\/time> → <time datetime="2026-11-01T03:10:00Z" title="[^"]+">2026-10-31<\/time><\/dd>/);
+      assert.match(dl, /<dt>Split date<\/dt><dd><time datetime="2026-10-15T01:00:00Z" title="[^"]+">2026-10-14<\/time><\/dd>/);
+      assert.doesNotMatch(dl, />2026-09-09<|>2026-11-01<|>2026-10-15</);
+      // A day with no time is a day already, said as written; none sent is a dash.
+      const g = await open({status: 'passed', experiment: null, out_of_sample: null, recent_trades: [],
+        dataset: {start: '2026-09-09', end: null, out_of_sample_from: ''}});
+      const dl2 = g.root.querySelector('.rp-grid').innerHTML;
+      assert.match(dl2, /<dt>History window<\/dt><dd>2026-09-09 → —<\/dd>/);
+      assert.match(dl2, /<dt>Split date<\/dt><dd>—<\/dd>/);
+      for (const x of [f, g]) if (x.clearTimers) x.clearTimers();
+    } finally {
+      if (was === undefined) delete process.env.TZ; else process.env.TZ = was;
+    }
+  });
 }
