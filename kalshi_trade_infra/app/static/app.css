@@ -2468,6 +2468,7 @@ body.landing-body .apf { display: none; }
   .sub-fig a, .said a, .hint a, .steps a, a.csv-link { padding: 13px 4px; margin-inline: -4px; }
   td.name > a:not(.btn) { padding-block: 12px; margin-block: -12px; }
   .stub-all { padding-bottom: 12px; margin-bottom: -12px; }
+  p.stub-all a { padding: 13px 4px; margin-inline: -4px; }
   .lbrand { padding-block: 7px; margin-block: -7px; }
   .legal-nav a, .legal-foot a, .lfoot-links a, .linkish { padding: 10px 4px; margin: -10px -4px; }
   .demo-bar .replay { min-height: 44px; }

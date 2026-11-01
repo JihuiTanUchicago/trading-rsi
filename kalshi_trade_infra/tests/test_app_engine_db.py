@@ -18,7 +18,7 @@ from trading_core.domain.slippage import contract_fills
 # The display reads' own columns, which the gates' list_deployments never carries: the paper after-slippage
 # estimate's input, and the strategy's status and whether a passed one has no gatekeeper record (a
 # backtest-only or record-less row's "later-period" words), and whether a void one has none (void_no_record).
-DISPLAY_ONLY = ("contract_fills", "strategy_status", "no_gatekeeper_record", "void_no_record")
+DISPLAY_ONLY = ("contract_fills", "strategy_status", "no_gatekeeper_record", "void_no_record", "cleared_never")
 
 pytestmark = pytest.mark.skipif(os.getenv("APP_TEST_MYSQL") != "1", reason="needs APP_TEST_MYSQL=1 and a MySQL")
 
@@ -799,7 +799,10 @@ def test_the_autopilot_panels_reads_answer_as_the_position_scans_they_replace(co
 
     full = repo.list_deployments(cur, uid)
     aggregates = ("realized_pnl", "closed_trades", "wins", "open_positions")
-    assert repo.list_deployments_brief(cur, uid) == [{k: v for k, v in d.items() if k not in aggregates} for d in full]
+    # Plus the display-only cleared_never (none of these strategies has a gatekeeper record).
+    brief = repo.list_deployments_brief(cur, uid)
+    assert {d.pop("cleared_never") for d in brief} == {None}
+    assert brief == [{k: v for k, v in d.items() if k not in aggregates} for d in full]
     assert repo.deployment_closed_totals(cur, [d["id"] for d in full]) == {
         d["id"]: (d["closed_trades"], d["realized_pnl"]) for d in full if d["closed_trades"]}
     assert repo.deployment_closed_totals(cur, [quiet["id"]]) == {} == repo.deployment_closed_totals(cur, [])
@@ -947,7 +950,9 @@ def test_since_your_last_visit_reads_new_passes_and_the_autopilots_own_changes(c
     assert act["autopilot"] == {"deploy": 1, "pause": 2}
     assert sum(act["runs"].values()) == 1
     assert act["own_sessions"] is True  # it has a research session of its own
-    assert repo.activity_since(cur, -1, since) == {"autopilot": {}, "runs": {}, "own_sessions": False, "card_charged": False,
+    assert act["runs_ap_failed"] == 0
+    assert repo.activity_since(cur, -1, since) == {"autopilot": {}, "runs": {}, "runs_ap_failed": 0, "own_sessions": False,
+                                                   "card_charged": False,
                                                    "spent": {"since": 0.0, "week": 0.0},
                                                    "bought": {"usd": 0.0, "charges": 0, "auto": 0},
                                                    "milestones": {"passed": [], "live_ready": []}, "titles": {},
@@ -1073,6 +1078,47 @@ def test_the_deploy_board_and_strategy_page_reads_answer_as_the_ones_they_replac
         want = [d for d in repo.list_deployments(cur, uid) if d["strategy_id"] == sid]
         assert repr(mine) == repr(want), sid
     assert [d["id"] for d in repo.list_deployments_for_display(cur, uid, strategy_id=big["strategy_id"])] == [demo, big["id"]]
+
+
+def test_a_paper_strategy_whose_one_judgment_is_in_unpromoted_reads_as_never_cleared(conn, user):
+    """cleared_never on MySQL, from each deployment read a paper line uses: NULL until the experiment's one later
+    judgment is in, its phase once it is in without a deployment_candidate row, NULL again once one promotes it.
+    A demo row never carries it. The failed sessions the autopilot started are counted apart in activity_since."""
+    from app import repository as repo
+    from app.research import research_repository as rr
+
+    cur = conn.cursor()
+    uid = user["id"]
+    dep = _deployment(conn, user)
+    sid = dep["strategy_id"]
+    demo = repo.create_deployment(cur, uid, sid, "btc15m", "demo")
+    eid = rr.preregister(cur, dict(
+        user_id=uid, run_id=None, strategy_id=sid, market="btc15m", hypothesis_hash=uuid.uuid4().hex,
+        spec={}, economic_rationale="m", primary_metric="mean_net_return_per_trade", null_hypothesis="edge<=0",
+        alt_hypothesis="edge>0", planned_test="stationary_bootstrap", falsification_criteria="ci_lo<=0",
+        min_sample=150, cost_assumptions={}, research_partition_id=0, planned_n_tests=1, correction_method="BH"))
+
+    def flags():
+        out = []
+        for read in (repo.list_deployments_brief, repo.list_deployments_for_display, repo.deployment_rows_for_display):
+            out.append({d["id"]: d["cleared_never"] for d in read(cur, uid)})
+        assert out[0] == out[1] == out[2]
+        return out[0]
+
+    rr.append_result(cur, eid, "validation", "inconclusive", 56)
+    assert flags() == {dep["id"]: None, demo: None}
+    rr.append_result(cur, eid, "paper", "inconclusive", 12)
+    assert flags() == {dep["id"]: "paper", demo: None}
+    rr.append_result(cur, eid, "paper", "deployment_candidate", 12)
+    assert flags() == {dep["id"]: None, demo: None}
+
+    since = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    mine = repo.create_run(cur, uid, "research", "btc15m", "momentum", "an idea")
+    auto = repo.create_run(cur, uid, "research", "btc15m", "momentum", "the autopilot's")
+    cur.execute("UPDATE app_agent_runs SET status='failed' WHERE id IN (%s, %s)", (mine, auto))
+    cur.execute("UPDATE app_agent_runs SET brief=1 WHERE id=%s", (auto,))
+    act = repo.activity_since(cur, uid, since)
+    assert act["runs"].get("failed") == 2 and act["runs_ap_failed"] == 1
 
 
 def test_the_run_pages_dream_line_reads_only_the_dream_lines(conn, user):

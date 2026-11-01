@@ -198,8 +198,10 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
     paper: the counts the strategy page's Road to live shows (trades, events, hours, each with what
     the check needs) and when they could be met at its pace. Once those are in, `failing` lists the
     checks still refusing it (agent.paper_evidence's keys, "candidate" for the gatekeeper); empty means
-    its record clears every check, which never moves it to live money by itself. Display only, cached
-    per user for ROAD_TTL."""
+    its record clears every check, which never moves it to live money by itself. A strategy the gatekeeper
+    can no longer clear (the deployment read's cleared_never: its one later judgment is in and didn't promote
+    it) carries `cleared_never` (which judgment), and the board says so instead of its way toward live.
+    Display only, cached per user for ROAD_TTL."""
     sids = sorted({int(d["strategy_id"]) for d in deps if d["mode"] == "paper"})
     if not sids:
         return {}
@@ -214,6 +216,7 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
     trips = (book_memo.paper_round_trips_by_strategy(memo, sids) if memo is not None
              else repo.paper_round_trips_by_strategy(cur, uid, sids))
     out = {}
+    never = {int(d["strategy_id"]): d["cleared_never"] for d in deps if d["mode"] == "paper" and d.get("cleared_never")}
     for sid in sids:
         rec = _paper_record(trips.get(sid, []))
         road = {**rec, "trades_needed": agent.MIN_REALISTIC_PAPER_TRADES, "events_needed": agent.MIN_PAPER_EVENTS,
@@ -224,6 +227,8 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
             # Once the counts are in, the rest of the check decides: the same reads as Road to live, so
             # the board can say it clears (or which checks are left) without the user opening each page.
             road["failing"] = paper_checks.failing(cur, uid, sid, (rec["trades"], rec["events"], rec["span_hours"]))
+        if sid in never:
+            road["cleared_never"] = never[sid]
         out[sid] = road
     if len(_ROADS) > 5000:
         _ROADS.clear()

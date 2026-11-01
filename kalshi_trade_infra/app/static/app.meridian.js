@@ -8,20 +8,20 @@
   // the page runs before this bundle. Each keeps its name here, so the code below calls it as before.
   const {
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
-    researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
+    researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName, dayZone,
     logTime, settleAt, stampAt, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine, neverCleared,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose, demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS,
-    shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
+    shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost, pageLede, deploymentMode,
     sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField
@@ -2830,8 +2830,8 @@
       const closedAll = ['paper', 'demo', 'live'].reduce((a, m) => a + (+(d[m] || {}).closed_trades || 0), 0);
       const shownN = num(d.recent_closed.length);
       if (closedAll > d.recent_closed.length) closedHead.n = `latest ${closedHead.n === shownN ? shownN : `${shownN}: ${closedHead.n}`}`;
-      // "latest 12" said the list was cut but not where the rest are: under it, a link to the track record, which
-      // lists every closed trade (Tau's Closed lately says the same). Display only.
+      // "latest 12" said the list was cut but not where the rest are: under it, where every closed trade is (closedWhere:
+      // each book's trades CSV, and Funds' paper history), as Tau's Closed lately says. Display only.
       const positionTable = (rows, closed) => {
         const onlyPaper = !!paperOnly(rows);
         const widths = closed ? [332, 100, 160, 88, 128] : [300, 92, 112, 80, 96, 128];
@@ -2881,7 +2881,7 @@
         <section class="account-band"><dl class="figures measure dashboard-figures ${hasLive ? 'live-primary' : ''}">${hasLive ? liveSummary : paperFigure + (cashInBand ? liveFigure : '')}</dl><p class="stale-note" id="dash-stale" role="status"></p></section>
         <section class="positions-ledger" id="dash-open"><div class="sect-head"><h2>Open positions <span class="section-count">${openHead.n}</span>${openHead.book}</h2></div>
           ${d.open_positions.length ? positionTable(d.open_positions, false) : '<p class="hint">No open positions.</p>'}
-          ${d.recent_closed.length ? `<details class="recent-settlements" id="recent-settlements"${settlementsOpen ? ' open' : ''}><summary>Recently closed <span>${closedHead.n}</span>${closedHead.book}</summary>${positionTable(d.recent_closed, true)}${closedAll > d.recent_closed.length ? '<a class="closed-all" href="#track-record">Every closed trade, with net P&amp;L, is in the track record \u2193</a>' : ''}</details>` : ''}
+          ${d.recent_closed.length ? `<details class="recent-settlements" id="recent-settlements"${settlementsOpen ? ' open' : ''}><summary>Recently closed <span>${closedHead.n}</span>${closedHead.book}</summary>${positionTable(d.recent_closed, true)}${closedAll > d.recent_closed.length ? closedWhere(d, 'closed-all') : ''}</details>` : ''}
         </section><div class="dash-analysis">${performance}<section class="sect deployed-monitor${sharedPaperRunning ? ' shared-paper-running' : ''}"><div class="sect-head"><div class="monitor-heading"><h2>Deployed strategies <span class="section-count">${num(d.deployments.length)}</span></h2>${sharedPaperRunning ? '<span class="monitor-context">Paper</span>' : ''}${d.deployments.length ? '<a href="/research?new=1" class="btn">New research</a>' : ''}</div></div><div id="dash-deps">${deps}</div></section></div></div></div>`;
       paint(root.querySelector('#boardbody'), board);  // the 15s poll repaints only what changed
       if (accountsFocused) root.querySelector('#other-accounts > summary').focus({ preventScroll: true });
@@ -3385,6 +3385,9 @@
     }).join('<span class="sep">·</span>') + sinceSlip(s.books) + sinceSplit(d, books) : 'No trades closed.';
     const pass = s.passed || { n: 0, items: [] }, runs = s.runs || {};
     const started = Object.values(runs).reduce((a, n) => a + n, 0), failed = runs.failed || 0;
+    // Of those, the ones the autopilot started (the server's runs_ap_failed): it starts its next session itself, so they
+    // need nothing from the reader, as their pages say; the Autopilot row says so instead of Needs you (walk 2026-11-01).
+    const apFailed = Math.min(failed, +s.runs_ap_failed || 0), ownFailed = failed - apFailed;
     // A strategy that passed its paper forward test or became ready for live did so days after it was
     // created, so `passed` never lists it: the server reads those from the bell (`milestones`, strategy
     // ids). Each is named by its own title (the server's `names`, from its strategy row, cut at its first
@@ -3416,7 +3419,8 @@
     // said here too, since one resumed or removed since is in no other line of the strip.
     const guarded = (s.auto_paused || []).length;
     const auto = (did.length ? `It ${did.join(', ')}.` : `<span data-since-ap>${sinceApWord(apOn)}</span>`)
-      + (guarded ? ` ${plural(guarded, 'strategy was', 'strategies were')} paused automatically to stop a loss.` : '');
+      + (guarded ? ` ${plural(guarded, 'strategy was', 'strategies were')} paused automatically to stop a loss.` : '')
+      + (apFailed ? ` ${apFailedSaid(apFailed)}` : '');
     // While the server's live switch is closed a live-ready strategy stays on paper and a promote is refused: the
     // strip said "is ready for live trading. Going live is your call." beside a bell that said it waits (walk 2026-10-31).
     const needs = (ms.live_ready || []).slice(0, 3).map((sid) => liveOpen() ? `${named(sid)} is ready for live trading. Going live is your call.`
@@ -3439,7 +3443,7 @@
     if (pausedN > 3) needs.push(`<a href="${pausedHref}">${num(pausedN - 3)} more paused</a>`);
     if (d.demo && d.demo.health) needs.push(d.demo.health.need ? `Demo can’t trade: it needs ${esc(d.demo.health.need)}.${actionLink(d.demo.health)}` : demoHealthLine(d.demo.health));
     if (d.reconcile && d.reconcile.length) needs.push(`${plural(d.reconcile.length, 'live position disagrees', 'live positions disagree')} with Kalshi. <a href="/funds">Check Funds</a>`);
-    if (failed) needs.push(`<a href="/research">${plural(failed, 'research session', 'research sessions')} failed</a>`);
+    if (ownFailed) needs.push(`<a href="/research">${plural(ownFailed, 'research session', 'research sessions')} failed</a>`);
     // Under the floor a research session needs, nothing new researches (autopilot included) until they add credits.
     const me = S.me || {};
     const low = me.billing_enabled && !me.needs_card && me.min_run_balance != null && me.credit_balance < me.min_run_balance;
@@ -3633,7 +3637,9 @@
       // having run beside the header's "2 paused, needs you" (walk 2026-10-31).
       ['Strategies running', `${running || (S.dashPaused ? `None${SEP}${num(S.dashPaused)} paused` : 'None yet')}${liveIdle ? ` <small>${liveIdleCount(liveIdle)}</small>` : ''}`],
       d.week ? null : ['Ideas, last 7 days', `${Number(r.tested_7d || 0).toLocaleString('en-US')} tested${SEP}${r.passed_7d || 0} passed${+r.not_cleared_7d ? `, ${num(r.not_cleared_7d)} not cleared` : ''}`],
-      prog ? ['Furthest on paper', `<a href="/strategies/${Number(prog.strategy_id)}" title="${esc(prog.title || 'Paper strategy')}">${paperCount(prog)}</a> <small>${gl(PAPER_COUNT_WHY, 'instantfill')}</small>`]
+      // One the gatekeeper can no longer clear is shown only when every paper strategy is such a one (the server's
+      // `cleared_never`), and says so: its count is no step toward live (walk 2026-11-01).
+      prog ? ['Furthest on paper', `<a href="/strategies/${Number(prog.strategy_id)}" title="${esc(prog.title || 'Paper strategy')}">${paperCount(prog)}</a>${prog.cleared_never ? ` <small>${neverCleared(prog.cleared_never)}.</small>` : ''} <small>${gl(PAPER_COUNT_WHY, 'instantfill')}</small>`]
         : ['Last check-in', d.reviewing ? 'Reviewing now' : d.last_review_at ? ageAt(d.last_review_at, 'since') + apEvery(d) : 'Starting up'],
     ].filter(Boolean);
     const now = d.billing_blocked
@@ -4385,7 +4391,7 @@
     pausesIn, pct, PERPS_SCENARIO, phone, poll, realTrades, refreshAutopilot, recoverFails, refreshed, registry, render,
     researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind, runTag, runWaitLine, runwayLabel, S, sessionEstimate,
     sessionNo, sessionTitle, settleAt, stampAt, dayAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark, strategySlip, strategyTable,
-    stripeFail, syncMeBilling, theme: 'meridian', tone, topupCharge, tradePrice, trDay, tzName, usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord,
+    stripeFail, syncMeBilling, theme: 'meridian', tone, topupCharge, tradePrice, trDay, tzName, dayZone, neverCleared, usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, utcDayWord,
     localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker, ageAt, ageKey, ageTick, ageOnly
   }, { get: (all, k) => { if (!(k in all)) { newBuild(); throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); } return all[k]; } }));
   // A page file calls this as it runs: make(shared()) returns the file's views. Once per name.

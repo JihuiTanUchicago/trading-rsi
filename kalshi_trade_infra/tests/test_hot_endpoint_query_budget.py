@@ -516,6 +516,9 @@ def test_the_research_list_takes_off_uncleared_passes_in_two_reads_for_the_page(
     assert not any("FROM app_strategies s WHERE" in s or "app_experiment_results" in s for s, _ in log)  # warm
 
 
+LATER = "LEFT JOIN app_experiment_results r"  # research_repository.later_results: the passes' later rows
+
+
 def test_the_autopilot_week_counts_only_cleared_passes_and_judges_them_once_per_30s(production):
     """The panel's "N passed" this week counts what was cleared to trade, as the session rows and the Strategies
     list do: of the week's 3 stored passes, the one whose holdout then failed counts under not_cleared_7d. Read
@@ -543,14 +546,16 @@ def test_the_autopilot_week_counts_only_cleared_passes_and_judges_them_once_per_
     assert not repeats and len(log) <= BUDGET["autopilot_status"] + 2, log
     # The next poll keeps the judgment while the week's count holds; a new pass judges again.
     out, reads, log = poll(3)
-    assert out["research"]["passed_7d"] == 2 and not reads and not any("app_experiment_results" in s for s, _ in log)
+    # (The later rows of the passes, LATER: a paper deployment's own cleared_never column reads that table inside the
+    # deployment read, which is no judgment of the week's passes.)
+    assert out["research"]["passed_7d"] == 2 and not reads and not any(LATER in s for s, _ in log)
     assert len(log) <= BUDGET["autopilot_status"]
     out, reads, _ = poll(4)
     assert len(reads) == 1 and (out["research"]["passed_7d"], out["research"]["not_cleared_7d"]) == (3, 1)
     # Nothing passed: neither read, and the figures read as before.
     chat_routes._WEEK_PASSES.clear()
     out, reads, log = poll(0)
-    assert not reads and not any("app_experiment_results" in s for s, _ in log)
+    assert not reads and not any(LATER in s for s, _ in log)
     assert (out["research"]["passed_7d"], out["research"]["not_cleared_7d"]) == (0, 0)
 
 

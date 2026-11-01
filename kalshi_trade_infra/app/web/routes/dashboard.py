@@ -197,7 +197,8 @@ def _since_visit(cur, uid: int, visit: datetime, first: bool, recent: Dict,
     return {"at": visit, "first": first,
             "books": {m: _since_book(m, *b) for m, b in recent.items()},
             "passed": _passed_since(cur, uid, visit),
-            "autopilot": act["autopilot"], "runs": act["runs"], "own_sessions": bool(act.get("own_sessions")),
+            "autopilot": act["autopilot"], "runs": act["runs"], "runs_ap_failed": int(act.get("runs_ap_failed") or 0),
+            "own_sessions": bool(act.get("own_sessions")),
             # `week` only paces the strip's "Research pauses in ...", so it goes as the ledger holds it (credit_exact),
             # as Billing's runway reads it: rounded to the cent first, $8.2449 paced as $8.24 put the strip's pause at
             # "about 3 days" beside Billing's and the autopilot panel's "about 2 days" (walk 2026-10-31).

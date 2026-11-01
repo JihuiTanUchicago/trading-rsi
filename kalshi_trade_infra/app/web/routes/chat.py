@@ -410,6 +410,15 @@ def _autopilot_story(d: Dict) -> List[str]:
         pass  # the idle line (shown above the story) says why nothing trades; this one would repeat or contradict it
     elif not paper:
         lines.append("Nothing is trading on paper yet. A strategy has to pass the research tests first.")
+    elif prog and prog.get("cleared_never"):
+        # Every paper strategy's one later judgment is in and none was cleared (autopilot_status picks the furthest
+        # among those only then): its count is no step toward live, so the line says that first.
+        lines.append("%s on paper (pretend money), but %s be cleared to trade: %s one-time judgment didn’t clear it. "
+                     "%s %s on paper, %s on them %s." % (
+                         _plural(paper, "strategy is", "strategies are"), "it can’t" if paper == 1 else "none can",
+                         "its" if paper == 1 else "each one’s", "It has" if paper == 1 else "The furthest along has",
+                         _plural(int(prog.get("trades") or 0), "realistic trade"), _money(prog.get("net_pnl") or 0),
+                         customer_text.PAPER_NET_SHORT))
     elif prog and int(prog.get("trades") or 0) > 0:
         # Its count and net are the realistic paper record across all its paper runs (the road to live's),
         # not one deployment's realized P&L: said so, since the Deploy row beside it shows that one.
@@ -931,6 +940,15 @@ def _idle_reason(d: Dict, paper_run: List[Dict], paused: List[Dict], engine_age,
     return _idle(code, "Nothing is on paper yet: no strategy has passed its research tests. %s" % doing, watch)
 
 
+def _furthest(sids: List[int], prog: Dict[int, Tuple[int, float]], never: Dict[int, str]) -> Tuple[int, List[int]]:
+    """(the paper strategy furthest along, by realistic trades then net, among those the gatekeeper can still clear,
+    or among all when none can; the ones it can still clear). `prog` is book_memo.paper_readouts' counts, `never`
+    {strategy id: its deployment row's cleared_never} for those it can no longer clear."""
+    open_sids = [s for s in sids if s not in never]
+    best = max(open_sids or sids, key=lambda s: (prog.get(s, (0, 0.0))[0], prog.get(s, (0, 0.0))[1]))
+    return best, open_sids
+
+
 def autopilot_status(ctx: Ctx):
     """Lightweight status for the floating autopilot window, polled on every page. It never waits on Kalshi:
     a demo-funds idle line that would read the demo cash is left out and marked
@@ -975,21 +993,27 @@ def autopilot_status(ctx: Ctx):
     story = on and not billing_blocked
     # Paper -> live progress: the running paper strategy closest to the realistic-trade gate, so a
     # user on autopilot can see the funnel moving. Counts only (no bootstrap): this endpoint polls.
+    # One the gatekeeper can no longer clear (the deployment read's cleared_never: its one later judgment is in and
+    # didn't promote it) isn't moving toward live: the furthest is picked among the others, and only when every one
+    # is such a strategy is the furthest of those shown, marked `cleared_never` (which judgment) so the panel says so.
+    # "Furthest on paper" named a strategy whose one paper judgment had failed (walk 2026-11-01). No read of its own.
     paper_progress = None
     if paper_run:
         sids = sorted({int(d["strategy_id"]) for d in paper_run})
         # Both readouts are kept until the positions (or which deployments count toward them) change.
         prog, events = book_memo.paper_readouts(memo, sids)
         titles = {int(d["strategy_id"]): d.get("title") or "" for d in paper_run}
-        best = max(sids, key=lambda s: (prog.get(s, (0, 0.0))[0], prog.get(s, (0, 0.0))[1]))
+        never = {int(d["strategy_id"]): d["cleared_never"] for d in paper_run if d.get("cleared_never")}
+        best, open_sids = _furthest(sids, prog, never)
         trades, net = prog.get(best, (0, 0.0))
         paper_progress = {"strategy_id": best, "title": titles[best], "trades": trades,
                           "trades_needed": agent.MIN_REALISTIC_PAPER_TRADES, "net_pnl": cents(net),
-                          "strategies": len(sids)}
-        # When the soonest one could have a full record for the live check, at the pace each trades.
+                          "strategies": len(sids), **({"cleared_never": never[best]} if best in never else {})}
+        # When the soonest one that can still be cleared could have a full record for the live check, at the pace
+        # each trades.
         from app.research import rsi
         dep_of = {int(d["strategy_id"]): d for d in reversed(paper_run)}  # oldest deployment per strategy
-        etas = {s: rsi.paper_eta_days(dep_of[s], prog.get(s, (0, 0.0))[0], events=events.get(s)) for s in sids}
+        etas = {s: rsi.paper_eta_days(dep_of[s], prog.get(s, (0, 0.0))[0], events=events.get(s)) for s in open_sids}
         etas = {s: v for s, v in etas.items() if v is not None}
         if etas:
             soon = min(etas, key=etas.get)

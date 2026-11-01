@@ -203,6 +203,20 @@
   // names the zone in force then: a market's price history across the November clock change labelled its last
   // time "06:00 EDT", an hour that was EST.
   const tzName = (at) => { try { return (new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(at == null ? new Date() : new Date(at)).find((p) => p.type === 'timeZoneName') || {}).value || ''; } catch (e) { return ''; } };
+  // The zone in force on the reader's day an instant fell on (tzName at that day's noon), for a day line over bare clock
+  // times: the autopilot feed and the research log named today's zone for every day, "times in CST" over the days before
+  // the clock change, whose times were CDT (walk 2026-11-01). '' when it isn't a time. One formatter, built once (dateFmt's
+  // store): a log asks it of every row on each poll.
+  const ZONE_ONLY = { timeZoneName: 'short' };
+  const dayZone = (iso) => {
+    const d = new Date(iso || NaN);
+    if (!Number.isFinite(d.getTime())) return '';
+    try {
+      let f = fmts.get(ZONE_ONLY);
+      if (!f) { f = new Intl.DateTimeFormat(undefined, ZONE_ONLY); fmts.set(ZONE_ONLY, f); }
+      return (f.formatToParts(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12)).find((p) => p.type === 'timeZoneName') || {}).value || '';
+    } catch (e) { return ''; }
+  };
   // A run log line's time: the bare clock fits the rail; the date and zone ride on hover and to a
   // screen reader (a run-until-stopped session spans days, and "06:07" named neither).
   const logTime = (iso) => `<time datetime="${esc(iso || '')}" title="${esc(dateFmt(new Date(iso), LOG_STAMP))}">${clock(iso)}</time>`;
@@ -931,9 +945,15 @@
   const roadDays = (d) => d < 1 ? 'under a day' : d < 1.5 ? 'about a day' : `about ${Math.round(d)} days`;
   // `open` is the server's live switch (the bundle's liveOpen()): closed, a live deployment places no orders, so a
   // record that clears every check says live trading isn't open yet, never that deploying it is all that's left.
+  // A paper strategy the gatekeeper can no longer clear (the server's `cleared_never`: its one later judgment is in and
+  // didn't promote it): its paper record is no step toward live. Deploy's "toward live: 4/30 trades · enough in about 58
+  // days" and the autopilot's "Furthest on paper" featured one whose one paper judgment had failed (walk 2026-11-01).
+  const NEVER_CLEARED = { paper: 'its one judgment on its own paper trades didn’t clear it', holdout: 'its one-time final test didn’t clear it' };
+  const neverCleared = (why) => `It can’t be cleared to trade: ${NEVER_CLEARED[why] || NEVER_CLEARED.paper}`;
   const roadLine = (d, open) => {
     const r = d.road;
     if (!r) return '';
+    if (r.cleared_never) return `<div class="sub-fig road-line">${neverCleared(r.cleared_never)}, so its paper record doesn’t lead to live.</div>`;
     const parts = [[r.trades, r.trades_needed, 'trades'], [r.events, r.events_needed, 'separate\u00a0events'], [Math.floor(r.span_hours), r.span_needed_hours, 'hours']]
       .filter(([have, need]) => have < need).map(([have, need, unit]) => `<span class="nobr"${unit === 'separate\u00a0events' ? ` title="${ROAD_EVENTS_TIP}"` : ''}>${num(have)}/${num(need)}\u00a0${unit}</span>`);
     // Each "9/30 trades" piece stays whole (.nobr) and each "·" ends its line (a no-break space before it, a
@@ -1421,6 +1441,14 @@
   // figure (realized_all, one SUM rounded once), never worked out here. Demo money only.
   const csvAll = (mode, b) => (mode === 'demo' && b && +b.before_reload && b.realized_all != null
     ? `<span class="csv-all">${SEP}every demo trade, before the reload too: <span class="nobr">${usd(b.realized_all, true)}</span> realized, ${FEES_NET}</span>` : '');
+  // A research session the autopilot started that failed, on the since-visit strip's Autopilot row: the autopilot starts
+  // its next session itself and the session's page says so, but the strip listed it under "Needs you" (walk 2026-11-01).
+  const apFailedSaid = (n) => `${+n === 1 ? 'A research session it started' : `${num(n)} research sessions it started`} stopped on an error; it starts its next one on its own, so there’s nothing for you to do.`;
+  // Where every closed trade is, under the dashboard's list of the latest ones (`cls`, each theme's class): each book's
+  // trades CSV, linked by that book's figure above (tradesCsv), and each paper one in Funds' paper history too. It said
+  // "Every closed trade, with net P&L, is in the track record ↓", which lists none (its figures count them): a settled
+  // NBA trade was on Funds and in the CSV alone (walk 2026-11-01). `d` is the dashboard's answer (its paper book's count).
+  const closedWhere = (d, cls) => `<p class="${cls}">Every closed trade, with net P&amp;L, is in its book’s trades CSV (Download trades, by the book’s figure above)${+((d || {}).paper || {}).closed_trades > 0 ? '; each paper one is also in your <a href="/funds">Funds</a> paper history' : ''}.</p>`;
   function tradesCsv(mode, b, info = '', before = '') {
     const has = b && b.closed_trades > 0;
     const link = has ? `<a class="csv-link" href="/api/trades.csv?mode=${mode}" download>Download trades (CSV)<span class="vh"> for the ${mode} book</span></a>${csvAll(mode, b)}` : '';
@@ -1644,20 +1672,20 @@
 
   window.TauCore = Object.freeze({
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
-    researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
+    researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName, dayZone,
     logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
     statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
-    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine,
+    paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pausedFirst, withTwins, posDep, POS_REMOVED, btCheckLine, roadDays, roadLine, neverCleared,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
     spotSect, closeLeft, closeWords, closeData, liveClose, TARGET_IN, glueTarget, compactCondition, marketSpot, MKT_GONE, vsText, vsLab,
     rowVs, vsHtml, spotListNote, EXPLORE_WAIT, exploreNoFeed, EXPLORE_NO_FEED, exploreEmpty, exploreShowChips, exploreShowButtons,
     exploreNoShow, exploreShowOf, exploreShowFig, hotWhen, hotSpotNote, hotPriceWord, waitSpan, runWaitLine, demoSpan, FEES_NET, demoCapital, demoNoClose,
-    demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, AP_PICKING, AP_IDLE_PAPER,
+    demoPnl, sinceNote, actionLink, AP_DID, CREDITS_WARN_DAYS, shortReason, sinceRunsState, sinceSplit, sinceSlip, closedToday, demoToday, demoRowSince, sinceLinks, demoHealthLine, tradesCsv, closedWhere, apFailedSaid, AP_PICKING, AP_IDLE_PAPER,
     apPillLabel, apAgo, apEvery, FOCUS_WORDS, creditsPaid, apWeekSpent, INSTANT_WHY, PAPER_COUNT_WHY, paperCount,
     exitWord, AP_FOCUS, KIND_LABEL, runwayLabel, paceTooSoon, paceDay, paceWords, inDays, sessionEstimate, apSessionCost,
     pageLede, deploymentMode, sessionNo, olderRows, researchBusy, depsBookNote, ageAt, ageKey, ageTick, ageOnly, buildMoved, typedField

@@ -50,10 +50,13 @@ def list_deployments_brief(cur, user_id: int) -> List[Dict]:
     """The same deployments as list_deployments (not stopped, newest first), with the strategy fields
     and without the position totals (realized_pnl, closed_trades, wins, open_positions). Those totals
     read every position each deployment ever booked (20k for a busy trader), and the autopilot panel,
-    which polls every 20s, needs them only for a just-paused one (deployment_closed_totals)."""
+    which polls every 20s, needs them only for a just-paused one (deployment_closed_totals). A paper row says
+    whether the gatekeeper can no longer clear its strategy (`cleared_never`, CLEARED_NEVER_COL), for the panel's
+    "Furthest on paper"."""
     cur.execute(
         """SELECT d.id, d.user_id, d.strategy_id, d.market, d.mode, d.status, d.status_reason, d.last_decision_ts,
-                  d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json
+                  d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json,
+                  """ + CLEARED_NEVER_COL + """
            FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id
            WHERE d.user_id=%s AND d.status <> 'stopped' ORDER BY d.id DESC""",
         (user_id,),
@@ -71,6 +74,20 @@ NO_RECORD_SQL = "(s.status='passed' AND " + NO_EXPERIMENT_SQL + ") AS no_gatekee
 # stored it as failed, never judged on held-out data, so its rows say "not held out" as its page and list row do. The
 # same column of the same two reads; its probe runs only for a void row without experiment_id. Display only.
 VOID_RECORD_COL = VOID_NO_RECORD_SQL + " AS void_no_record"
+# A paper deployment's strategy the gatekeeper can no longer clear to trade: its experiment's one judgment after
+# validation (the one-time holdout, or a probation strategy's one judgment on its own paper trades, which
+# gatekeeper.judge_paper_forward never makes twice) is in, and no row promoted it to a deployment candidate (a failed
+# judgment, or a pass the diversification check held back). 'paper' or 'holdout' (which judgment), else NULL.
+# "Furthest on paper" and a Deploy row's "toward live ... about 58 days" featured a strategy whose one paper judgment
+# had failed (walk 2026-11-01). Its experiment as experiments_for_strategy resolves it (the stored experiment_id by
+# primary key, else the newest linked by strategy_id), its later rows by idx_res_exp. A column of the deployment reads,
+# not a read of its own, and only for a paper row. Display only: the live gate (agent._is_deployment_candidate) reads
+# the gatekeeper's record itself.
+CLEARED_NEVER_COL = (
+    "(CASE WHEN d.mode='paper' THEN (SELECT CASE WHEN SUM(r.classification='deployment_candidate') > 0 THEN NULL "
+    "WHEN SUM(r.phase='paper') > 0 THEN 'paper' WHEN SUM(r.phase='holdout') > 0 THEN 'holdout' END "
+    "FROM app_experiment_results r WHERE r.phase IN ('holdout','paper','forward') AND r.experiment_id=COALESCE(s.experiment_id, "
+    "(SELECT MAX(e.id) FROM app_experiments e WHERE e.user_id=s.user_id AND e.strategy_id=s.id))) END) AS cleared_never")
 
 
 def list_deployments_for_display(cur, user_id: int, strategy_id: Optional[int] = None, sim: bool = False) -> List[Dict]:
@@ -87,7 +104,8 @@ def list_deployments_for_display(cur, user_id: int, strategy_id: Optional[int] =
     backtest-only strategy say its backtest figure is later-period, not unseen; display only. So does
     `no_gatekeeper_record` (NO_RECORD_SQL, in the same statement): a "passed" strategy with no linked
     experiment either way, the kind relabel_backtest_only makes backtest-only, whose page says the same. And
-    `void_no_record` (VOID_RECORD_COL, the same statement): a void strategy with no gatekeeper record either way.
+    `void_no_record` (VOID_RECORD_COL, the same statement): a void strategy with no gatekeeper record either way. And
+    `cleared_never` (CLEARED_NEVER_COL, the same statement): a paper row's strategy the gatekeeper can no longer clear.
     With `sim`, each row also carries `sim_closed`: its closed paper positions filled through the simulated venue
     (order_ref 'sim:', as realistic_paper_closed counts them), from the same rows, so a page that reads this once
     can say how many of a paper book's trades were instant fills without another read. Display only."""
@@ -98,7 +116,7 @@ def list_deployments_for_display(cur, user_id: int, strategy_id: Optional[int] =
     cur.execute(
         """SELECT d.id, d.user_id, d.strategy_id, d.market, d.mode, d.status, d.status_reason, d.last_decision_ts,
                   d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json,
-                  """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status,
+                  """ + CLEARED_NEVER_COL + """, """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status,
                   COALESCE(t.realized_pnl,0) AS realized_pnl, COALESCE(t.closed_trades,0) AS closed_trades,
                   COALESCE(t.wins,0) AS wins, COALESCE(t.open_positions,0) AS open_positions,
                   COALESCE(t.contract_fills,0) AS contract_fills""" + sim_out + """
@@ -137,7 +155,7 @@ def deployment_rows_for_display(cur, user_id: int, strategy_id: Optional[int] = 
     cur.execute(
         """SELECT d.id, d.user_id, d.strategy_id, d.market, d.mode, d.status, d.status_reason, d.last_decision_ts,
                   d.created_at, d.updated_at, d.last_scan_json, d.last_scan_at, s.title, s.direction, s.spec_json, s.result_json,
-                  """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status
+                  """ + CLEARED_NEVER_COL + """, """ + NO_RECORD_SQL + """, """ + VOID_RECORD_COL + """, s.status AS strategy_status
            FROM app_deployments d JOIN app_strategies s ON s.id=d.strategy_id
            WHERE d.user_id=%s AND d.status <> 'stopped'""" + (" AND d.strategy_id=%s" if one else "") + """ ORDER BY d.id DESC""",
         (user_id, *one),
@@ -620,7 +638,8 @@ def activity_since(cur, user_id: int, since, silent_before=None, active: bool = 
     """What happened since `since` besides trades, in one read: the changes the autopilot made on
     its own ({kind: n} of its applied, never-decided proposals: deploy, pause, resume, adjust...,
     plus `research`: the research sessions it started, its brief runs, which write no proposal),
-    the research sessions started since then ({status: n}, the seeded example left out), and
+    the research sessions started since then ({status: n}, the seeded example left out; `runs_ap_failed`, how many
+    of the failed ones the autopilot started: it starts its next session itself, so none needs the user), and
     whether the user has ever run a research session of their own (`own_sessions`; a brand-new
     account's dashboard points at the example session instead). The last is a LIMIT 1 probe.
     Also what credits the usage debits took since then and over the last 7 days (`spent`: real
@@ -650,6 +669,9 @@ def activity_since(cur, user_id: int, since, silent_before=None, active: bool = 
         "WHERE user_id=%s AND kind='research' AND created_at>=%s AND (direction IS NULL OR direction<>%s) GROUP BY k "
         "UNION ALL SELECT 'ap' AS src, 'research' AS k, COUNT(*) AS n FROM app_agent_runs "
         "WHERE user_id=%s AND kind='research' AND created_at>=%s AND brief=1 GROUP BY kind "
+        "UNION ALL SELECT 'apfail' AS src, 'failed' AS k, COUNT(*) AS n FROM app_agent_runs "
+        "WHERE user_id=%s AND kind='research' AND created_at>=%s AND brief=1 AND status='failed' "
+        "AND (direction IS NULL OR direction<>%s) "
         "UNION ALL SELECT 'own' AS src, 'any' AS k, COUNT(*) AS n FROM (SELECT id FROM app_agent_runs "
         "WHERE user_id=%s AND kind='research' AND (direction IS NULL OR direction<>%s) LIMIT 1) o "
         "UNION ALL SELECT 'spent' AS src, 'since' AS k, COALESCE(-SUM(amount_usd),0) AS n FROM app_credit_ledger "
@@ -667,11 +689,12 @@ def activity_since(cur, user_id: int, since, silent_before=None, active: bool = 
         "UNION ALL SELECT 'bought_usd' AS src, kind AS k, SUM(amount_usd) AS n FROM app_credit_ledger "
         "WHERE user_id=%s AND kind IN ('topup','autoreload') AND created_at>=%s GROUP BY kind" + (_ACTIVE_RUNS.format(
             silent="" if silent_before is None else _NOT_SILENT) if active else ""),
-        (user_id, since, *(() if silent_before is None else (silent_before,)), user_id, since, DEMO_DIRECTION, user_id, since, user_id, DEMO_DIRECTION,
+        (user_id, since, *(() if silent_before is None else (silent_before,)), user_id, since, DEMO_DIRECTION, user_id, since,
+         user_id, since, DEMO_DIRECTION, user_id, DEMO_DIRECTION,
          user_id, since, user_id, week, user_id, since, user_id, user_id, since, user_id, since,
          *(((user_id,) if silent_before is None else (user_id, silent_before)) if active else ())),
     )
-    out: Dict[str, Any] = {"autopilot": {}, "runs": {}, "own_sessions": False, "card_charged": False,
+    out: Dict[str, Any] = {"autopilot": {}, "runs": {}, "runs_ap_failed": 0, "own_sessions": False, "card_charged": False,
                            "spent": {"since": 0.0, "week": 0.0}, "bought": {"usd": 0.0, "charges": 0, "auto": 0},
                            "milestones": {"passed": [], "live_ready": []}, "titles": {}, "auto_paused": []}
     bought = Decimal(0)  # top-ups and auto-reloads summed exact; the page rounds credits half up (credit_cents)
@@ -688,6 +711,8 @@ def activity_since(cur, user_id: int, since, silent_before=None, active: bool = 
             bought += Decimal(str(r["n"] or 0))
         elif r["src"] == "own":
             out["own_sessions"] = int(r["n"]) > 0
+        elif r["src"] == "apfail":
+            out["runs_ap_failed"] = int(r["n"])
         elif r["src"] == "paid":
             out["card_charged"] = int(r["n"]) > 0
         elif r["src"] == "spent":
