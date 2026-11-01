@@ -6,6 +6,9 @@ import {test} from 'node:test';
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const settle = async () => { for (let i = 0; i < 6; i++) await flush(); };
+// A past deployment's times on the reader's clock, so the days it names are the reader's in any zone: 08:00 UTC is the
+// day before in Honolulu, and 09:00-13:00 UTC crosses Auckland's midnight.
+const wall = (t) => new Date(t).toISOString();
 const dep = (overrides = {}) => ({id: 1, strategy_id: 1, title: 'Dep one', market: 'btc15m', mode: 'paper', status: 'running',
   status_reason: null, realized_pnl: 1, closed_trades: 5, open_positions: 0, unrealized_pnl: null, created_at: '2026-10-24T08:00:00Z',
   curve: [], stake: 5, max_positions: 1, backtest: {out_of_sample: null}, ...overrides});
@@ -280,10 +283,10 @@ export function deployActionCases({name, frontend, strategyFrontend, detailStrat
   // A strategy whose deployments were all removed still says what they did: book, dates, realized P&L.
   test(`${name}: a strategy page lists its removed deployments as past deployments`, async () => {
     const past = [
-      {id: 9, mode: 'paper', created_at: '2026-10-02T08:00:00+00:00', removed_at: '2026-10-20T08:00:00+00:00', realized_pnl: 5.72, closed_trades: 14},
-      {id: 8, mode: 'demo', created_at: '2026-09-28T08:00:00+00:00', removed_at: '2026-10-01T08:00:00+00:00', realized_pnl: -1.5, closed_trades: 1},
-      {id: 7, mode: 'paper', created_at: '2026-09-20T08:00:00+00:00', removed_at: '2026-09-21T08:00:00+00:00', realized_pnl: 0, closed_trades: 0},
-      {id: 6, mode: 'paper', created_at: '2026-09-10T08:00:00+00:00', removed_at: '2026-09-11T08:00:00+00:00', realized_pnl: 1, closed_trades: 1}];
+      {id: 9, mode: 'paper', created_at: wall('2026-10-02T08:00:00'), removed_at: wall('2026-10-20T08:00:00'), realized_pnl: 5.72, closed_trades: 14},
+      {id: 8, mode: 'demo', created_at: wall('2026-09-28T08:00:00'), removed_at: wall('2026-10-01T08:00:00'), realized_pnl: -1.5, closed_trades: 1},
+      {id: 7, mode: 'paper', created_at: wall('2026-09-20T08:00:00'), removed_at: wall('2026-09-21T08:00:00'), realized_pnl: 0, closed_trades: 0},
+      {id: 6, mode: 'paper', created_at: wall('2026-09-10T08:00:00'), removed_at: wall('2026-09-11T08:00:00'), realized_pnl: 1, closed_trades: 1}];
     const f = strategyFrontend(detailStrategy({status: 'passed', deployments: [], past_deployments: past}), () => response({}));
     await f.viewStrategy(42); await settle();
     const rec = f.root.querySelector('.real-record');

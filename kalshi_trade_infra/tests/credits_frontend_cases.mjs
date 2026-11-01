@@ -259,14 +259,17 @@ export function creditsCases({name, frontend, billingPage, cardedBilling, dashbo
   test(`${name}: Billing's statement adds up: the lines under a day to its "used", and the days to the usage above`, async () => {
     // Walk 2026-10-27, a few days of autopilot research: each figure rounded half up on its own, so "Sun $7.98 used"
     // sat over −$7.95 and −$0.02, and the days added up a cent short of "Agent usage −$12.99".
+    // Times on the reader's clock (`wall`), so each line falls on its named day in any zone: 15:00 UTC is the next
+    // day's 04:00 in Auckland, where the statement rightly listed four days.
+    const wall = (t) => new Date(t).toISOString();
     const use = (amount, day, item) => ({kind: 'usage', amount, item, model: 'Claude Opus 4.6', calls: 40, day,
-      created_at: `${day}T15:00:00Z`, first_at: `${day}T11:00:00Z`});
+      created_at: wall(`${day}T15:00:00`), first_at: wall(`${day}T11:00:00`)});
     const f = billingPage(cardedBilling({
       math: {days: 30, start: 0, bought: 50, purchases: 1, other: 0, usage: 12.99, end: 37.01},
       ledger: [use(-7.9545, '2026-10-24', 'Autopilot research'), use(-0.0245, '2026-10-24', 'Autopilot check-in'),
         use(-0.0031, '2026-10-24', 'Research session'), use(-2.0049, '2026-10-23', 'Autopilot research'),
         use(-3.0049, '2026-10-22', 'Autopilot research'),
-        {kind: 'topup', amount: 50, day: '2026-10-22', created_at: '2026-10-22T09:00:00Z', first_at: '2026-10-22T09:00:00Z', card_charge: 52.75}],
+        {kind: 'topup', amount: 50, day: '2026-10-22', created_at: wall('2026-10-22T09:00:00'), first_at: wall('2026-10-22T09:00:00'), card_charge: 52.75}],
       ledger_cut: false}));
     await f.viewBilling(); await flush();
     const cents = (t) => Math.round(+t.replace(/[^\d.]/g, '') * 100);

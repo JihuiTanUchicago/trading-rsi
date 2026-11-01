@@ -1139,12 +1139,15 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
   // cards kept the day each was deployed in a closed Details, so the two $5 rows read alike; the open positions said
   // "Late fade" for each; and a removed deployment's open position read like a running one's.
   const yr = new Date().getFullYear();
+  // Deployed at times on the reader's clock, so the day each names is the reader's in any zone: noon UTC is the next
+  // day in Auckland, and 10:00 and 13:00 UTC fall either side of Chatham's midnight.
+  const wall = (t) => new Date(`${yr}-${t}`).toISOString();
   const twin = (id, o = {}) => ({id, strategy_id: 7, title: 'Late fade', market: 'btc15m', mode: 'paper', status: 'running', realized_pnl: 1,
-    unrealized_pnl: null, closed_trades: 1, open_positions: 0, created_at: `${yr}-10-12T12:00:00Z`, backtest: null, curve: [], stake: 5,
+    unrealized_pnl: null, closed_trades: 1, open_positions: 0, created_at: wall('10-12T12:00:00'), backtest: null, curve: [], stake: 5,
     max_positions: 8, ...o});
-  const twins = () => [twin(1), twin(2, {created_at: `${yr}-10-31T12:00:00Z`}), twin(3, {strategy_id: 8, stake: 25, status: 'paused',
-    status_reason: 'By you', created_at: `${yr}-10-27T12:00:00Z`}), twin(4, {mode: 'demo'}), twin(5, {strategy_id: 9, title: 'Other'}),
-  twin(6, {strategy_id: 10, title: 'Same day', created_at: `${yr}-10-20T10:00:00Z`}), twin(7, {strategy_id: 10, title: 'Same day', created_at: `${yr}-10-20T13:00:00Z`})];
+  const twins = () => [twin(1), twin(2, {created_at: wall('10-31T12:00:00')}), twin(3, {strategy_id: 8, stake: 25, status: 'paused',
+    status_reason: 'By you', created_at: wall('10-27T12:00:00')}), twin(4, {mode: 'demo'}), twin(5, {strategy_id: 9, title: 'Other'}),
+  twin(6, {strategy_id: 10, title: 'Same day', created_at: wall('10-20T10:00:00')}), twin(7, {strategy_id: 10, title: 'Same day', created_at: wall('10-20T13:00:00')})];
   const pos = (id, dep, title = 'Late fade') => ({id, deployment_id: dep, title, mode: 'paper', ticker: 'KXBTC15M-26NOV010330-00', side: 'yes',
     qty: 2, entry_price: 0.5, entry_fee: 0.02, cost: 1.02, status: 'open', market_close_time: `${yr}-11-01T03:30:00Z`, opened_at: `${yr}-11-01T03:00:00Z`});
   test(`${name}: same-strategy deployments' actions say their stake and day; a lone one keeps its name`, async () => {

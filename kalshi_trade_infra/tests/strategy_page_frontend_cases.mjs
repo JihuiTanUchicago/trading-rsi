@@ -4,6 +4,9 @@ import {test} from 'node:test';
 
 const response = (data, status = 200) => ({ok: status < 400, status, json: async () => data});
 const flush = () => new Promise(resolve => setImmediate(resolve));
+// A past deployment's times on the reader's clock, so the days it names are the reader's in any zone: 08:00 UTC is the
+// day before in Honolulu, and 09:00-13:00 UTC crosses Auckland's midnight.
+const wall = (t) => new Date(t).toISOString();
 
 export function strategyPageCases({name, frontend, detailStrategy, strategyFrontend, postRequests}) {
   const open = async (overrides) => {
@@ -630,9 +633,9 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     // "Demo Sep 28–Oct 1, −$1.50 over 1 closed trade" said neither that it was Tau's demo book (not real money)
     // nor that Kalshi's fees were taken off, where the "Since deploying" line above it now says both.
     const past_deployments = [
-      {id: 9, mode: 'live', created_at: '2026-10-02T08:00:00+00:00', removed_at: '2026-10-20T08:00:00+00:00', realized_pnl: 3.25, closed_trades: 4},
-      {id: 8, mode: 'demo', created_at: '2026-09-28T08:00:00+00:00', removed_at: '2026-10-01T08:00:00+00:00', realized_pnl: -1.5, closed_trades: 1},
-      {id: 7, mode: 'paper', created_at: '2026-09-20T08:00:00+00:00', removed_at: '2026-09-21T08:00:00+00:00', realized_pnl: 5.72, closed_trades: 14}];
+      {id: 9, mode: 'live', created_at: wall('2026-10-02T08:00:00'), removed_at: wall('2026-10-20T08:00:00'), realized_pnl: 3.25, closed_trades: 4},
+      {id: 8, mode: 'demo', created_at: wall('2026-09-28T08:00:00'), removed_at: wall('2026-10-01T08:00:00'), realized_pnl: -1.5, closed_trades: 1},
+      {id: 7, mode: 'paper', created_at: wall('2026-09-20T08:00:00'), removed_at: wall('2026-09-21T08:00:00'), realized_pnl: 5.72, closed_trades: 14}];
     const f = await open({status: 'passed', deployments: [], past_deployments});
     const text = f.root.querySelector('.past-deps').textContent.replace(/\s+/g, ' ');
     const parts = text.replace(/^Past deployments: /, '').split(' · ');
@@ -645,14 +648,14 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     assert.doesNotMatch(text, /\$7\.47|\$1\.75|\$4\.22/);
     // Deployed and removed the same day (walked 2026-10-27: "Paper Oct 27–Oct 27"): one date.
     const same = await open({status: 'passed', deployments: [], past_deployments: [{id: 6, mode: 'paper',
-      created_at: '2026-10-27T08:00:00+00:00', removed_at: '2026-10-27T09:00:00+00:00', realized_pnl: 0, closed_trades: 0}]});
+      created_at: wall('2026-10-27T08:00:00'), removed_at: wall('2026-10-27T09:00:00'), realized_pnl: 0, closed_trades: 0}]});
     assert.match(same.root.querySelector('.past-deps').textContent.replace(/\s+/g, ' '), /Past deployments: Paper Oct 27, no closed trades, not real money/);
   });
 
   test(`${name}: a past paper deployment says how many of its trades were instant fills, as the Strategies list does`, async () => {
     // "Paper Sep 20–Sep 21, +$5.72 over 14 closed trades" read as its record, while the track record leaves its instant
     // fills out and the Strategies list's "Removed from paper" line says how many (the server's instant_fills).
-    const at = {created_at: '2026-09-20T08:00:00+00:00', removed_at: '2026-09-21T08:00:00+00:00'};
+    const at = {created_at: wall('2026-09-20T08:00:00'), removed_at: wall('2026-09-21T08:00:00')};
     const f = await open({status: 'passed', deployments: [], past_deployments: [
       {id: 7, mode: 'paper', ...at, realized_pnl: 5.72, closed_trades: 14, instant_fills: 3},
       {id: 6, mode: 'paper', ...at, realized_pnl: 1.1, closed_trades: 2, instant_fills: 2},
@@ -678,9 +681,9 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     // Walk 2026-10-27 at 1280px: "Paper Oct" ended a line and "27–Oct 27" began the next, and a deployment removed the
     // day it was made read "Oct 27–Oct 27".
     const f = await open({status: 'passed', deployments: [], past_deployments: [
-      // Made and removed the same day in any reader's zone from Chicago to Tokyo (08:00-15:00 UTC crossed Tokyo's midnight).
-      {id: 7, mode: 'paper', created_at: '2026-10-27T09:00:00+00:00', removed_at: '2026-10-27T13:00:00+00:00', realized_pnl: 1, closed_trades: 2},
-      {id: 6, mode: 'demo', created_at: '2026-09-28T08:00:00+00:00', removed_at: '2026-10-01T08:00:00+00:00', realized_pnl: 1, closed_trades: 2}]});
+      // Made and removed the same day on the reader's clock (`wall`): in UTC times it truly spanned two days in Auckland.
+      {id: 7, mode: 'paper', created_at: wall('2026-10-27T09:00:00'), removed_at: wall('2026-10-27T13:00:00'), realized_pnl: 1, closed_trades: 2},
+      {id: 6, mode: 'demo', created_at: wall('2026-09-28T08:00:00'), removed_at: wall('2026-10-01T08:00:00'), realized_pnl: 1, closed_trades: 2}]});
     const html = f.root.querySelector('.past-deps').innerHTML;
     assert.match(html, /<span class="nobr">Paper Oct 27<\/span>, <span class="gain">\+\$1\.00<\/span> over 2 closed trades/);
     assert.match(html, /<span class="nobr">Demo Sep 28–Oct 1<\/span>, <span class="gain">\+\$1\.00/);
@@ -690,9 +693,9 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
   test(`${name}: a past deployment with no closed trades says so, with which money it was, not "$0.00 over 0 closed trades"`, async () => {
     // It read "Demo Sep 28–Oct 1, $0.00 over 0 closed trades" with no book, under lines that say both.
     const past_deployments = [
-      {id: 9, mode: 'live', created_at: '2026-10-02T08:00:00+00:00', removed_at: '2026-10-20T08:00:00+00:00', realized_pnl: 0, closed_trades: 0},
-      {id: 8, mode: 'demo', created_at: '2026-09-28T08:00:00+00:00', removed_at: '2026-10-01T08:00:00+00:00', realized_pnl: 0, closed_trades: 0},
-      {id: 7, mode: 'paper', created_at: '2026-09-20T08:00:00+00:00', removed_at: '2026-09-21T08:00:00+00:00', realized_pnl: 0, closed_trades: 0}];
+      {id: 9, mode: 'live', created_at: wall('2026-10-02T08:00:00'), removed_at: wall('2026-10-20T08:00:00'), realized_pnl: 0, closed_trades: 0},
+      {id: 8, mode: 'demo', created_at: wall('2026-09-28T08:00:00'), removed_at: wall('2026-10-01T08:00:00'), realized_pnl: 0, closed_trades: 0},
+      {id: 7, mode: 'paper', created_at: wall('2026-09-20T08:00:00'), removed_at: wall('2026-09-21T08:00:00'), realized_pnl: 0, closed_trades: 0}];
     const f = await open({status: 'passed', deployments: [], past_deployments});
     const text = f.root.querySelector('.past-deps').textContent.replace(/\s+/g, ' ');
     const parts = text.replace(/^Past deployments: /, '').split(' · ');
@@ -703,7 +706,7 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     assert.doesNotMatch(text, /\$0\.00|0 closed trades|after Kalshi fees/);  // nothing to net of fees
     // One with closed trades beside it keeps its figure and its fees.
     const g = await open({status: 'passed', deployments: [], past_deployments: [past_deployments[1],
-      {id: 6, mode: 'demo', created_at: '2026-09-10T08:00:00+00:00', removed_at: '2026-09-12T08:00:00+00:00', realized_pnl: -1.5, closed_trades: 1}]});
+      {id: 6, mode: 'demo', created_at: wall('2026-09-10T08:00:00'), removed_at: wall('2026-09-12T08:00:00'), realized_pnl: -1.5, closed_trades: 1}]});
     assert.match(g.root.querySelector('.past-deps').textContent.replace(/\s+/g, ' '),
       /Demo Sep 28–Oct 1, no closed trades, in Tau’s demo book: not real money · Demo Sep 10–Sep 12, −\$1\.50 over 1 closed trade, after Kalshi fees, in Tau’s demo book: not real money$/);
   });
@@ -969,8 +972,8 @@ export function strategyPageCases({name, frontend, detailStrategy, strategyFront
     // Not on paper (never deployed, demo only, or only removed from paper): no line up top.
     assert.equal((await page({deployments: []})).top, null);
     assert.equal((await page({deployments: [deployments[1]]})).top, null);
-    assert.equal((await page({deployments: [], past_deployments: [{id: 7, mode: 'paper', created_at: '2026-09-20T08:00:00+00:00',
-      removed_at: '2026-09-21T08:00:00+00:00', realized_pnl: 5.72, closed_trades: 14}]})).top, null);
+    assert.equal((await page({deployments: [], past_deployments: [{id: 7, mode: 'paper', created_at: wall('2026-09-20T08:00:00'),
+      removed_at: wall('2026-09-21T08:00:00'), realized_pnl: 5.72, closed_trades: 14}]})).top, null);
   });
 
   // Walk 2026-10-31 (strategy detail figures): a paper-only strategy's holdings summary read "4 open positions at cost +
