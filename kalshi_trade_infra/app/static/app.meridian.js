@@ -483,6 +483,10 @@
   // On a phone the section tabs scroll sideways in one row. Mark the edges that have more tabs past
   // them (more-l / more-r on the nav), so the CSS fades and points only those edges, and the hint goes
   // away once the last tab is in view.
+  // The window's resize hands each page's tab strip a scroll, which marks its edges again. It is made out here, not
+  // inside tabEdges: there it shared tabEdges' scope, so it held the first page's tab strip and, through it, that whole
+  // page for the rest of the visit (~15,600 nodes for a heavy account's Meridian Home; heap snapshot 2026-11-01).
+  const tabsResized = () => { const t = document.querySelector('.services-in'); if (t && t.dispatchEvent) t.dispatchEvent(new Event('scroll')); };
   let tabResize = false;
   function tabEdges(tabs) {
     const nav = tabs && tabs.parentElement;
@@ -495,7 +499,7 @@
     tabs.addEventListener('scroll', mark, { passive: true });
     if (!tabResize) {
       tabResize = true;
-      addEventListener('resize', () => { const t = document.querySelector('.services-in'); if (t && t.dispatchEvent) t.dispatchEvent(new Event('scroll')); });
+      addEventListener('resize', tabsResized);
     }
     mark();
   }
@@ -608,7 +612,14 @@
   // page does. Each said it was done (returned false) only once called, on a wake or a day turn, so until then every
   // page visited stayed in memory with its whole DOM: ~16,000 nodes and 1MB of heap a round of the main pages on a
   // heavy account (walk 2026-11-01). Nothing is called here.
-  function dropGone() { [wakers, dayWatch, apCostWatch].forEach((set) => set.forEach((w) => { if (w.gen != null && w.gen !== S.gen) set.delete(w); })); }
+  // The track record's tab (trAp) and its re-read (S.trReread) go with their page too: each held the record's section,
+  // and through it the whole page it was drawn on. On Meridian's Home that kept a heavy account's ~15,600 nodes alive
+  // on every page after it, until the next Home drew its own record (heap snapshot 2026-11-01).
+  function dropGone() {
+    [wakers, dayWatch, apCostWatch].forEach((set) => set.forEach((w) => { if (w.gen != null && w.gen !== S.gen) set.delete(w); }));
+    if (trAp && trAp.gen !== S.gen) trAp = null;
+    S.trReread = null;  // the dashboard's record re-read, set again when a Home mounts its record
+  }
   // A day a page names ("Today", "Yesterday", "Today (UTC)") is the day it drew on. When the reader's day or the UTC
   // day turns while the page is open, each dayWatch draws again from what the page already holds, with no read: a tab
   // left open past midnight said "Today" over yesterday's lines until a read changed something, and for good while its
@@ -3124,7 +3135,7 @@
       host.querySelector('.trpanel').innerHTML = trackRecordPanel(d.modes[t], t, d.thresholds);
       // The empty paper record's copy depends on the autopilot switch; syncApCopy repaints it on a flip
       // (the record itself only repaints when the server's 60s cache moves, so it kept "Go to Deploy").
-      trAp = { host, on: apSwitchOn(), repaint: () => setTab(t) };
+      trAp = { host, on: apSwitchOn(), repaint: () => setTab(t), gen: S.gen };
       try { localStorage.setItem('tau_tr_tab', t); } catch (e) { /* private mode */ }
     };
     host.querySelectorAll('[data-trtab]').forEach((b) => (b.onclick = () => setTab(b.dataset.trtab)));
