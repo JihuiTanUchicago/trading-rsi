@@ -3140,6 +3140,12 @@ span.mark-old, span.mark-old .gain, span.mark-old .loss { color: var(--ink-3); }
   /* Home's book line: a phrase kept on one line ("after Kalshi fees and the spread") is one box that drops to its
      own line whole and, wider than the line at 200% text, wraps inside, its (i) kept with the last word. */
   .portfolio-return > .nobr { display: inline-block; max-width: 100%; white-space: normal; }
+  /* Phone overflow walk 2026-11-01: a stacked row's market name with no spaces (Strategies, a session's results)
+     scrolled its sheet 33px at 360px. */
+  .stack tbody td .tick { overflow-wrap: anywhere; }
+  /* An opened card's "Later-period P&L −$12,345.67" ran past the card at 200% text. It still drops to a line of its
+     own whole; only a fact wider than the whole line wraps inside itself. */
+  .dep-evidence[open] .dep-fact { display: inline-block; max-width: 100%; white-space: normal; }
 }
 /* Touch: every control at least 44px tall (links set in a line of text stay 40px or more). Inline links
    grow with padding, which leaves the line box alone; block links pair it with a negative margin so the
@@ -3266,3 +3272,16 @@ input[type=checkbox]:focus-visible { outline: 2px solid var(--ink); outline-offs
    It is one box, so it drops to a line of its own rather than split; a box wider than its line (200% text in a
    phone's half-width figure) wraps inside itself instead of pushing the page sideways. */
 a.csv-link { display: inline-block; max-width: 100%; white-space: normal; }
+
+/* Phone overflow walk 2026-11-01 (390x844 and 360x780, normal and 200% text, every page with every details, fold and
+   panel open; long titles, one with no spaces, long city and team names, long URLs). Each rule stopped something running
+   past the screen's edge or making its box scroll sideways: a strategy's thesis with a URL (383px), a long market name
+   in the research form's market list (150px), a spec rule's long feature name, the admin activity feed's URL, and the
+   positions list's strategy title with no spaces (the sheet scrolled 445px). A word wider than its line breaks there. */
+.paper-ab, .rules li, .mktrow-name, .sys-feed li, .position-strategy { overflow-wrap: anywhere; }
+/* At 200% text: "Stop deployments (paper, paper)" ran 14-44px past on one line; a reaction's hidden names (laid out
+   beside the button, and so widening the page 114px) take room only while they show. */
+#stop-dep { white-space: normal; }
+.rxtip { display: none; }
+.rx:hover .rxtip, .rx:focus-visible .rxtip { display: block; }
+/* The walk's phone-only rules (a stacked row's market name, an opened card's long fact) are in the last phone block. */

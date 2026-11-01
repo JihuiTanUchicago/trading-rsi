@@ -2447,6 +2447,13 @@ body.landing-body .apf { display: none; }
   #openpos .stack .pos-why { min-width: 0; }
   /* Funds' "Show older entries" and Billing's "Download receipt (CSV)" wrap inside the button, not past the page. */
   .ledger-older .btn, .sect-head > a.btn { max-width: 100%; white-space: normal; }
+  /* Phone overflow walk 2026-11-01: a stacked row's market name with no spaces (Deploy 111px, Strategies, a
+     session's results) scrolled its sheet sideways. */
+  .stack tbody td .tick { overflow-wrap: anywhere; }
+  /* Explore's market chip ("Truth or Consequences, New Mexico (…)") held its row 290px wide: each part still drops to
+     a line of its own whole, and only one wider than the line wraps inside itself. */
+  .t-explore td.name .mk { max-width: 100%; white-space: normal; }
+  .t-explore td.name .mk > .nobr { display: inline-block; max-width: 100%; white-space: normal; }
 }
 /* Touch: every control at least 44px tall (links set in a line of text stay 40px or more). Inline links
    grow with padding, which leaves the line box alone; block links pair it with a negative margin so the
@@ -2567,3 +2574,20 @@ input[type=checkbox]:focus-visible { outline: 2px solid var(--ink); outline-offs
    It is one box, so it drops to a line of its own rather than split; at 200% text, in a phone's half-width figure,
    nowrap pushed Home 93px sideways (walked 2026-10-31), so a box wider than its line wraps inside itself. */
 a.csv-link { display: inline-block; max-width: 100%; white-space: normal; }
+
+/* Phone overflow walk 2026-11-01 (390x844 and 360x780, normal and 200% text, every page with every details, fold and
+   panel open; long titles, one with no spaces, long city and team names, long URLs). Each rule stopped something running
+   past the screen's edge or making its box scroll sideways: a strategy's thesis with a URL (437px), a long market name
+   in the research form's market list (189px), a spec rule's long feature name, the admin activity feed's URL, and in
+   Community a shared strategy's title with no spaces (549px) and a long name over a post. A word wider than its line
+   breaks there. */
+.paper-ab, .rules li, .mktrow-name, .sys-feed li, .post-head b, .snap-head b { overflow-wrap: anywhere; }
+.snap-head b { min-width: 0; }
+/* At 200% text: "Stop deployments (paper, paper)" (134px past), the example session's "Describe your own idea", the
+   legal pages' links and "Passed Deployment candidate" in How research works stayed on one line past the edge; a
+   reaction's hidden names (laid out beside the button, and so widening the page 179px) take room only while they show. */
+#stop-dep, .run-next .btn, .run-end .btn { white-space: normal; max-width: 100%; }
+.legal-nav, .node-k { flex-wrap: wrap; }
+.rxtip { display: none; }
+.rx:hover .rxtip, .rx:focus-visible .rxtip { display: block; }
+/* The walk's phone-only rules (a stacked row's market name, Explore's market chip) are in the last phone block. */

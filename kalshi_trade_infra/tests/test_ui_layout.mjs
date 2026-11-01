@@ -1055,3 +1055,67 @@ test('Research loop diagram: a stage name keeps its word and the names wrap, in 
     assert.equal(all.filter((r) => sels(r).includes('.chart text')).length, 1, file);
   }
 });
+
+// Phone overflow walk 2026-11-01 (Playwright, 390x844 and 360x780 with a touch pointer, normal and 200% text, both
+// themes, every route with every <details>, fold, toggle, the bell, the account menu and the autopilot panel open; long
+// titles, one with no spaces, long weather-city and team names, long URLs, five-figure P&L). Measured against the
+// phone's own width: anything whose right edge passed it, and any sheet that scrolled sideways on a phone.
+for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css']]) {
+  const all = rules(read(file));
+  test(`${bundle}: a long word breaks inside a thesis, a spec rule, a market-list name and the admin feed instead of widening the page`, () => {
+    // A thesis with a URL ran 383-437px past at 390px; a long market name in the research form 150-189px; a spec rule's
+    // feature name 37px at 360px; the System feed's URL scrolled its list 346px sideways.
+    for (const sel of ['.paper-ab', '.rules li', '.mktrow-name', '.sys-feed li']) assert.equal(decl(all, sel, 'overflow-wrap'), 'anywhere', sel);
+    // A stacked row's market name with no spaces scrolled its sheet (Deploy 111px in Tau, Strategies and a session's
+    // results 33px at 360px). Phone only: a desktop table's column keeps its width.
+    assert.equal(decl(all, '.stack tbody td .tick', 'overflow-wrap', PHONE), 'anywhere');
+    assert.equal(decl(all, '.stack tbody td .tick', 'overflow-wrap'), undefined);
+    assert.equal(decl(all, '.tick', 'overflow-wrap'), undefined, 'a ticker elsewhere is left alone');
+  });
+  test(`${bundle}: at 200% text "Stop deployments (…)" wraps inside itself, and a reaction's hidden names take no room`, () => {
+    assert.equal(decl(all, '#stop-dep', 'white-space'), 'normal');
+    // The names box (opacity 0, laid out beside the button) widened Community 114-209px at 200% text.
+    assert.equal(decl(all, '.rxtip', 'display'), 'none');
+    assert.equal(decl(all, '.rx:hover .rxtip', 'display'), 'block');
+    assert.equal(decl(all, '.rx:focus-visible .rxtip', 'display'), 'block');
+    assert.equal(decl(all, '.rx:hover .rxtip', 'opacity'), '1');
+  });
+}
+
+test('Meridian: an opened card\'s long "Later-period P&L" fact drops whole and wraps only when wider than the line, and the positions list\'s strategy title breaks', () => {
+  const all = rules(read('app.meridian.css'));
+  // "Later-period P&L −$12,345.67" ran past an Overview card at 200% text on a 360px phone.
+  const sel = '.dep-evidence[open] .dep-fact';
+  assert.equal(decl(all, sel, 'display', PHONE), 'inline-block');
+  assert.equal(decl(all, sel, 'max-width', PHONE), '100%');
+  assert.equal(decl(all, sel, 'white-space', PHONE), 'normal');
+  assert.equal(decl(all, '.dep-evidence .dep-fact', 'white-space'), 'nowrap', 'a fact that fits still never splits');
+  assert.equal(decl(all, sel, 'white-space'), undefined, 'a desktop table\'s name column is left as it was');
+  // A strategy title with no spaces over its open positions scrolled Home's positions sheet 445px sideways.
+  assert.equal(decl(all, '.position-strategy', 'overflow-wrap'), 'anywhere');
+});
+
+test('Tau: Community\'s names and shared titles, Explore\'s market chip, and 200%-text buttons and links stay inside a phone', () => {
+  const all = rules(read('app.css'));
+  // A shared strategy's title with no spaces pushed Community 549px sideways; a long author name 30px.
+  assert.equal(decl(all, '.snap-head b', 'overflow-wrap'), 'anywhere');
+  assert.equal(decl(all, '.snap-head b', 'min-width'), '0');
+  assert.equal(decl(all, '.post-head b', 'overflow-wrap'), 'anywhere');
+  // Explore's "Truth or Consequences, New Mexico (…)" chip held its row 290px wide: a part drops whole, and wraps inside
+  // itself only when wider than the line. Phone only, so a desktop table keeps its columns.
+  assert.equal(decl(all, '.t-explore td.name .mk', 'white-space', PHONE), 'normal');
+  assert.equal(decl(all, '.t-explore td.name .mk', 'max-width', PHONE), '100%');
+  const part = '.t-explore td.name .mk > .nobr';
+  assert.equal(decl(all, part, 'display', PHONE), 'inline-block');
+  assert.equal(decl(all, part, 'max-width', PHONE), '100%');
+  assert.equal(decl(all, part, 'white-space', PHONE), 'normal');
+  assert.equal(decl(all, '.t-explore td.name .mk', 'white-space'), undefined);
+  // 200% text: the example session's "Describe your own idea" (20-50px), the legal pages' links (23px) and "Passed
+  // Deployment candidate" in How research works (12px).
+  for (const sel of ['.run-next .btn', '.run-end .btn']) {
+    assert.equal(decl(all, sel, 'white-space'), 'normal', sel);
+    assert.equal(decl(all, sel, 'max-width'), '100%', sel);
+  }
+  assert.equal(decl(all, '.legal-nav', 'flex-wrap'), 'wrap');
+  assert.equal(decl(all, '.node-k', 'flex-wrap'), 'wrap');
+});
