@@ -43,7 +43,8 @@ NOTICES = [
 ]
 BELL_SQL = ("SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at",
             "SELECT COUNT(*) AS c FROM app_notifications")
-# The bell's first page with its unread count riding it (repo.notifications_first_page): one statement.
+# The bell's first page with its unread count and count of every notice riding it (repo.notifications_first_page):
+# one statement.
 BELL_FIRST = "AS unread_all FROM app_notifications"
 
 # Every statement a shell sends, counted cold (a page's first load after a restart: no memo, no minute cache, the
@@ -117,7 +118,7 @@ def shell_web(production, outside, monkeypatch):
         ACCOUNT: [_account_row(10.0)],
         "FROM app_stripe_customers": [{"user_id": 7, "stripe_customer_id": "cus_1", "default_pm_id": "pm_1",
                                        "auto_reload": 0, "reload_amount": 20, "reload_threshold": 5}],
-        BELL_FIRST: [dict(n, unread_all=2) for n in NOTICES],
+        BELL_FIRST: [dict(n, unread_all=2, total_all=len(NOTICES)) for n in NOTICES],
         "SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at": NOTICES,
         "SELECT COUNT(*) AS c FROM app_notifications": [{"c": 2}],
     })

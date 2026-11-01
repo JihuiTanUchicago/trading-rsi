@@ -225,3 +225,30 @@ def test_a_run_the_window_cuts_off_is_left_whole_for_the_next_page():
     assert (len(items), items[-1]["more"], older, nxt) == (17, 83, True, ended[bell.READ_ROWS - 1]["id"])
     # Nothing older: no cursor.
     assert bell.page(rows[:5])[1:] == (False, None)
+
+
+def test_the_first_page_says_how_many_notices_there_are_and_older_pages_dont(monkeypatch):
+    # Walk 2026-11-01: an account with 300 notices; the bell listed the newest and never said how many there were.
+    compose_combined_reads(monkeypatch)
+    store = [_row(300 - i, "share", "/strategies/%d" % i) for i in range(300)]
+    monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, limit=20, before=0: [
+        dict(r) for r in store if not before or r["id"] < before][:limit])
+    monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 0)
+    ctx = lambda q=None: type("C", (), {"cur": None, "uid": 1, "query": dict(q or {})})()
+    first = server.notifications(ctx())
+    assert first["total"] == 300 and first["older"] is True
+    assert "total" not in server.notifications(ctx({"before": str(first["next_before"])}))
+
+
+def test_marking_read_marks_up_to_the_newest_notice_the_bell_showed(monkeypatch):
+    # A notice that arrives between the bell's read and its mark-read write stays new: the write names the newest
+    # notice the list showed. A tab loaded before the bell sent it (no body) marks every unread one, as before.
+    asked = []
+    monkeypatch.setattr(server.repo, "mark_notifications_read", lambda cur, uid, upto=None: asked.append(upto) or 0)
+    ctx = lambda body=None: type("C", (), {"cur": None, "uid": 1, "query": {}, "body": body})()
+    for body, want in (({"upto": 812}, 812), ({"upto": "812"}, 812), ({}, None), (None, None), ({"upto": "x"}, None),
+                       ({"upto": -4}, None), ({"upto": [1]}, None)):
+        assert server.mark_notifications_read(ctx(body)) == {"ok": True}
+        assert asked[-1] == want, body
+    assert server.mark_notifications_read(type("C", (), {"cur": None, "uid": 1, "query": {}})()) == {"ok": True}
+    assert asked[-1] is None

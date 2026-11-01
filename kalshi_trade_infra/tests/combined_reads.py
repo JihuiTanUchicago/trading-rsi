@@ -16,7 +16,9 @@ def _account_reads(cur, uid):
 
 
 def _notifications_first_page(cur, uid, limit):
-    return repo.list_notifications(cur, uid, limit=limit), repo.count_unread_notifications(cur, uid)
+    # Every notice's count, from the faked list itself (read first, so the window's read is the last one asked).
+    total = len(repo.list_notifications(cur, uid, limit=10 ** 9))
+    return repo.list_notifications(cur, uid, limit=limit), repo.count_unread_notifications(cur, uid), total
 
 
 def _kalshi_key_ids(cur, uid):

@@ -436,9 +436,10 @@ def add_notification_once(cur, user_id: int, kind: str, body: str, link: str) ->
 
 def list_notifications(cur, user_id: int, limit: int = 20, before: int = 0) -> List[Dict]:
     """The user's newest notices (older than notice id `before`, when given: the bell's next page). `gone` is 1 for
-    one about a strategy that is no longer theirs (deleted since, as a shared copy can be): its strategy row, joined
-    by primary key in the same read (one eq_ref lookup a row; the owner is checked after the join, so the user's
-    index of strategies is never walked), is missing.
+    one about a strategy that is no longer theirs (deleted since, as a shared copy can be), or about a research
+    session that is no longer there (a research_done notice outlives its session): its strategy or run row, joined by
+    primary key in the same read (one eq_ref lookup a row; the owner is checked after the join, so the user's index
+    of strategies or runs is never walked), is missing.
 
     An older page reads the user's own index (idx_notif_user, as the first page does): left to itself on a small
     table the optimizer walked the primary key down from `before`, through every user's notices. No index has
@@ -450,24 +451,30 @@ def list_notifications(cur, user_id: int, limit: int = 20, before: int = 0) -> L
 
 
 _NOTICES_SQL = ("SELECT n.id, n.kind, n.body, n.link, n.created_at, n.read_at, "
-                "(n.link LIKE '/strategies/%%' AND (st.id IS NULL OR st.user_id<>n.user_id)) AS gone{unread} "
+                "((n.link LIKE '/strategies/%%' AND (st.id IS NULL OR st.user_id<>n.user_id)) "
+                "OR (n.link LIKE '/research/%%' AND (ar.id IS NULL OR ar.user_id<>n.user_id))) AS gone{unread} "
                 "FROM app_notifications n{older} "
                 "LEFT JOIN app_strategies st ON n.link LIKE '/strategies/%%' AND st.id=CAST(SUBSTRING(n.link, 13) AS UNSIGNED) "
+                "LEFT JOIN app_agent_runs ar ON n.link LIKE '/research/%%' AND ar.id=CAST(SUBSTRING(n.link, 11) AS UNSIGNED) "
                 "WHERE n.user_id=%s{before} ORDER BY n.id DESC LIMIT %s")
-# count_unread_notifications' count, as one more column of the bell's first page (computed once, not per row).
-_UNREAD_COL = ", (SELECT COUNT(*) FROM app_notifications WHERE user_id=%s AND read_at IS NULL) AS unread_all"
+# count_unread_notifications' count and the user's count of every notice, as two more columns of the bell's first page
+# (each computed once, not per row).
+_UNREAD_COL = (", (SELECT COUNT(*) FROM app_notifications WHERE user_id=%s) AS total_all"
+               ", (SELECT COUNT(*) FROM app_notifications WHERE user_id=%s AND read_at IS NULL) AS unread_all")
 
 
-def notifications_first_page(cur, user_id: int, limit: int) -> Tuple[List[Dict], int]:
-    """(list_notifications' first page, count_unread_notifications) in one statement: the bell's read, which every
-    signed-in page's shell carries. The count rides each listed row; with none listed the user has no notice at
-    all, so none is unread."""
-    cur.execute(_NOTICES_SQL.format(unread=_UNREAD_COL, older="", before=""), (user_id, user_id, limit))
+def notifications_first_page(cur, user_id: int, limit: int) -> Tuple[List[Dict], int, int]:
+    """(list_notifications' first page, count_unread_notifications, every notice's count) in one statement: the bell's
+    read, which every signed-in page's shell carries. The counts ride each listed row; with none listed the user has
+    no notice at all, so none is unread."""
+    cur.execute(_NOTICES_SQL.format(unread=_UNREAD_COL, older="", before=""), (user_id, user_id, user_id, limit))
     rows = cur.fetchall()
     unread = int(rows[0]["unread_all"]) if rows else 0
+    total = int(rows[0]["total_all"]) if rows else 0
     for r in rows:
         r.pop("unread_all", None)
-    return rows, unread
+        r.pop("total_all", None)
+    return rows, unread, total
 
 
 def latest_notification(cur, user_id: int, kind: str) -> Optional[Dict]:
@@ -491,7 +498,13 @@ def count_unread_notifications(cur, user_id: int) -> int:
     return int(cur.fetchone()["c"])
 
 
-def mark_notifications_read(cur, user_id: int) -> int:
+def mark_notifications_read(cur, user_id: int, upto: Optional[int] = None) -> int:
+    """Mark the user's unread notices read. With `upto` (the newest notice id the bell showed), only those up to it:
+    one that arrived after the list was read stays new until a list that shows it is opened."""
+    if upto:
+        cur.execute("UPDATE app_notifications SET read_at=%s WHERE user_id=%s AND read_at IS NULL AND id<=%s",
+                    (now_utc(), user_id, int(upto)))
+        return cur.rowcount
     cur.execute("UPDATE app_notifications SET read_at=%s WHERE user_id=%s AND read_at IS NULL", (now_utc(), user_id))
     return cur.rowcount
 
