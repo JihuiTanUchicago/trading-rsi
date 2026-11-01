@@ -50,6 +50,7 @@ import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
+import {midnightCases} from './midnight_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
 import {badConnectionCases} from './bad_connection_frontend_cases.mjs';
@@ -6901,6 +6902,7 @@ a11yCases({name: 'Meridian', frontend, storageFor: m => m, billingPage, cardedBi
   dashboard: dashboardData, fundsData: funds, apStatus});
 creditsCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, apStatus});
 timeTruthCases({name: 'Meridian', billingPage, cardedBilling});
+midnightCases({name: 'Meridian', frontend, billingPage, cardedBilling, dashboard: dashboardData, storageFor: m => m});
 writeWaitCases({name: 'Meridian', frontend, billingPage, cardedBilling, postRequests, storageFor: m => m});
 declinedCardCases({name: 'Meridian', frontend, dashboard: dashboardData});
 flakyNetworkCases({name: 'Meridian', frontend});

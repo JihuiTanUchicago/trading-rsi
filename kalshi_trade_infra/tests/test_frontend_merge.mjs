@@ -49,6 +49,7 @@ import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {creditsCases, declinedCardCases} from './credits_frontend_cases.mjs';
 import {timeTruthCases} from './time_truth_frontend_cases.mjs';
+import {midnightCases} from './midnight_frontend_cases.mjs';
 import {writeWaitCases} from './write_wait_frontend_cases.mjs';
 import {flakyNetworkCases} from './flaky_network_frontend_cases.mjs';
 import {badConnectionCases} from './bad_connection_frontend_cases.mjs';
@@ -6395,6 +6396,7 @@ a11yCases({name: 'Tau', frontend, storageFor: m => ({getItem: k => m.get(k) ?? n
   source, strategyFrontend, detailStrategy, dashboard: emptyDashboard, fundsData: funds, apStatus: apOn});
 creditsCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, apStatus: apOn});
 timeTruthCases({name: 'Tau', billingPage, cardedBilling});
+midnightCases({name: 'Tau', frontend, billingPage, cardedBilling, dashboard: emptyDashboard, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 writeWaitCases({name: 'Tau', frontend, billingPage, cardedBilling, postRequests, storageFor: m => ({getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v))})});
 declinedCardCases({name: 'Tau', frontend, dashboard: emptyDashboard});
 flakyNetworkCases({name: 'Tau', frontend});
