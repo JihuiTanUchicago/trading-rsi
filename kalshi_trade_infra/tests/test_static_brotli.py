@@ -28,9 +28,11 @@ class _StandIn:
 
     def __init__(self):
         self.calls = 0
+        self.qualities = []
 
     def compress(self, body, mode=None, quality=None):
         self.calls += 1
+        self.qualities.append(quality)
         return b"BR:" + body[::-1]
 
     @staticmethod
@@ -154,6 +156,20 @@ def test_api_responses_never_go_out_as_brotli(codec):
     assert webperf.pick_encoding(MODERN, "text/javascript", 50000, allow_br=True) == "br"
     assert webperf.pick_encoding(MODERN, "font/woff2", 50000, allow_br=True) is None  # already compressed
     assert webperf.pick_encoding(MODERN, "text/css", 200, allow_br=True) is None  # too small to bother
+
+
+def test_the_page_shell_goes_out_as_brotli_at_its_per_request_quality(web, standin):
+    # Every load, cold or warm, waits for the whole shell before the page's code runs: br sends it ~12% smaller than
+    # gzip, at a quality fast enough to run on every request. Only to a client that asks; the page is the same.
+    plain_r, plain = _get(web, "/")
+    assert plain_r.getheader("Content-Encoding") is None and b'id="tau-boot"' in plain
+    r, raw = _get(web, "/", MODERN)
+    assert r.getheader("Content-Encoding") == "br" and standin.decompress(raw) == plain
+    assert standin.qualities == [webperf.SHELL_BR_QUALITY] and webperf.SHELL_BR_QUALITY < 11
+    assert "Accept-Encoding" in r.headers.get_all("Vary") and "Cookie" in r.headers.get_all("Vary")
+    r, raw = _get(web, "/", "gzip")
+    assert r.getheader("Content-Encoding") == "gzip" and gzip.decompress(raw) == plain
+    assert len(standin.qualities) == 1, "a gzip client never costs a brotli pass"
 
 
 def test_one_weak_etag_per_version_and_304_under_every_encoding(web, codec):

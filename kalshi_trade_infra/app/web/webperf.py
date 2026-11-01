@@ -1,6 +1,7 @@
 """Request timing for Tau's web server: a bounded in-memory window of recent requests, the
 per-route p50/p95 and 5xx rate over it, gzip for compressible responses (and brotli for static
-files, when the brotli module is installed), and the cache headers and validators for static files.
+files and the page shell, when the brotli module is installed), and the cache headers and validators
+for static files.
 
 Stdlib only, apart from the optional brotli. The window lives in the web process, so it resets on a
 restart (a deploy); the on-box watchdog reads it from /internal/perf, which only answers loopback callers.
@@ -130,7 +131,8 @@ def wants_gzip(accept_encoding: Optional[str], ctype: str, length: int) -> bool:
 
 def pick_encoding(accept_encoding: Optional[str], ctype: str, length: int, allow_br: bool) -> Optional[str]:
     """The content coding to send: br, gzip, or None for as is. br only where allowed (static files,
-    compressed once and cached) and only with the brotli module installed; it wins a tie with gzip."""
+    compressed once and cached, and the page shell, at SHELL_BR_QUALITY) and only with the brotli module
+    installed; it wins a tie with gzip. JSON replies stay gzip."""
     if not compressible(ctype, length):
         return None
     gz = _accepts(accept_encoding, "gzip")
@@ -140,9 +142,17 @@ def pick_encoding(accept_encoding: Optional[str], ctype: str, length: int, allow
     return "gzip" if gz > 0 else None
 
 
+# The signed-in page shell is written per request (it carries the account and the page's first reads: ~150KB on a
+# heavy account) and every load, cold or warm, waits for all of it before the page's code runs. Brotli at 5 sends it
+# ~12% smaller than gzip (30.7KB -> 27.1KB; ~18ms on a phone's slow network) for ~4ms of compression; 11 would take
+# ~25ms a request for another 1%.
+SHELL_BR_QUALITY = 5
+
+
 def _compress(coding: str, body: bytes, static: bool) -> bytes:
     if coding == "br":
-        return _brotli.compress(body, mode=_brotli.MODE_TEXT, quality=11)  # ~1s for app.js, once per version
+        # ~1s for app.js at 11, once per version; a page shell, every request, at SHELL_BR_QUALITY.
+        return _brotli.compress(body, mode=_brotli.MODE_TEXT, quality=11 if static else SHELL_BR_QUALITY)
     return gzip.compress(body, compresslevel=6 if static else 5, mtime=0)
 
 
