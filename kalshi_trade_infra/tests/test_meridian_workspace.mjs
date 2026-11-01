@@ -1524,6 +1524,18 @@ test('Overview paper performance preserves disclosure and focus on polls and red
   assert.equal(reads, 8); assert.equal(postRequests(f).length, 0);
 });
 
+test('Home builds its Closed P&L curve once for its first paint, into its box at the box\'s width', async () => {
+  const data = dashboardData({paper: {daily: [{d: '2026-10-16', pnl: -4}, {d: '2026-10-17', pnl: 0}, {d: '2026-10-18', pnl: 1}]}});
+  const f = frontend({fetchImpl: path => { assert.equal(path, '/api/dashboard'); return response(data); }});
+  await f.viewDashboard();
+  // The board's markup holds the empty box; the curve goes into it once (it was built in the markup too, then again).
+  assert.match(f.root.querySelector('#main').innerHTML, /<div class="paper-plot"><\/div><\/details>/);
+  const plot = f.root.querySelector('.paper-plot');
+  assert.equal(plot.writes, 1); assert.equal(plot.querySelectorAll('svg.chart').length, 1);
+  assert.equal(plot.querySelector('svg.chart').getAttribute('viewBox'), '0 0 760 180', 'at the box\'s width');
+  assert.equal(plot.querySelectorAll('.chart-sample').length, 3);
+});
+
 // Chart walk 2026-11-01, 200% text on a 390px phone: the Overview's Closed P&L drew "Oct 24" into "Oct 31", lost the "$"
 // of "$30" off its left edge, and its readout box (148 wide) was narrower than its words. Its labels are set at 24px
 // there: it makes room for them at that size, and at the theme's 12px it is drawn as before.

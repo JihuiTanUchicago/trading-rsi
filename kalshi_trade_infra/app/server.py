@@ -631,16 +631,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _send(self, status: int, ctype: str, body: bytes, extra: Optional[List[Tuple[str, str]]] = None,
-              z_key: Optional[Tuple[str, str]] = None) -> None:
+              z_key: Optional[Tuple[str, str]] = None, shell: bool = False) -> None:
         """Write a whole response, compressed when the client accepts it and it's worth it (JSON, HTML,
         JS, CSS): gzip, or brotli for a static file (z_key = (name, content hash): compressed once per
-        version). CloudFront compresses none of it for us: its cache is off for the app, and on
+        version) and for the page shell (`shell`, at a quality fast enough for every request: webperf).
+        CloudFront compresses none of it for us: its cache is off for the app, and on
         /static/* it passes on what we compressed. Its /static/* cache key holds the normalized
         Accept-Encoding (br,gzip | gzip | none), so a br body is only ever served to a br client."""
         req_headers = getattr(self, "headers", None)
         if webperf.compressible(ctype, len(body)):
             coding = webperf.pick_encoding(req_headers.get("Accept-Encoding") if req_headers else None,
-                                           ctype, len(body), allow_br=z_key is not None)
+                                           ctype, len(body), allow_br=z_key is not None or shell)
             extra = list(extra or [])
             if coding is not None:
                 body = webperf.compress(body, coding, z_key)
@@ -782,7 +783,7 @@ class Handler(BaseHTTPRequestHandler):
             # One that carries the account is private: no shared cache (CloudFront) may keep it at all.
             self._send(200, "text/html; charset=utf-8", body,
                        [("Cache-Control", "no-cache" if account is None else "private, no-cache"), ("Vary", "Cookie")]
-                       + [("Set-Cookie", c) for c in cookies])
+                       + [("Set-Cookie", c) for c in cookies], shell=True)
             return
         if not path.startswith("/static/"):
             return self._send_page_not_found()
