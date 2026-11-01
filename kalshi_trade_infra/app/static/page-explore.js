@@ -282,7 +282,7 @@ window.TauPage('explore', (T) => {
     const f = { q: q.get('q') || '', sort: ['v24', 'oi', 'last'].includes(q.get('sort')) ? q.get('sort') : 'v24', page: Math.max(0, +(q.get('page') || 0)), show: exploreShowOf(q.get('show')) };
     // Tau heads the list with its figures under the title and its sort as chips over the list; Meridian keeps its
     // figures in the filter row and sorts by its table's column heads.
-    if (tau) shell('/explore', boardTitle('Explore', 'Every market Tau is tracking right now, across crypto, politics, sports, weather and more, hottest first. Prices refresh each minute.') +
+    if (tau) shell('/explore', boardTitle('Explore', 'Crypto and sports markets Tau is tracking right now, hottest first. Prices refresh each minute.') +
       '<dl class="figures measure" id="xfigs" style="margin-top:14px"></dl><p class="stale-note" id="xstale" role="status"></p>', `
       <div class="section-head filters">
         <label class="field xsearch" style="margin:0"><span class="vh">Search markets</span>
@@ -291,7 +291,7 @@ window.TauPage('explore', (T) => {
         <div class="chips" role="group" aria-label="Sort by">${[['v24', 'Hottest'], ['oi', 'Open interest'], ['last', 'Price']].map(([v, l]) => `<button class="chip" data-sort="${v}" aria-pressed="${f.sort === v}">${l}</button>`).join('')}</div>
       </div>
       <div id="xbody" style="margin-top:16px">${loading(240)}</div>`);
-    else shell('/explore', `<div class="board-title explore-heading"><h1 class="page">Explore</h1>${pageLede('Every market Tau is tracking right now, across crypto, politics, sports, weather and more, hottest first. Prices refresh each minute.')}
+    else shell('/explore', `<div class="board-title explore-heading"><h1 class="page">Explore</h1>${pageLede('Crypto and sports markets Tau is tracking right now, hottest first. Prices refresh each minute.')}
       <div class="section-head filters explore-filters">
         <label class="field xsearch" style="margin:0"><span class="vh">Search markets</span>
           <input class="input" id="xq" type="search" placeholder="Search markets" value="${esc(f.q)}" autocomplete="off"></label>

@@ -6600,7 +6600,7 @@ test('Meridian: Deploy, Explore, Settings and Community each say under their nam
     || page === 'Community' && community.includes(`const lede = '${text}';`) && community.includes(`boardTitle('Community', lede)`) && community.includes('${pageLede(lede)}');
   const LEDES = {
     Deploy: 'Your strategies trading now.',
-    Explore: 'Every market Tau is tracking right now, across crypto, politics, sports, weather and more, hottest first. Prices refresh each minute.',
+    Explore: 'Crypto and sports markets Tau is tracking right now, hottest first. Prices refresh each minute.',
     Settings: 'How Tau looks and works for you.',
     Community: 'Share a strategy, an idea, or how your money is doing. Like and reply to other traders.',
   };
