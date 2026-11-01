@@ -19,7 +19,7 @@ from app.web.caches import _shared, _shared_kept
 from app.web.http import ApiError, Ctx, _int_param, _int_query
 from app.web.routes.deployments import _paper_record
 from app.web.routes.explore import _efloat, _explore_feed, _feed_mid, _ticker_close_at
-from app.web.routes.strategies import (HELD_BACK, _attach_no_record, _attach_session_real_records, _autopilot_puts_on_paper,
+from app.web.routes.strategies import (HELD_BACK, _attach_no_record, _attach_past_records, _attach_session_real_records, _autopilot_puts_on_paper,
                                        _held_back_lines, _later_verdicts, _owned_strategy, _research_pass_verdicts, _strategy_card, warm_dev_curves)
 from app.web.settings import MAX_ACTIVE_RESEARCH, MAX_RESEARCH_PER_DAY
 from app.web.views import (_gate_lines, _require_billing_ready, _run_wait, _silent_before, _with_gate_lines, credit_exact,
@@ -348,6 +348,10 @@ def get_run(ctx: Ctx):
     # A deployed pass's paper record since deploying (`real`, as /api/strategies sends it), so its "Already
     # deployed" line says what it has made on paper. One read, only when the session has a deployed strategy.
     _attach_session_real_records(ctx.cur, ctx.uid, cards)
+    # A pass whose deployments were removed says what they made, per book, as its Strategies row does ("Removed from
+    # paper: +$0.27 · 1 trade"): the session page said only "Open it to deploy on paper" for a strategy with a paper
+    # record and positions still open (audit 2026-11-01). One read, only when a pass has a removed deployment.
+    _attach_past_records(ctx.cur, ctx.uid, cards, [s["id"] for s in mine if s.get("removed_deps")])
     # A poll (after=<its last line>) reads every line since, as it always has. The first read sends the newest
     # RUN_EVENTS_PAGE lines, and what the page counts from the older ones (_run_tally) when there are more.
     earlier: Optional[Dict] = None

@@ -541,6 +541,24 @@ export function runPageCases({name, frontend}) {
     assert.doesNotMatch(html, /\$3\.70/);  // paper and demo are never added
   });
 
+  // Audit 2026-11-01: a pass whose paper deployment was removed (one closed trade, two positions still open) read only
+  // "Open it to deploy on paper" on its session page, while its Strategies row said "Removed from paper: +$0.27 · 1
+  // trade". The session endpoint now sends the list's `past`, and the row says it, with what the book still holds.
+  test(`${name}: a finished session's removed pass says what its removed deployments made and still hold, as its list row does`, async () => {
+    const past = {paper: {pnl: 0.27, trades: 1, deployments: 1, open: 2}};
+    const f = await open({status: 'succeeded', stop_reason: 'limit', hypotheses_tried: 1, strategies_passed: 1}, [],
+      [{id: 42, title: 'Stopped with holdings', status: 'passed', market: 'btc15m', direction: 'mean_reversion',
+        in_sample: {pnl: 14.2, trades: 60}, out_of_sample: {pnl: 8.52, trades: 30, days: 12}, deployed: false, past}]);
+    const text = list(f).replace(/<[^>]*>/g, '').replace(/⁠/g, '');
+    assert.match(text, /Removed from paper: \+\$0\.27\u00a0· 1 trade\u00a0· 2 still open/);
+    assert.equal(text.match(/Removed from paper/g).length, 1);
+    // Without a removed book the row says nothing of one.
+    const g = await open({status: 'succeeded', stop_reason: 'limit', hypotheses_tried: 1, strategies_passed: 1}, [],
+      [{id: 42, title: 'Fresh pass', status: 'passed', market: 'btc15m', direction: 'mean_reversion',
+        in_sample: {pnl: 14.2, trades: 60}, out_of_sample: {pnl: 8.52, trades: 30, days: 12}, deployed: false}]);
+    assert.doesNotMatch(list(g), /Removed from|still open/);
+  });
+
   // Walk 2026-10-30: a session with no picked market opened "Agent’s choice · Session · …", nothing saying
   // that was its market. The header names it as a market; the session still sends no market.
   // The line under the title then repeated it ("Any market (agent’s choice) · Session · …"), and a session with

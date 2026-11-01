@@ -186,15 +186,20 @@ def removed_totals_by_strategy(cur, user_id: int, strategy_ids: List[int]) -> Li
     idx_dep_strategy, their closed positions through idx_pos_dep. Books stay apart (one row per
     mode). `sim_trades` counts the closed paper rows filled through the simulated venue (order_ref 'sim:',
     as realistic_paper_closed counts them), from the same rows: the rest of a paper book's are instant fills,
-    which the track record leaves out. Display only: the strategies list's "Removed from paper" line."""
+    which the track record leaves out. `open_positions` counts their positions still open, from the same pass
+    over idx_pos_dep (a removed deployment's holdings run to settlement): "Removed from paper" said nothing of
+    two positions it still held while Home, Deploy and the track record listed them (audit 2026-11-01).
+    Display only: the strategies list's and a research session's "Removed from paper" line."""
     ids = sorted({int(i) for i in strategy_ids})
     if not ids:
         return []
     cur.execute(
-        "SELECT d.strategy_id, d.mode, COUNT(DISTINCT d.id) AS deployments, COUNT(p.id) AS trades,"
-        " COALESCE(SUM(p.pnl),0) AS pnl,"
-        " COUNT(CASE WHEN p.mode='paper' AND p.order_ref LIKE %s THEN 1 END) AS sim_trades FROM app_deployments d"
-        " LEFT JOIN app_positions p FORCE INDEX (idx_pos_dep) ON p.deployment_id=d.id AND p.status='closed'"
+        "SELECT d.strategy_id, d.mode, COUNT(DISTINCT d.id) AS deployments,"
+        " COUNT(CASE WHEN p.status='closed' THEN 1 END) AS trades,"
+        " COALESCE(SUM(CASE WHEN p.status='closed' THEN p.pnl END),0) AS pnl,"
+        " COUNT(CASE WHEN p.status='closed' AND p.mode='paper' AND p.order_ref LIKE %s THEN 1 END) AS sim_trades,"
+        " COUNT(CASE WHEN p.status='open' THEN 1 END) AS open_positions FROM app_deployments d"
+        " LEFT JOIN app_positions p FORCE INDEX (idx_pos_dep) ON p.deployment_id=d.id AND p.status IN ('closed','open')"
         " WHERE d.user_id=%s AND d.status='stopped' AND d.strategy_id IN (" + ",".join(["%s"] * len(ids)) + ")"
         " GROUP BY d.strategy_id, d.mode",
         ("sim:%", int(user_id), *ids),

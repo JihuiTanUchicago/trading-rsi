@@ -214,6 +214,16 @@ export function strategyListCases({name, frontend, detailStrategy}) {
     assert.doesNotMatch(row(f, {kind: 'code', research_only: true, past: {paper: {pnl: 1, trades: 1}}}), /Removed from/);
   });
 
+  test(`${name}: a removed book that still holds positions says how many, as the track record's "+2 open" does`, () => {
+    // Audit 2026-11-01: "Removed from paper: +$0.27 · 1 trade" read as a book that was done, while Home, Deploy and the
+    // track record ("1 +2 open") listed the two positions its removed deployment still held. The server's past.<book>.open.
+    const f = frontend({fetchImpl: () => response({})});
+    const html = plain(row(f, {deployed: false, past: {paper: {pnl: 0.27, trades: 1, deployments: 1, open: 2}}}));
+    assert.match(html, /Removed from paper: \+\$0\.27\u00a0· 1 trade\u00a0· 2 still open/);
+    assert.match(plain(row(f, {deployed: false, past: {demo: {pnl: 0, trades: 0, deployments: 1, open: 1}}})), /Removed from demo: no closed trades\u00a0· 1 still open/);
+    assert.doesNotMatch(plain(row(f, {deployed: false, past: {paper: {pnl: 0.27, trades: 1, deployments: 1}}})), /still open/);
+  });
+
   test(`${name}: a removed paper book says how many of its trades were instant fills, as the track record leaves them out`, () => {
     // Walk 2026-10-27: "Removed from paper: +$0.75 · 3 trades" said nothing of the instant fills among them, which the
     // track record leaves out. The server's past.paper.instant_fills says how many; demo never carries one.
