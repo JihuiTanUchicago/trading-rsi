@@ -1116,7 +1116,7 @@
   const BELL_SUM = [['deployed', (n) => `${n === 1 ? '1 strategy' : num(n) + ' strategies'} put on paper`],
     ['paused', (n) => `${num(n)} paused`], ['passed', (n) => `${num(n)} passed ${n === 1 ? 'its' : 'their'} paper test`],
     ['live_ready', (n) => `${num(n)} ${liveOpen() ? 'ready for live' : 'cleared every paper-to-live check'}`], ['reload_failed', () => 'auto-reload couldn\u2019t charge your card'],
-    ['comment', (n) => `${num(n)} comment${n === 1 ? '' : 's'}`], ['mention', (n) => `${num(n)} mention${n === 1 ? '' : 's'}`],
+    ['research_done', (n) => `${num(n)} research session${n === 1 ? '' : 's'} finished`], ['comment', (n) => `${num(n)} comment${n === 1 ? '' : 's'}`], ['mention', (n) => `${num(n)} mention${n === 1 ? '' : 's'}`],
     ['share', (n) => `${num(n)} shared with you`]];
   function bellSummary(d) {
     const by = d.unread_kinds || {};
@@ -1213,7 +1213,7 @@
       // And where the research it doesn't ring for shows: opened just after autopilot started its first session, the empty
       // bell left a new account wondering whether anything had started (walk 2026-11-01).
       // It lists the newest only: with older notices past them (the server's `older`), it says so under them.
-      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card. Research sessions don\u2019t ring it: <a class="bell-go" href="/research">Research</a> shows each one as it runs.</p>`;
+      const listHtml = d.items.length ? bellSummary(d) + d.items.map(item).join('') + (d.older ? (olderAt ? moreFoot(`<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : `<p class="bell-empty bell-older">${bellOlder(d)}</p>`) : '') : `<p class="bell-empty">No notifications yet. It rings when a strategy goes on paper or is paused, passes its paper test or ${liveOpen() ? 'is ready for live' : 'clears every paper-to-live check'}, and if auto-reload can\u2019t charge your card. It rings when a research session you started finishes, too: <a class="bell-go" href="/research">Research</a> shows each one as it runs.</p>`;
       if (drawn.list === listHtml) return;
       if (ageOnly(list, drawn.list, listHtml)) { drawn.list = listHtml; return; }
       paints++; drawn.list = listHtml; list.innerHTML = listHtml;

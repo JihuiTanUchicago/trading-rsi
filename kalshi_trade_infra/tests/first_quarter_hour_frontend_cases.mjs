@@ -4,7 +4,7 @@
 // - Before the switch and until anything is spent, the autopilot card and panel say its research cap per 24 hours
 //   beside what a session usually costs; it showed only once the first session had spent something.
 // - Deploy with nothing passed and autopilot on sends the reader to the research it is running, not to start one.
-// - The empty bell says research sessions don't ring it and links to Research, closing as the link is pressed.
+// - The empty bell says a research session you started rings it when it finishes, and links to Research, closing as the link is pressed.
 // - Funds (Tau) says paper strategies trade at real market prices, not "the real market".
 import assert from './assert_text.mjs';
 import {test} from 'node:test';
@@ -86,7 +86,7 @@ export function firstQuarterHourCases({name, frontend, dashboard, apStatus, fund
     }
   });
 
-  test(`${name}: the empty bell says research sessions don't ring it, links to Research, and closes as the link is pressed`, async () => {
+  test(`${name}: the empty bell says a finished research session rings it, links to Research, and closes as the link is pressed`, async () => {
     const f = frontend({notifications: {unread: 0, items: []}, fetchImpl: (path) => {
       if (path === '/api/notifications/read') return response({ok: true});
       if (path === '/api/autopilot/status') return response({mode: 'off'});
@@ -97,7 +97,7 @@ export function firstQuarterHourCases({name, frontend, dashboard, apStatus, fund
     const wrap = f.root.querySelector('.bell-wrap'), trig = wrap.querySelector('.bell-trig'), menu = wrap.querySelector('.bell-menu');
     await trig.onclick({stopPropagation() {}}); await settle();
     const empty = menu.querySelector('.bell-empty');
-    assert.match(empty.textContent, /^No notifications yet\. It rings when .+ Research sessions don’t ring it: Research shows each one as it runs\.$/);
+    assert.match(empty.textContent, /^No notifications yet\. It rings when .+ It rings when a research session you started finishes, too: Research shows each one as it runs\.$/);
     const go = empty.querySelector('a.bell-go');
     assert.equal(go.getAttribute('href'), '/research');
     assert.equal(menu.hidden, false);

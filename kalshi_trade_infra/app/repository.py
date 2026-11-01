@@ -38,7 +38,7 @@ from app.adapters.db.order_intent_repository import (  # noqa: F401
 )
 from app.adapters.db.agent_run_repository import (  # noqa: F401
     MAX_RESUMES, OUT_OF_CREDITS_STEP, RUN_ACTIVE, _has_progress, active_run_tally, add_event, cancel_run, claim_run, count_active_research,
-    count_runs, create_run, example_run_id, fail_abandoned_runs, finish_run, forward_verdict, forward_verdicts, get_run,
+    count_runs, create_run, example_run_id, fail_abandoned_runs, finish_run, finished_run, forward_verdict, forward_verdicts, get_run,
     heartbeat, list_runs, list_runs_version,
     load_checkpoint, pause_run, research_queue_ahead, research_week, resume_run, run_events, run_worker, save_checkpoint,
     set_run_counts, set_run_market, update_run_progress, yield_run, count_own_research, RUNS_LISTED,
@@ -418,6 +418,20 @@ def add_notification_collapsed(cur, user_id: int, kind: str, body: str, link: st
         cur.execute("DELETE FROM app_notifications WHERE user_id=%s AND kind=%s AND link=%s AND read_at IS NULL",
                     (user_id, kind, link))
     return add_notification(cur, user_id, kind, body, link)
+
+
+def add_notification_once(cur, user_id: int, kind: str, body: str, link: str) -> Optional[int]:
+    """A notice that is told once per page it links to (a research session's end): one INSERT that adds
+    nothing when the user already has a notice of this kind about `link`, read or not. Returns the new id,
+    or None when it was there. The caller says it only once anyway (the run's finish took the row,
+    agent_run_repository.finish_run); this keeps a second say from adding a second line. The check reads the
+    user's notices of this kind through idx_notif_user_kind."""
+    cur.execute(
+        "INSERT INTO app_notifications (user_id, kind, body, link, created_at) SELECT %s,%s,%s,%s,%s FROM DUAL "
+        "WHERE NOT EXISTS (SELECT 1 FROM app_notifications WHERE user_id=%s AND kind=%s AND link=%s)",
+        (user_id, kind, body[:400], link, now_utc(), user_id, kind, link),
+    )
+    return cur.lastrowid if cur.rowcount == 1 else None
 
 
 def list_notifications(cur, user_id: int, limit: int = 20, before: int = 0) -> List[Dict]:

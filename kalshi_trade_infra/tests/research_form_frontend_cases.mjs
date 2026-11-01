@@ -21,8 +21,8 @@ const settle = async () => { for (let i = 0; i < 6; i++) await flush(); };
 const MODELS = {models: [{key: 'opus', label: 'Claude Opus 4.6'}, {key: 'nova', label: 'Amazon Nova Micro'}], default: 'opus'};
 
 export function researchFormCases({name, frontend}) {
-  const form = async ({estimate = {}, me = {}, runs = [], create, search = '', globals, over = {}} = {}) => {
-    const f = frontend({globals, fetchImpl: (path, options) => {
+  const form = async ({estimate = {}, me = {}, runs = [], create, search = '', globals, over = {}, matchMedia} = {}) => {
+    const f = frontend({globals, ...(matchMedia ? {matchMedia} : {}), fetchImpl: (path, options) => {
       if (over[path]) return over[path]();
       if (path === '/api/models') return response(MODELS);
       if (path === '/api/research/context') return response({markets: []});
@@ -149,6 +149,37 @@ export function researchFormCases({name, frontend}) {
       'The market you picked isn’t open for research right now, so the agent picks the market unless you choose one here.');
     assert.doesNotMatch(f.root.querySelector('#dispatch').innerHTML, /KXFOO/);
     f.clearTimers();
+  });
+
+  // Walk 2026-11-01 at 390px: Explore's "Research <market>" opened the form with Options unfolded and the market's
+  // group open, about 13 crypto rows, so Start sat far below the idea. On a phone Options stay folded; their line
+  // names the market picked, and unfolding them shows it picked in its open group. Wider, they open as before.
+  test(`${name}: on a phone a market picked from Explore stays named in folded Options, keeping Start near the idea`, async () => {
+    const markets = ['btc15m', 'eth15m', 'sol15m', 'xrp15m', 'btc_daily', 'eth_daily', 'btc_range'].map((key) => ({key, label: key, category: 'Crypto', has_data: true}))
+      .concat([{key: 'nba_game', label: 'NBA game', category: 'Sports', has_data: true}]);
+    const phoneMq = (q) => ({matches: /max-width: 760px/.test(q), addEventListener() {}, removeEventListener() {}});
+    const f = await form({me: {markets}, search: '?new=1&market=eth15m', matchMedia: phoneMq});
+    const picked = f.root.querySelectorAll('input[name=market]').find((r) => r.checked && r.value);
+    assert.equal(picked && picked.value, 'eth15m');
+    const opts = f.root.querySelector('#ropts');
+    assert.ok(!opts.open, 'Options stay folded on a phone');
+    // The harness has no radio groups, so Agent's choice stays checked beside the pick until it is let go, as a browser does.
+    f.root.querySelectorAll('input[name=market]').find((r) => !r.value).checked = false;
+    f.root.querySelector('#dispatch').dispatchEvent({type: 'change'});
+    const shown = picked.closest('.mktrow').querySelector('.mktrow-name').textContent.trim();
+    assert.ok(shown && f.root.querySelector('#ropts-sum').textContent.endsWith(shown), f.root.querySelector('#ropts-sum').textContent);
+    assert.match(f.root.querySelector('#ropts-sum').textContent, /runs until you stop it/);  // the run-forever default stays
+    assert.equal(f.root.querySelector('#runforever').checked, true);
+    assert.equal(picked.closest('details.mkt-group').open, true, 'unfolded, Options show the market picked');
+    f.clearTimers();
+    // A market it can't offer still unfolds them on a phone, for the note on what happens instead.
+    const g = await form({me: {markets}, search: '?new=1&market=btc_perp', matchMedia: phoneMq});
+    assert.equal(g.root.querySelector('#ropts').open, true);
+    g.clearTimers();
+    // Wider, nothing changes: picked, Options open.
+    const d = await form({me: {markets}, search: '?new=1&market=eth15m'});
+    assert.equal(d.root.querySelector('#ropts').open, true);
+    d.clearTimers();
   });
 
   test(`${name}: models you can't pick yet come last as "coming soon", and the demo link never reads as a fragment`, async () => {

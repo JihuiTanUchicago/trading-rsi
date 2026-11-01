@@ -380,7 +380,10 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       pickMkt.checked = true;
       const grp = pickMkt.closest('details'); if (grp) grp.open = true;
     }
-    if (pickMkt || notOpen) { const opts = form.querySelector('#ropts'); if (opts) opts.open = true; }
+    // On a phone a picked market leaves Options folded: their line names it (syncOpts), and unfolded its group's dozen
+    // rows pushed Start far below the idea (walk 2026-11-01, from an Explore market page at 390px). Opened, the group
+    // shows it picked. A market it can't offer still unfolds them, for the note on what happens instead.
+    if ((pickMkt && !phone()) || notOpen) { const opts = form.querySelector('#ropts'); if (opts) opts.open = true; }
     // Model, depth and market fold behind "Options" on a phone (closed while at their defaults), so
     // Start session sits right under the idea. The summary line says what will run.
     const optsSum = form.querySelector('#ropts-sum');
