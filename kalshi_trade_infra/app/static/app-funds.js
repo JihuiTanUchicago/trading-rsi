@@ -5,7 +5,7 @@ window.TauPage('funds', (T) => {
   'use strict';
   const {
     announce, api, armed, BEHIND, boardTitle, busy, cashFig, cashNow, cashRead, contractName, DEMO_BOOK, DEMO_WHAT, demoCapital, demoKeyless, demoNoClose, demoSpan, errText, esc, fig, flash, holdFocus, ICON, inBalance, kalshiRef, liveOpen, loading, num, olderRows, openCost, pageAssets, PAPER_NET,
-    paint, painted, poll, refreshed, root, S, SEP, settleAt, dayAt, shell, slipEst, tone, usd, when
+    paint, painted, poll, refreshed, root, S, SEP, settleAt, dayAt, localDay, shell, slipEst, tone, usd, when
   } = T;
 
   // ---------- funds ----------
@@ -124,7 +124,10 @@ window.TauPage('funds', (T) => {
   const ledgerWhat = (r) => {
     const memo = String(r.memo || r.kind || '').replace(/ (@|->) (\d*\.\d+)/g, (m, w, p) => ` ${w === '@' ? 'at' : '\u2192'} ${Math.round(+p * 100)}\u00a2`)
       .replace(/\(([a-z]+(?:_[a-z]+)+)/g, (m, c) => '(' + c.replace(/_/g, ' '));
-    const settled = r.kind === 'settlement' ? (+r.amount > 0 ? `${SEP}won, paid $1 a contract` : `${SEP}lost, paid $0`) : '';
+    // A market Kalshi cancelled (the engine's memo says VOID: a postponed game, a retired player) paid neither $1 nor $0,
+    // yet any payout read "won, paid $1 a contract" (walk 2026-11-01: "settled VOID at $0.50 a YES contract · won, paid $1
+    // a contract" over +$4.50). It says Kalshi cancelled it; the memo and the amount are the engine's, as they are.
+    const settled = r.kind === 'settlement' ? (/\bVOID\b/.test(memo) ? `${SEP}${LEDGER_CANCELLED}` : +r.amount > 0 ? `${SEP}won, paid $1 a contract` : `${SEP}lost, paid $0`) : '';
     // Each contract goes by its plain name, as an open position does (contractName: "Bitcoin up or down in 15
     // minutes"); its ticker carries the raw series key, so it moves to the small line under it (kalshiRef). A pair
     // trade names two: only the first was renamed, and the second's raw ticker stood in the words (walk 2026-10-31).
@@ -140,6 +143,7 @@ window.TauPage('funds', (T) => {
     // of its own and at 390px "· won, paid $1 a contract" began a line under "settled YES".
     return `<span class="ledger-said">${said}${settled ? `<span class="hint">${settled}</span>` : ''}</span>` + ticks.map((t) => `<div class="sub-fig">${kalshiRef(t)}</div>`).join('');
   };
+  const LEDGER_CANCELLED = 'Kalshi cancelled this market: no Yes or No result';
   // A Kalshi contract ticker in a memo: its series, then the event's date (KXBTCD-26OCT2617-T114999.99).
   const LEDGER_TICKER = /\b[A-Z][A-Z0-9]*-\d{2}[A-Z]{3}\d{2}(?:[A-Z0-9.-]*[A-Z0-9])?/g;
   // When cash moved: the clock and its zone, with the date on any day but today (settleAt), never a bare "Oct 24".
@@ -149,6 +153,17 @@ window.TauPage('funds', (T) => {
   const LEDGER_HOW = 'Cash in and out of your paper account, newest first. A buy takes the contracts\u2019 price plus Kalshi\u2019s fee, as a real order would. When a market settles, each winning contract pays $1 and each losing one pays $0; a sale before then pays the price it sold at, less the fee. A trade\u2019s P&amp;L is what it brought back less everything it cost, fees included.';
   // One paper history row, the newest page's and every older page's alike, each cell labelled for a phone (data-lab).
   const ledgerRow = (r) => `<tr><td class="hint lead-cell" data-lab="When">${ledgerAt(r.created_at)}</td><td class="name" data-lab="What">${ledgerWhat(r)}</td><td class="num ${tone(+r.amount)}" data-lab="Amount">${usd(r.amount, true)}</td></tr>`;
+  // The history by day, as Billing's statement reads: each of the reader's days (localDay, by that entry's own offset)
+  // starts with its day line ("Today", "Yesterday", "Sat, Oct 31": dayAt's day words, said again when the day turns).
+  // Two months of entries ran together under bare clock times, the date only on some (walk 2026-11-01, 2,190 entries).
+  // Display only: no total on the line, so nothing here sums money.
+  const ledgerDays = (rows) => { let prev = ''; return rows.map((r) => {
+    const day = localDay(r.created_at), head = day && day !== prev ? `<tr class="ledger-day"><td colspan="3" data-lab="Day"><b>${dayAt(r.created_at, 'day')}</b></td></tr>` : '';
+    if (day) prev = day;
+    return head + ledgerRow(r);
+  }).join(''); };
+  // The history's entry rows, without its day lines.
+  const entryRows = (box) => [...box.querySelectorAll('#ledger-rows tr')].filter((tr) => !tr.classList.contains('ledger-day'));
   // /api/funds lists the newest LEDGER_PAGE entries. A six-month account's history held its last two days and no way
   // to the rest (walked 2026-10-30): "Show older entries" reads the LEDGER_PAGE before the oldest one shown
   // (/api/funds/ledger?before=), clicked and never polled, until the server says there are no more. Display only:
@@ -261,7 +276,7 @@ window.TauPage('funds', (T) => {
         // the first entry just listed (focusable for it, tabindex -1), and Tab goes on down the older ones to the button.
         const end = !olderMore && root.querySelector('.ledger-end'), a = document.activeElement;
         const free = a === btn || !a || a === document.body || !a.isConnected;
-        const row = olderMore && added > 0 && root.querySelectorAll('#ledger-rows tr')[shown.paper.ledger.length + older.length - added];
+        const row = olderMore && added > 0 && entryRows(root)[shown.paper.ledger.length + older.length - added];
         if (end && end.focus && free) end.focus();
         else if (row && row.focus && free) { row.setAttribute('tabindex', '-1'); row.focus(); }
       } catch (err) { if (gen === S.gen) flash('#lflash', errText(err), 'bad'); }
@@ -352,7 +367,7 @@ window.TauPage('funds', (T) => {
       const accounts = keyless ? paperSec + `<details class="panel funds-connect" id="connect-kalshi"><summary><span class="funds-connect-h">Connect Kalshi</span><span class="hint">For live money, or Kalshi’s demo sandbox. The autopilot trades paper, which needs neither.</span></summary>${liveSec}${demoSec}</details>`
         : liveSec + demoSec + paperSec;
       const hist = d.paper.ledger.concat(older), full = d.paper.ledger.length >= LEDGER_PAGE, done = paged && !olderMore;
-      const ledgerHow = `${LEDGER_HOW}${full && !done ? ` The latest ${num(hist.length)} entries.` : ''}`, ledgerBody = hist.map(ledgerRow).join('');
+      const ledgerHow = `${LEDGER_HOW}${full && !done ? ` The latest ${num(hist.length)} entries.` : ''}`, ledgerBody = ledgerDays(hist);
       const ledgerMore = !full ? '' : done ? `<p class="hint ledger-end" tabindex="-1">${LEDGER_END}</p>` : '<button type="button" class="btn" id="ledger-older-btn">Show older entries</button>';
       const histSpots = [['#ledger-how', ledgerHow], ['#ledger-rows', ledgerBody], ['#ledger-older', ledgerMore]];
       const cashSpots = { 'live-ok': () => keyLine(k, 'live'), 'live-cell': () => cashCell(k), 'demo-ok': () => demoLine(kd) };

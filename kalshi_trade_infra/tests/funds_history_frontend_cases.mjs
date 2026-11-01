@@ -39,7 +39,8 @@ export function fundsHistoryCases({name, frontend, fundsData}) {
     }
     return response({});
   };
-  const rows = (f) => [...f.root.querySelectorAll('.t-ledger tbody tr')];
+  // Entry rows, without the history's day lines.
+  const rows = (f) => [...f.root.querySelectorAll('.t-ledger tbody tr')].filter((tr) => !tr.classList.contains('ledger-day'));
   const ids = (f) => rows(f).map((tr) => +/#(\d+)\)/.exec(tr.innerHTML)[1]);
   const button = (f) => f.root.querySelector('#ledger-older-btn');
   const click = async (f) => { await f.root.querySelector('#ledger-older').onclick({target: button(f)}); await settle(); };

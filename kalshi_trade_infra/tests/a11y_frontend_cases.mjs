@@ -791,11 +791,11 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     let btn = f.root.querySelector('#ledger-older-btn');
     f.document.activeElement = btn;
     await f.root.querySelector('#ledger-older').onclick({target: btn}); await settle();
-    assert.equal(f.root.querySelectorAll('.t-ledger tbody tr').length, 100);
+    assert.equal(f.root.querySelectorAll('.t-ledger tbody tr').filter((tr) => !tr.classList.contains('ledger-day')).length, 100);
     assert.equal(said(f), '50 older entries shown.', 'the rows came in with nothing said');
     // More remain: focus stayed on the button, which the 50 new rows pushed below the screen. It goes to the first
     // entry just listed (#70, under the newest 50), as Show older sessions does, and the page scrolls to it.
-    let row = f.root.querySelectorAll('.t-ledger tbody tr')[50];
+    let row = f.root.querySelectorAll('.t-ledger tbody tr').filter((tr) => !tr.classList.contains('ledger-day'))[50];
     assert.match(row.innerHTML, /#70\)/);
     assert.equal(row.getAttribute('tabindex'), '-1');
     assert.ok(focusedOn(f, row), 'focus is on the first older entry');
@@ -805,7 +805,7 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     await f.root.querySelector('#ledger-older').onclick({target: btn}); await settle();
     assert.equal(f.root.querySelector('#ledger-older-btn'), null);
     // The last page says its own count: the live region still held the previous page's "50 older entries shown."
-    assert.equal(f.root.querySelectorAll('.t-ledger tbody tr').length, 120);
+    assert.equal(f.root.querySelectorAll('.t-ledger tbody tr').filter((tr) => !tr.classList.contains('ledger-day')).length, 120);
     assert.equal(said(f), '20 older entries shown.');
     const end = f.root.querySelector('.ledger-end');
     assert.equal(end.getAttribute('tabindex'), '-1');

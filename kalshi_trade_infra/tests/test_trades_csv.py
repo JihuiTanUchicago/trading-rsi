@@ -44,11 +44,11 @@ def test_the_file_has_a_header_row_and_one_row_per_closed_trade_oldest_first(mon
     assert fname.startswith("tau-trades-paper-") and fname.endswith(".csv")
     assert rows[0] == ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
                        "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
-                       "close_reason", "position_id"]
+                       "close_reason"]
     # The strategy by its title, never its internal id (the file once said "No. 00042").
     assert rows[1] == ["2026-10-25T13:00:01Z", "2026-10-25T12:00:01Z", "paper", "Fade late spikes", "Fade late spikes",
                        "KXBTCD-26OCT2517-T98000", "yes", "5", "0.4000", "1.0000", "0.0700", "0.0000", "2.9300",
-                       "settled", "1"]
+                       "Held to settlement: paid $1"]
     assert rows[2][12] == "-1.5000"  # a loss stays a number, not text
     assert len(rows) == 3
 
@@ -92,7 +92,7 @@ def test_no_zero_padded_or_numbered_strategy_id_reaches_the_file(monkeypatch):
     monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: trades)
     _, rows = _parse(server.trades_csv(_ctx({"mode": "live"})))
     for r in rows[1:]:
-        cells = " ".join(r[:14])  # every cell but position_id
+        cells = " ".join(r)  # every cell: the file carries no id
         assert not re.search(r"No\.\s*\d|#\d|\b0\d{4}\b|\b(42|7|9|12345)\b", cells), r
 
 
@@ -103,7 +103,7 @@ def test_a_removed_deployments_trades_say_so_in_the_strategy_column(monkeypatch)
               _row(4, strategy_id=None, title=None, deployment_removed=False)]
     monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(trades)))
     _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
-    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 15
+    assert rows[0] == billing_routes.TRADES_CSV_HEADER and len(rows[0]) == 14
     assert [r[3] for r in rows[1:]] == ["Fade late spikes (removed deployment)", "Fade late spikes", "Fade late spikes", ""]
     assert [r[4] for r in rows[1:]] == ["Fade late spikes", "Fade late spikes", "Fade late spikes", ""]
     # Beside a same-titled strategy the plain-words tag stays, and the mark follows it.
@@ -114,6 +114,34 @@ def test_a_removed_deployments_trades_say_so_in_the_strategy_column(monkeypatch)
     _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
     assert [r[3] for r in rows[1:]] == ["Fade (Bitcoin up or down in 15 minutes) (removed deployment)",
                                         "Fade (Ethereum up or down in 15 minutes)"]
+
+
+def test_the_file_names_no_internal_id_and_says_each_close_in_plain_words(monkeypatch):
+    # Walk 2026-11-01, 1,500 trades: the file's last column was each trade's internal position id, and close_reason the
+    # stored code ("take_profit", "edge_gone", "flatten"), with a market Kalshi cancelled (a postponed game, settled at a
+    # fair price of 50¢) reading "settled" like any win or loss. The close now reads as the strategy page's trade line
+    # says it (trade_why), and no column carries an id; the money columns and their rounding are as they were.
+    closes = [("settled", 1.0, "Held to settlement: paid $1"),
+              ("settled", 0.0, "Held to settlement: expired worthless"),
+              ("settled", 0.5, "Held to settlement: Kalshi cancelled this market and paid 50¢ a contract"),
+              ("settled", 0.27, "Held to settlement: Kalshi cancelled this market and paid 27¢ a contract"),
+              ("take_profit", 0.6, "Exited at 60¢: take-profit (+20¢)"),
+              ("stop_loss", 0.1, "Exited at 10¢: stop-loss (−30¢)"),
+              ("edge_gone", 0.38, "Exited at 38¢: the model's edge fell below its hold line"),
+              ("flatten", 0.45, "Exited at 45¢: sold when the strategy was paused or stopped"),
+              ("stop", 0.2, "Exited at 20¢: your loss stop closed this strategy's positions"),
+              ("pair_unwind", 0.4, "Exited at 40¢: the unhedged pair leg was sold straight back"),
+              ("some_new_code", 0.4, "Exited at 40¢ (some new code)")]
+    trades = [_row(i + 1, close_reason=c, exit_price=x, pnl=-1.2345) for i, (c, x, _) in enumerate(closes)]
+    monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: list(reversed(trades)))
+    _, rows = _parse(server.trades_csv(_ctx({"mode": "paper"})))
+    assert rows[0] == billing_routes.TRADES_CSV_HEADER
+    assert not any("id" in h.split("_") for h in rows[0]), rows[0]
+    assert len(rows[0]) == 14 and all(len(r) == 14 for r in rows[1:])
+    assert [r[13] for r in rows[1:]] == [said for _, _, said in closes]
+    assert not any(re.search(r"\b[a-z]+_[a-z_]+\b", r[13]) for r in rows[1:])  # no stored code
+    # The money columns as before: dollars, four places, the P&L a number a sum reads.
+    assert {(r[8], r[11], r[12]) for r in rows[1:]} == {("0.4000", "0.0000", "-1.2345")}
 
 
 @pytest.mark.parametrize("mode", [None, "", "all", "paper,live", "LIVE'"])
@@ -138,9 +166,10 @@ def test_cells_that_a_spreadsheet_would_run_as_formulas_are_made_text(monkeypatc
 
 def test_a_capped_file_says_it_is_cut(monkeypatch):
     monkeypatch.setattr(billing_routes, "TRADES_CSV_MAX_ROWS", 2)
-    monkeypatch.setattr(server.repo, "closed_trades_for_export", lambda cur, uid, mode, limit: [_row(3), _row(2), _row(1)])
+    monkeypatch.setattr(server.repo, "closed_trades_for_export",
+                        lambda cur, uid, mode, limit: [_row(i, ticker="KXT-%d" % i) for i in (3, 2, 1)])
     _, rows = _parse(server.trades_csv(_ctx({"mode": "demo"})))
-    assert [r[14] for r in rows[1:3]] == ["2", "3"]  # the newest two, oldest first
+    assert [r[5] for r in rows[1:3]] == ["KXT-2", "KXT-3"]  # the newest two, oldest first
     assert rows[3][0].startswith("# Only the newest 2 trades")
 
 
@@ -218,6 +247,12 @@ def _book(conn, uid, mode, trades):
     return sid, ids
 
 
+def _tickers(cur, ids):
+    """{position id: its ticker}, read back from the table: the file tells its rows apart by contract, not id."""
+    cur.execute("SELECT id, ticker FROM app_positions WHERE id IN (" + ",".join(["%s"] * len(ids)) + ")", tuple(ids))
+    return {r["id"]: r["ticker"] for r in cur.fetchall()}
+
+
 @db
 def test_each_mode_file_holds_only_that_users_trades_in_that_mode_and_adds_up(conn):
     from app import repository as repo
@@ -236,7 +271,9 @@ def test_each_mode_file_holds_only_that_users_trades_in_that_mode_and_adds_up(co
         assert {r[2] for r in files[mode]} <= {mode}  # never mixes modes
         # The file adds up to the dashboard's realized figure for that mode.
         assert sum(float(r[12]) for r in files[mode]) == pytest.approx(repo.realized_pnl(cur, a, mode))
-    ids = {m: sorted(int(r[14]) for r in rows) for m, rows in files.items()}
+    # Rows by their Kalshi contract (_book's are unique): the file carries no position id.
+    ticker = _tickers(cur, paper_ids + demo_ids + other_ids)
+    ids = {m: sorted(i for i, t in ticker.items() if t in {r[5] for r in rows}) for m, rows in files.items()}
     assert ids == {"paper": sorted(paper_ids), "demo": sorted(demo_ids), "live": []}
     assert not set(other_ids) & set(ids["paper"])  # another user's trades never appear
     assert all(r[4].startswith("'=1+1") for r in files["paper"])  # the guard holds on stored titles too
@@ -248,7 +285,8 @@ def test_each_mode_file_holds_only_that_users_trades_in_that_mode_and_adds_up(co
     cur.execute("UPDATE app_strategies SET created_at='2026-10-01 08:00:00' WHERE id=%s", (twin,))
     cur.execute("UPDATE app_strategies SET created_at='2026-10-02 08:00:00' WHERE id=%s", (first,))
     _, rows = _parse(server.trades_csv(server.Ctx(conn, {"id": a}, (), {"mode": "paper"}, {}, None)))
-    names = {int(r[14]): r[3] for r in rows[1:]}
+    ticker = _tickers(cur, paper_ids + twin_ids)
+    names = {i: next(r[3] for r in rows[1:] if r[5] == t) for i, t in ticker.items()}
     assert names[twin_ids[0]] == "'=1+1 paper (Bitcoin up or down in 15 minutes, made Oct 1, 2026) (removed deployment)"
     assert {names[i] for i in paper_ids} == {"'=1+1 paper (Bitcoin up or down in 15 minutes, made Oct 2, 2026) (removed deployment)"}
     assert not any(re.search(r"No\.\s*\d|#\d|\b0\d{4}\b", r[3]) for r in rows[1:])
@@ -273,7 +311,8 @@ def test_a_removed_deployments_trades_are_told_apart_from_the_current_deployment
         assert {r["id"]: r["deployment_removed"] for r in rows} == {old_ids[0]: True, old_ids[1]: True, new_id: False}
         _, got = _parse(server.trades_csv(server.Ctx(conn, {"id": uid}, (), {"mode": "paper"}, {}, None)))
         assert got[0] == billing_routes.TRADES_CSV_HEADER
-        names = {int(r[14]): (r[3], r[4]) for r in got[1:]}
+        ticker = _tickers(cur, old_ids + [new_id])
+        names = {i: next((r[3], r[4]) for r in got[1:] if r[5] == t) for i, t in ticker.items()}
         assert names == {old_ids[0]: ("'=1+1 paper (removed deployment)", "'=1+1 paper"),
                          old_ids[1]: ("'=1+1 paper (removed deployment)", "'=1+1 paper"),
                          new_id: ("'=1+1 paper", "'=1+1 paper")}

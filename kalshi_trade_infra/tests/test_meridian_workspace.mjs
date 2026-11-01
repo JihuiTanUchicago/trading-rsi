@@ -48,6 +48,7 @@ import {demoBookCases} from './demo_book_frontend_cases.mjs';
 import {fundsWalkCases} from './funds_walk_frontend_cases.mjs';
 import {fundsDisplayCases} from './funds_display_frontend_cases.mjs';
 import {fundsHistoryCases} from './funds_history_frontend_cases.mjs';
+import {fundsLongHistoryCases} from './funds_long_history_frontend_cases.mjs';
 import {moneyPagesWalkCases} from './money_pages_walk_frontend_cases.mjs';
 import {moneyAuditCases} from './money_audit_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
@@ -984,7 +985,7 @@ test('Funds paper history says prices in cents, a lost settlement as lost, and e
   ];
   const f = frontend({fetchImpl: () => { const d = funds(); d.paper.ledger = ledger; return response(d); }});
   await f.viewFunds(); await flush();
-  const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].map((tr) => tr.innerHTML);
+  const rows = [...f.root.querySelectorAll('.t-ledger tbody tr')].filter((tr) => !tr.classList.contains('ledger-day')).map((tr) => tr.innerHTML);
   assert.match(rows[0], /KXBTC15M-L settled NO<span class="hint">\u00a0· lost, paid \$0<\/span>[\s\S]*\$0\.00/);
   assert.match(rows[1], /settled YES<span class="hint">\u00a0· won, paid \$1 a contract<\/span>[\s\S]*\+\$25\.00/);
   assert.match(rows[2], /Sold 8\/25 YES KXBTC15M-P at 25¢ \(stop loss, partial\)/);
@@ -6952,6 +6953,7 @@ demoBookCases({name: 'Meridian', frontend, fundsData: funds, dashboard: dashboar
 fundsWalkCases({name: 'Meridian', frontend, fundsData: funds, dashboard: dashboardData, detailStrategy, strategyFrontend});
 fundsDisplayCases({name: 'Meridian', frontend, fundsData: funds});
 fundsHistoryCases({name: 'Meridian', frontend, fundsData: funds});
+fundsLongHistoryCases({name: 'Meridian', frontend, fundsData: funds});
 chatPanelCases({name: 'Meridian', frontend, storageFor: m => m});
 a11yCases({name: 'Meridian', frontend, storageFor: m => m, billingPage, cardedBilling, source, strategyFrontend, detailStrategy,
   dashboard: dashboardData, fundsData: funds, apStatus});

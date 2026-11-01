@@ -11,6 +11,7 @@ from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.services import customer_text
+from app.services.trade_why import trade_why
 from app.trading.markets import customer_name
 from app.web.http import ApiError, Ctx, _num
 from app.web.views import credit_cents, credit_exact, credit_split, credit_usd, session_title
@@ -438,7 +439,22 @@ TRADE_MODES = ("paper", "demo", "live")
 TRADES_CSV_MAX_ROWS = 50000  # about 7MB; a cap, so one request can't read an unbounded book
 TRADES_CSV_HEADER = ["closed_at_utc", "opened_at_utc", "mode", "strategy", "strategy_title", "ticker", "side",
                      "contracts", "entry_price", "exit_price", "entry_fee", "exit_fee", "realized_pnl",
-                     "close_reason", "position_id"]
+                     "close_reason"]
+# The file's last column was each trade's internal position id (walk 2026-11-01): no column carries an id now. A trade
+# is told apart by its Kalshi contract (ticker) and its times.
+
+
+def _close_said(r: Dict) -> str:
+    """A trade's close in words, as the strategy page's trade line says it (trade_why, without the strategy's rule):
+    "Held to settlement: paid $1", "Held to settlement: Kalshi cancelled this market and paid 50¢ a contract", "Exited at
+    60¢: take-profit (+20¢)". The column said the stored code ("take_profit", "edge_gone"), and a market Kalshi cancelled
+    read "settled" like any win or loss. Words only: the prices and P&L columns are the engine's, as they were."""
+    reason = r.get("close_reason") or ""
+    if r.get("exit_price") in (None, ""):
+        return reason.replace("_", " ")
+    return trade_why({**r, "status": "closed", "order_ref": None}) or reason.replace("_", " ")
+
+
 def _iso_utc(v: Any) -> str:
     if not isinstance(v, datetime):
         return "" if v is None else str(v)
@@ -524,7 +540,7 @@ def trades_csv(ctx: Ctx):
             _iso_utc(r["closed_at"]), _iso_utc(r["opened_at"]), r["mode"],
             _strategy_cell(names, r), r.get("title") or "", r["ticker"], r["side"], int(r["qty"]),
             _dec(r["entry_price"]), _dec(r["exit_price"]), _dec(r["entry_fee"]), _dec(r["exit_fee"]),
-            _dec(r["pnl"]), r.get("close_reason") or "", r["id"]])
+            _dec(r["pnl"]), _close_said(r)])
     if cut:
         row(["# Only the newest %d trades are in this file; older ones are not." % TRADES_CSV_MAX_ROWS])
     fname = "tau-trades-%s-%s.csv" % (mode, repo.now_utc().strftime("%Y%m%d"))
