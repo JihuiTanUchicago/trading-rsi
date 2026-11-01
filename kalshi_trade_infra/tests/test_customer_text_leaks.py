@@ -24,6 +24,7 @@ from app.services import customer_text as ct
 from app.services import demo_record
 from app.web.routes import billing as billing_routes
 from app.web.routes import community
+from tests.combined_reads import compose_combined_reads
 
 STAFF = "ops.staff@tau-internal.example"
 OTHER = "someone.else@example.org"
@@ -185,6 +186,7 @@ def test_the_billing_statement_never_names_staff_or_a_model_id(monkeypatch):
 # -- the bell, the autopilot panel, the research pages ---------------------------------------------
 
 def test_notifications_never_carry_an_email_or_a_raw_error(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     bodies = ["%s mentioned you." % OTHER, "%s shared the strategy “Fade” with you." % OTHER,
               "“Fade” was paused automatically. %s" % HOST, "Dana commented on your post."]
     monkeypatch.setattr(repo, "list_notifications", lambda cur, uid, **k: [

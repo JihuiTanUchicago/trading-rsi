@@ -15,6 +15,7 @@ from app.web import auth
 from app.web.routes import admin as admin_routes
 from app.web.routes import auth as auth_routes
 from app.adapters.kalshi import kalshi_account
+from tests.combined_reads import compose_combined_reads
 
 
 # -- Google ID token claims -------------------------------------------------------
@@ -263,6 +264,7 @@ def test_dashboard_mode_buckets_do_not_double_count(monkeypatch):
 def test_dashboard_paper_book_carries_its_reset_so_all_time_labels_stay_true(monkeypatch):
     # total_pnl is equity minus deposits, and a reset wipes the ledger, so the client labels it
     # "since reset" when reset_at is set. The money math itself is unchanged.
+    compose_combined_reads(monkeypatch)  # the positions' and ledger's versions in one statement
     from datetime import datetime
     at = datetime(2026, 10, 20, 9, 0)
     for name, fn in {
@@ -273,7 +275,7 @@ def test_dashboard_paper_book_carries_its_reset_so_all_time_labels_stay_true(mon
             {"paper": (0.0, 0.0), "demo": (52.0049, 0.0), "live": (0.0, 0.0)}, {"demo": 3},
             {m: (0.0, 0) for m in ("paper", "demo", "live")}) + (({},) if split else ()) + (({},) if fills else ()),
         "daily_pnl": lambda *a, **k: [],
-        "activity_since": lambda cur, uid, since, **k: {"autopilot": {}, "runs": {}},
+        "activity_since": lambda cur, uid, since, **k: {"autopilot": {}, "runs": {}, "active": {}},
         "passed_since": lambda cur, uid, since, **k: {"n": 0, "items": []},
         "demo_equity": lambda cur, uid, realized=None: {"capital": 500.0, "equity": 512.0, "realized": 12.0, "roi": .024, "before_reload": 40.0},
         "get_kalshi_key": lambda cur, uid: None, "open_reconcile_rows": lambda cur, uid: [],
@@ -418,6 +420,7 @@ def test_funds_paper_history_pages_older_entries_and_refuses_a_bad_id():
 def test_funds_reads_the_demo_balance_and_a_new_key_is_never_shown_an_old_balance(monkeypatch):
     """Funds says "Connected ✓ (balance $X)" for both keys from the existing cached reads; saving a key
     replaces what those caches hold, so the line never shows the previous key's cash."""
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     from contextlib import nullcontext
 
     from app.trading import demo_twins
@@ -1106,6 +1109,7 @@ def test_share_strategy_idempotent(monkeypatch):
 
 
 def test_notifications_endpoint_shape(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     monkeypatch.setattr(server.repo, "list_notifications", lambda cur, uid, **k: [
         {"id": 3, "kind": "share", "body": "X shared Y", "link": "/strategies/9", "created_at": "t", "read_at": None}])
     monkeypatch.setattr(server.repo, "count_unread_notifications", lambda cur, uid: 1)

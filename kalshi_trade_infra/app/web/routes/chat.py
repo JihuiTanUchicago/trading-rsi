@@ -33,6 +33,8 @@ from app.web.routes.strategies import _research_pass_verdicts
 from app.web.settings import MAX_CHAT_PER_HOUR
 from app.web.views import (
     demo_health_memo,
+    known_kalshi_keys,
+    shared_billing_reads,
     credit_cents,
     credit_exact,
     credit_split,
@@ -748,14 +750,21 @@ def _last_move(la: Optional[Dict], deps: List[Dict]) -> Optional[Dict]:
 
 
 class _PanelReads(billing.Reads):
-    """billing.Reads whose balance came with the panel's credit read (repo.credit_week, the same SUM)."""
+    """billing.Reads whose balance came with the panel's credit read (repo.credit_week, the same SUM). `shared`
+    is the billing.Reads the request already holds (the page shell's /api/me read, views.shared_billing_reads):
+    the Stripe customer, and the balance when the credit read left it out, come from it instead of a read."""
 
-    def __init__(self, cur, uid: int, balance: Optional[float]):
+    def __init__(self, cur, uid: int, balance: Optional[float], shared: Optional[billing.Reads] = None):
         super().__init__(cur, uid)
-        self._known = balance
+        self._known, self._shared = balance, shared
+
+    def customer(self) -> Optional[Dict]:
+        return self._shared.customer() if self._shared is not None else super().customer()
 
     def balance(self) -> float:
-        return self._known if self._known is not None else super().balance()
+        if self._known is not None:
+            return self._known
+        return self._shared.balance() if self._shared is not None else super().balance()
 
 
 def _passed_undeployed(cur, uid: int, focus: List[str], deployed: Optional[Dict[int, int]] = None) -> List[Dict]:
@@ -956,7 +965,8 @@ def autopilot_status(ctx: Ctx):
     # When autopilot is ON but can't spend (no card, or balance below the per-run floor), the worker
     # silently skips the user via billing.is_ready — the SAME gate, read here only to surface WHY the
     # panel is quiet so it doesn't look broken. Never changes the gate; purely a status readout.
-    reads = _PanelReads(cur, ctx.uid, credits["balance"])  # the readout below reuses the gate's card and balance reads
+    # The readout below reuses the gate's card and balance reads (and the shell's /api/me ones, when it carries this).
+    reads = _PanelReads(cur, ctx.uid, credits["balance"], shared_billing_reads(ctx))
     billing_blocked = on and payments and not billing.is_ready(cur, ctx.uid, reads)
     review = pulse["review"] if on else None
     review_wait = _run_wait(review) or {"overdue": False}
@@ -1045,7 +1055,7 @@ def autopilot_status(ctx: Ctx):
         if idle is None or (not paper_run and idle["code"] not in ("engine", "billing")):
             # From the demo cash memo alone: pending when it isn't kept, the page then reading the status again
             # once the demo cash is in (a line from a figure read under two minutes ago stands meanwhile).
-            health, pending = demo_health_memo(cur, ctx.uid, deps)
+            health, pending = demo_health_memo(cur, ctx.uid, deps, demo_key=(known_kalshi_keys(ctx) or (None, None))[1])
             if pending:
                 out["idle_pending"] = True
             out["idle"] = health or idle

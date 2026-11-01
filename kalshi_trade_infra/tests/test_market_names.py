@@ -14,6 +14,7 @@ from app.services import customer_text
 from app.services import markets as market_service
 from app.trading import markets
 from app.web.routes import chat as chat_routes
+from tests.combined_reads import compose_combined_reads
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -122,6 +123,7 @@ def test_the_page_gets_a_long_name_for_every_market_its_list_leaves_out():
 
 
 def test_me_sends_the_long_names_of_markets_its_list_leaves_out(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     from tests.test_app_frontend_contract import context
     from app import server
     monkeypatch.setattr(server.billing, "configured", lambda: False)

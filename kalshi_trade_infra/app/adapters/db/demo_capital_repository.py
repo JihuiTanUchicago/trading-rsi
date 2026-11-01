@@ -28,11 +28,12 @@ def reload_demo(cur, user_id: int, amount: float) -> None:
     )
 
 
-def demo_equity(cur, user_id: int, realized: Optional[float] = None) -> Dict:
+def demo_equity(cur, user_id: int, realized: Optional[float] = None, account: Optional[tuple] = None) -> Dict:
     """Demo money as cost-basis equity: capital + realized P&L since the last reload. Mirrors
     paper's equity convention (open positions valued at cost), so the three buckets line up.
-    `realized` is the all-time realized demo P&L when the caller has already read it."""
-    capital, base = demo_account(cur, user_id)
+    `realized` is the all-time realized demo P&L when the caller has already read it, and `account`
+    demo_account's (capital, pnl_base) when the request read them with the user's row (session_user)."""
+    capital, base = demo_account(cur, user_id) if account is None else account
     net = exact(realized_pnl(cur, user_id, "demo") if realized is None else realized) - exact(base)
     return {
         "capital": cents(capital),

@@ -8,6 +8,7 @@ from app import server
 from app.web.routes import research as research_routes
 from app.web.routes import chat as chat_routes
 from tests.autopilot_status_parts import stub_merged_reads
+from tests.combined_reads import compose_combined_reads
 
 
 def context(body=None, admin=False):
@@ -23,6 +24,7 @@ def context(body=None, admin=False):
     (None, True), ({'default_pm_id': None}, True), ({'default_pm_id': 'pm_fixture'}, False),
 ])
 def test_me_supplies_frontend_billing_readiness(monkeypatch, customer, needs_card):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     monkeypatch.setattr(server.billing, 'configured', lambda: True)
     monkeypatch.setattr(server.repo, 'get_stripe_customer', lambda *a: customer)
     monkeypatch.setattr(server.repo, 'get_kalshi_key', lambda *a: None)
@@ -587,6 +589,7 @@ def test_autopilot_status_not_blocked_when_autopilot_off(monkeypatch):
 
 
 def test_me_exposes_min_run_balance(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     # The research page needs the floor to warn a below-minimum user BEFORE they hit the 402.
     from decimal import Decimal
     monkeypatch.setattr(server.billing, 'configured', lambda: True)
@@ -603,6 +606,7 @@ def test_me_exposes_min_run_balance(monkeypatch):
 
 
 def test_me_exposes_perps_live_available(monkeypatch):
+    compose_combined_reads(monkeypatch)  # me, the bell and Funds ask in one statement each
     # The Funds page hides the Bitcoin-perps box unless live perps are enabled on this server.
     monkeypatch.setattr(server.billing, 'configured', lambda: False)
     monkeypatch.setattr(server.repo, 'get_stripe_customer', lambda *a: None)

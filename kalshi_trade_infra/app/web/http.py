@@ -24,6 +24,11 @@ class Ctx:
     body: Dict[str, Any]
     handler: Any  # app.server.Handler (the web layer never imports the server module)
     set_cookies: List[str] = field(default_factory=list)
+    # What this request has read already, for a later read in the same request to take instead of asking again:
+    # a page shell's account (/api/me) and the first reads it carries share one dict (Handler._shell_boot), so the
+    # dashboard takes the Kalshi keys' presence and the autopilot the Stripe customer that /api/me just read.
+    # Request-scoped (one user, one request, made before any write), never kept past it; a request alone has its own.
+    shared: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def cur(self):

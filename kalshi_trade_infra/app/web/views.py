@@ -189,7 +189,7 @@ class _NoCash(Exception):
 
 
 def demo_health_memo(cur, uid: int, deps: List[Dict], stake: Optional[float] = None,
-                     recent: float = RECENT_ENOUGH) -> Tuple[Optional[Dict], bool]:
+                     recent: float = RECENT_ENOUGH, demo_key: Optional[bool] = None) -> Tuple[Optional[Dict], bool]:
     """Why the demo book can't trade, as one plain line and the one thing to do, or None when nothing
     known stops it. A demo deployment looks healthy (running, capital, a P&L) while every order it
     sends is refused, so the pages that show demo say this instead:
@@ -197,7 +197,8 @@ def demo_health_memo(cur, uid: int, deps: List[Dict], stake: Optional[float] = N
       - demo_funds: the Kalshi demo account holds less than one stake, so Kalshi refuses its orders.
     `deps` are deployment rows (with spec). `stake` asks about a strategy that could go on demo but
     isn't there yet (the strategy page's next rung), so funds are checked even with nothing running.
-    Unknown cash is never a problem.
+    Unknown cash is never a problem. `demo_key` is whether a demo key is saved, when the request already
+    knows (known_kalshi_keys); None asks, only when a check needs it.
 
     From the demo cash memo alone, never Kalshi, as every page read takes it (the dashboard, the autopilot
     status, the Deploy board and the strategy page, whoever asks: the shell, a visit, a poll): (health,
@@ -223,13 +224,14 @@ def demo_health_memo(cur, uid: int, deps: List[Dict], stake: Optional[float] = N
         raise _NoCash
 
     try:
-        health = _health_from(cur, uid, deps, stake, cash)
+        health = _health_from(cur, uid, deps, stake, cash, demo_key)
     except _NoCash:
         return None, True
     return health, pending
 
 
-def _health_from(cur, uid: int, deps: List[Dict], stake: Optional[float], cash_read) -> Optional[Dict]:
+def _health_from(cur, uid: int, deps: List[Dict], stake: Optional[float], cash_read,
+                 demo_key: Optional[bool] = None) -> Optional[Dict]:
     """demo_health_memo's line, with the demo cash from cash_read(), asked only when a stake needs it."""
     from app.trading import demo_twins
 
@@ -238,7 +240,8 @@ def _health_from(cur, uid: int, deps: List[Dict], stake: Optional[float], cash_r
               or (d["status"] == "paused" and _DEMO_KEY_PAUSE in (d.get("status_reason") or ""))]
     if not active and stake is None:
         return None
-    if not repo.has_kalshi_dev_key(cur, uid):  # whether one is saved; never the key's id or encrypted bytes
+    # Whether one is saved (known to the request, or one probe); never the key's id or encrypted bytes.
+    if not (repo.has_kalshi_dev_key(cur, uid) if demo_key is None else demo_key):
         if not active:
             return None  # nothing on demo; the deploy button already says to add the key
         # Every page renders `line` escaped with `action` as the link after it, so the line names the problem
@@ -275,15 +278,15 @@ def _usd(v: float) -> str:
     return "$%s" % format(round(float(v), 2), ",.2f")
 
 
-def _demo_key_back(cur, uid: int, deps: List[Dict]) -> bool:
+def _demo_key_back(cur, uid: int, deps: List[Dict], demo_key: Optional[bool] = None) -> bool:
     """True when a demo deployment is paused for a missing demo key and the key is connected now. The
     engine leaves it paused once the key is added, and its row still said to add the key, beside a
     Funds page saying it is connected. Reads whether the key is saved (never its id or encrypted bytes) only
-    when such a deployment is listed."""
+    when such a deployment is listed, and only when the request doesn't know (`demo_key`)."""
     if not any(d["mode"] == "demo" and d["status"] == "paused" and _DEMO_KEY_PAUSE in (d.get("status_reason") or "")
                for d in deps):
         return False
-    return repo.has_kalshi_dev_key(cur, uid)
+    return repo.has_kalshi_dev_key(cur, uid) if demo_key is None else demo_key
 
 
 def _paper_books(deps: List[Dict]) -> Dict[int, str]:
@@ -468,6 +471,78 @@ def _pause_clause(raw: Optional[str]) -> str:
 
 def _start_of_day_utc() -> datetime:
     return repo.now_utc().replace(hour=0, minute=0, second=0)
+
+
+class AccountReads(billing.Reads):
+    """billing.Reads whose Stripe customer row and credit balance came with /api/me's one account read
+    (repo.account_reads), so nothing below it reads either again. Request-scoped, as billing.Reads is."""
+
+    def __init__(self, cur, uid: int, customer: Optional[Dict], balance: float):
+        super().__init__(cur, uid)
+        self._known = (customer, balance)
+
+    def customer(self) -> Optional[Dict]:
+        return self._known[0]
+
+    def balance(self) -> float:
+        return self._known[1]
+
+
+def _request_shared(ctx: Ctx) -> Dict:
+    """ctx.shared, or a throwaway dict for a context made without one (a test's stand-in)."""
+    shared = getattr(ctx, "shared", None)
+    return shared if shared is not None else {}
+
+
+def account_reads(ctx: Ctx) -> Tuple[Dict, billing.Reads]:
+    """(repo.account_reads, an AccountReads over it) for /api/me, kept in ctx.shared for the reads a page shell
+    carries beside it: the dashboard and the Deploy board take the Kalshi keys' presence from it
+    (known_kalshi_keys), the autopilot status the Stripe customer and the balance (shared_billing_reads)."""
+    acct = repo.account_reads(ctx.cur, ctx.uid)
+    reads = AccountReads(ctx.cur, ctx.uid, acct["customer"], acct["credit_balance"])
+    shared = _request_shared(ctx)
+    shared["kalshi_keys"] = (acct["live_key"], acct["demo_key"])
+    shared["billing_reads"] = reads
+    return acct, reads
+
+
+def shared_billing_reads(ctx: Ctx) -> Optional[billing.Reads]:
+    """The billing.Reads this request already holds (account_reads), or None."""
+    return _request_shared(ctx).get("billing_reads")
+
+
+def known_kalshi_keys(ctx: Ctx) -> Optional[Tuple[bool, bool]]:
+    """(a live key is saved, a demo key is saved) when this request already read it (account_reads,
+    kalshi_keys), else None."""
+    return _request_shared(ctx).get("kalshi_keys")
+
+
+def session_demo_account(ctx: Ctx) -> Optional[tuple]:
+    """repo.demo_account's (capital, pnl_base) from the signed-in user's row, read with the session at the start of
+    this request (repo.session_user), for a read that shows the demo book; None when the row doesn't carry them
+    (the read then reads them itself). Only for a request that hasn't written them (a demo reload reads its own)."""
+    u = getattr(ctx, "user", None) or {}
+    if u.get("demo_capital") is None or u.get("demo_pnl_base") is None:
+        return None
+    return float(u["demo_capital"]), float(u["demo_pnl_base"])
+
+
+def demo_book_equity(ctx: Ctx, realized: float) -> Dict:
+    """repo.demo_equity with the demo account's capital and baseline from the user's row when the request read them
+    with it (session_demo_account), else read."""
+    account = session_demo_account(ctx)
+    if account is None:
+        return repo.demo_equity(ctx.cur, ctx.uid, realized=realized)
+    return repo.demo_equity(ctx.cur, ctx.uid, realized=realized, account=account)
+
+
+def kalshi_keys(ctx: Ctx) -> Tuple[bool, bool]:
+    """known_kalshi_keys, or repo.kalshi_keys_saved (both probes in one statement, never a key's id or its
+    encrypted bytes), read once per request."""
+    known = known_kalshi_keys(ctx)
+    if known is None:
+        known = _request_shared(ctx)["kalshi_keys"] = repo.kalshi_keys_saved(ctx.cur, ctx.uid)
+    return known
 
 
 def _needs_card(ctx: Ctx, reads: Optional[billing.Reads] = None) -> bool:

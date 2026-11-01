@@ -16,6 +16,7 @@ import pytest
 from app import server
 from app.web import shell_reads, webperf
 from app.web.http import ApiError, _json_default
+from tests.combined_reads import compose_combined_reads
 
 USER = {"id": 7, "email": "trader@example.invalid", "name": "Sample", "picture_url": None, "autopilot": 0, "ui_theme": "tau"}
 ACCOUNT = {"user": {"id": 7, "ui_theme": "tau"}}
@@ -204,9 +205,11 @@ def _funds_db(monkeypatch, live_key=True, demo_key=True):
     r = funds_routes.repo
     monkeypatch.setattr(r, "get_kalshi_key", lambda cur, uid: {"key_id": "LIVEKEY-ABCD-1234"} if live_key else None)
     monkeypatch.setattr(r, "get_kalshi_dev_key", lambda cur, uid: {"key_id": "DEVKEY-WXYZ-5678"} if demo_key else None)
-    # The dashboard asks only whether each key is saved (never the key itself).
+    # The dashboard asks only whether each key is saved (never the key itself), both in one statement.
     monkeypatch.setattr(r, "has_kalshi_key", lambda cur, uid: live_key)
     monkeypatch.setattr(r, "has_kalshi_dev_key", lambda cur, uid: demo_key)
+    monkeypatch.setattr(r, "kalshi_keys_saved", lambda cur, uid: (live_key, demo_key))
+    compose_combined_reads(monkeypatch)  # Funds' key ids, and its balance with the history, each in one statement
     monkeypatch.setattr(r, "demo_equity", lambda cur, uid, realized=None: {"capital": 1000, "equity": 1003.5, "realized": 3.5,
                                                                             "before_reload": 0})
     monkeypatch.setattr(r, "paper_balance", lambda cur, uid: Decimal("2001.745"))
@@ -346,7 +349,7 @@ def _dashboard_db(monkeypatch, deps=()):
         "deployment_curves": lambda *a, **k: {}, "positions_version": lambda cur, uid: (0, 0, 0),
         "paper_ledger_summary": lambda cur, uid: {"balance": 1000.0, "deposited": 1000.0, "reset_at": None},
         "paper_ledger_version": lambda cur, uid: (1, 1),
-        "daily_pnl": lambda *a, **k: [], "activity_since": lambda cur, uid, since, **k: {"autopilot": {}, "runs": {}},
+        "daily_pnl": lambda *a, **k: [], "activity_since": lambda cur, uid, since, **k: {"autopilot": {}, "runs": {}, "active": {}},
         "passed_since": lambda cur, uid, since, **k: {"n": 0, "items": []},
         "demo_equity": lambda cur, uid, realized=None: {"capital": 1000.0, "equity": 1003.5, "realized": 3.5, "roi": .0035,
                                                         "before_reload": 0},
