@@ -269,6 +269,29 @@ for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css
   });
 }
 
+// Walk 2026-11-01 (fresh account, Home, 1024/1366/1920px, both themes): "Change" beside the autopilot card's focus opens
+// the autopilot panel, pinned 16px from the right and 560px wide, and it sat over the card's "Turn on autopilot" (or, on,
+// "Open autopilot"), which the card places at its right. While the panel is open the card's button row takes a row of its
+// own under the card's words, starting at the card's left: at 1024px the panel begins at x=448 and the button now ends
+// near x=250. Below 601px the open panel is a full-screen sheet with its own switch and close button, so desktop only.
+const AP_OPEN_WIDE = '@media (min-width: 601px)';
+for (const [bundle, file] of [['Tau', 'app.css'], ['Meridian', 'app.meridian.css']]) {
+  test(`${bundle}: the open autopilot panel leaves the autopilot card's button uncovered on a desktop`, () => {
+    const all = rules(read(file));
+    assert.equal(decl(all, 'body:has(.apf.open) .apcard-act', 'flex-basis', AP_OPEN_WIDE), '100%', 'the button row wraps under the words');
+    assert.equal(decl(all, 'body:has(.apf.open) .apcard-act', 'flex-basis'), undefined, 'not on the phone sheet');
+    assert.equal(decl(all, '.apcard', 'flex-wrap'), 'wrap', 'the card lets its button row wrap');
+    // The row starts at the card's left, where the panel never reaches on a desktop.
+    for (const prop of ['justify-content', 'margin-left', 'margin-inline-start']) {
+      const v = decl(all, '.apcard-act', prop);
+      assert.ok(!v || !/end|right|auto/.test(v), `.apcard-act ${prop}: ${v}`);
+    }
+    // What the rule was sized against: a 560px panel pinned at the right, and a full-screen sheet below 601px.
+    assert.equal(decl(all, '.apf.open', 'width'), '560px');
+    assert.equal(decl(all, '.apf.open', 'inset', SHEET), '0');
+  });
+}
+
 // Walk 2026-10-30 (390px phone, Meridian): the open autopilot sheet is one scroll (page-autopilot.js scrolls the sheet to
 // a sent message and its answer), but Meridian's activity feed kept the research log's 52vh cap, so it was a 440px scroll
 // of its own inside the sheet: a long reply scrolled in that box while the sheet scrolled around it. On the phone sheet
