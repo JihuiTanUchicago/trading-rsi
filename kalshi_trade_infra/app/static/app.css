@@ -2219,6 +2219,10 @@ body.landing-body .apf { display: none; }
 /* The card's Try again (status unread) sits in the grid of .apcard-main, which stretched it the card's full width;
    it sizes to its words, as a .btn.sm does in any other card. */
 .apcard-main > [data-apcard="again"] { justify-self: start; }
+/* The open autopilot panel (560px, pinned right) covered the card's right-hand button: "Change" beside the focus opened it
+   over "Turn on autopilot" (walk 2026-11-01, 1024-1920px). While it is open the button takes its own row under the
+   card's words, at the left, clear of the panel. A phone's panel is a full-screen sheet, so this is desktop only. */
+@media (min-width: 601px) { body:has(.apf.open) .apcard-act { flex-basis: 100%; } }
 @media (max-width: 760px) {
   .apcard { padding: 16px; margin-top: 14px; }
   .apcard-main { flex-basis: 100%; }
