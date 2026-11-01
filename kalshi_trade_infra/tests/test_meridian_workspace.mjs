@@ -54,6 +54,7 @@ import {fundsHistoryCases} from './funds_history_frontend_cases.mjs';
 import {fundsLongHistoryCases} from './funds_long_history_frontend_cases.mjs';
 import {moneyPagesWalkCases} from './money_pages_walk_frontend_cases.mjs';
 import {moneyAuditCases} from './money_audit_frontend_cases.mjs';
+import {moneyDriftCases} from './money_drift_frontend_cases.mjs';
 import {staleMarkCases} from './stale_mark_frontend_cases.mjs';
 import {chatPanelCases} from './chat_panel_frontend_cases.mjs';
 import {multiFamilyCases} from './multi_family_frontend_cases.mjs';
@@ -7001,6 +7002,7 @@ moneyAgreementCases({name: 'Meridian', frontend});
 pastCloseCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData});
 moneyPagesWalkCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData});
 moneyAuditCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData});
+moneyDriftCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, billingPage, cardedBilling});
 staleMarkCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData});
 moneyDisplayCases({name: 'Meridian', frontend, strategyFrontend, detailStrategy, dashboard: dashboardData, hotRail: (f, markets) => {
   f.root.innerHTML = '<aside id="hotrail"></aside>'; f.S.hot = {at: new Date().toISOString(), markets}; f.renderHotRail();

@@ -132,8 +132,9 @@
     const n = halfUp(+v * 100, 1);
     return (n < 0 ? '−' : signed && n > 0 ? '+' : '') + fmt1.format(Math.abs(n)) + '%';
   };
-  // Kalshi quotes some markets in tenths of a cent: 0.1¢ read as 0¢ and a 99.9¢ bid as 100¢.
-  const cents = (v) => (v == null ? '—' : Math.round(v * 1000) / 10 + '¢');
+  // Kalshi quotes some markets in tenths of a cent: 0.1¢ read as 0¢ and a 99.9¢ bid as 100¢. Rounded half up from the
+  // decimal sent (halfUp), as every money figure is: a stored price of 0.5005 is 500.49999… tenths as a float, and read 50¢.
+  const cents = (v) => (v == null ? '—' : Math.round(halfUp(+v, 3) * 1000) / 10 + '¢');
   const isPerpetual = (s) => s.kind === 'perpetual' || s.market === 'btc_perp' || s.key === 'btc_perp' || (s.spec && s.spec.market === 'btc_perp');
   const researchOnly = (s) => s.research_only === true || isPerpetual(s);
   const researchBadge = (s) => researchOnly(s) ? '<span class="mk quiet">Research only</span>' : '';
@@ -304,6 +305,21 @@
   // rounds it once, half up. Adding the floats drifted: −0.0036 + −0.1314 is −0.13499…, which read −$0.13 beside
   // the track record's −$0.14 for the same two trades.
   const sum4 = (xs) => xs.reduce((a, v) => a + Math.round((+v || 0) * 1e4), 0) / 1e4;
+  // A share of a figure the server sent: `v` x `num` / `den` (whole numbers), rounded once, half up, to the cent, as
+  // money.py's cents() rounds. Worked on whole numbers from the decimal sent, never on a float quotient: $0.21 over 6
+  // trades is $0.035 exactly but 0.034999… as a float, which read "$0.03 a trade", and $0.03 over 2 trades times 15
+  // read $0.22 for $0.225. A figure too large for that (never a real one) is rounded as usd() rounds it.
+  const usdShare = (v, num = 1, den = 1) => {
+    const a = Math.abs(+v), n = Math.round(+num), d = Math.round(+den);
+    if (v == null || !Number.isFinite(a) || !(d > 0) || !(n >= 0)) return null;
+    let s = String(a);
+    if (/e/i.test(s)) s = a < 1 ? a.toFixed(12) : '';
+    if (!s || a >= 1e15 || !Number.isSafeInteger(n) || !Number.isSafeInteger(d) || typeof BigInt !== 'function') return halfUp((+v * n) / d);
+    const [i, f = ''] = s.split('.'), B = BigInt;
+    const top = B(i + f) * B(n) * B(100), bottom = B(d) * B(10) ** B(f.length);
+    const c = Number((B(2) * top + bottom) / (B(2) * bottom));
+    return (+v < 0 ? -c : c) / 100 + 0;
+  };
   const money = (v) => `<span class="${tone(v == null ? v : halfUp(+v))}">${usd(v, true)}</span>`;
   // A volume in a narrow column (the hot rail): "9.0k", "1.2M". A count that rounds up into the next unit takes it:
   // 999,960 read "1000.0k" and 999.6 "1000" (walked 2026-10-31).
@@ -946,15 +962,15 @@
   };
   const demoRowLine = (d) => d.mode !== 'demo' ? '' : `<div class="sub-fig demo-row">${d.demo_copy ? 'Demo copy of its paper run: the same rules on Kalshi’s sandbox, with play money' : 'On Kalshi’s sandbox, with play money'}. It proves orders place, fill and book before live money; the demo book is thin, so fills differ from paper’s.</div>`;
   // A Deploy row's backtest estimate (Tau's Backtest estimate cell, Meridian's Details fold, on Deploy and the
-  // dashboard alike): the backtest's average per trade after its split date, which the row scales by its own closed
-  // trades, or null with no later-period slice to divide. Display only.
+  // dashboard alike): the backtest's average per trade after its split date, or with `n` the estimate for `n` trades
+  // (usdShare: its P&L x n / its trades, rounded once), or null with no later-period slice to divide. Display only.
   // Before the first close each theme gives that average a trade; with no figure, a strategy from a research session
   // (not backtest-only) says where its unseen-data result is. Walked 2026-11-01 in both themes: Meridian's Details said
   // neither, so a row Tau read "+$0.06 a trade, on average" or "Its unseen-data result is on its page" said only when
   // it was deployed there.
-  const btPace = (d) => {
+  const btPace = (d, n = 1) => {
     const oos = d && d.backtest && d.backtest.out_of_sample;
-    return oos && +oos.trades > 0 ? (+oos.pnl || 0) / +oos.trades : null;
+    return oos && +oos.trades > 0 ? usdShare(+oos.pnl || 0, n, +oos.trades) : null;
   };
   const btPerTrade = (pace) => `<span class="amt">${usd(pace, true)}</span> a trade, on average`;
   const paceHeld = (d) => `Its unseen-data result is on <a href="/strategies/${encodeURIComponent(d.strategy_id)}">its page</a>`;
@@ -1608,7 +1624,7 @@
   window.TauCore = Object.freeze({
     esc, SEP, sepLine, mdInline, mdLite, feedMd, authorLine, fmt0, halfUp, WJ, plain, usd, pct, cents, isPerpetual,
     researchOnly, researchBadge, tone, when, bellTime, bellMore, dateFmt, CLOCK, CLOCK_ZONE, LOG_STAMP, WEEKDAY_DAY, clock, tzName,
-    logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, money, kfmt, sinceMin,
+    logTime, settleAt, stampAt, stratTitle, filedDay, dayAt, dayTimes, markOld, markFig, keepZone, localDay, num, compact, clipWords, age, sum4, usdShare, money, kfmt, sinceMin,
     PAPER_NET, NOT_MARKED, markedOf, slipEst, slipTip, ICON, GLOSSARY, PNL_WINDOW, pnlWin, utcDayWord, slipEstGl, glo, gloSep, gl,
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, SERIES_SHORT, kalshiRef, boardTitle, emailState, fig,

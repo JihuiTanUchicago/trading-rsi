@@ -1518,6 +1518,26 @@ def test_explore_market_says_how_it_settles_and_lists_the_readers_positions(monk
     assert "order_ref" not in o and "user_id" not in o  # only what the page shows
 
 
+def test_explore_market_sums_each_books_open_cost_exactly(monkeypatch):
+    # The market page's "N open at cost + fees" added its rows' rounded costs: two paper positions of 1 x $0.33 plus a
+    # $0.005 fee ($0.335 each, $0.34 a row) read $0.68 beside the dashboard's, Funds' and the strategy page's $0.67.
+    # `books` sends each book's open money as views._open_book sums it (exactly, rounded once); books never mix.
+    from app.web.routes import explore
+    base = {"side": "yes", "status": "open", "title": "Drift", "strategy_id": 4, "market_close_time": None, "opened_at": None,
+            "mark_price": None, "mark_ts": None}
+    rows = [{**base, "id": 1, "mode": "paper", "qty": 1, "entry_price": 0.33, "entry_fee": 0.005},
+            {**base, "id": 2, "mode": "paper", "qty": 1, "entry_price": 0.33, "entry_fee": 0.005},
+            {**base, "id": 3, "mode": "live", "qty": 2, "entry_price": 0.52, "entry_fee": 0.02}]
+    monkeypatch.setattr(server.repo, "user_positions_in_ticker", lambda *a, **k: {"open": [dict(r) for r in rows], "closed": []})
+    ctx = server.Ctx(FakeConn(), {"id": 7}, (), {}, {}, None)
+    mine = explore._market_mine(ctx, "KXBTCD-26OCT2617-T113499.99", None)
+    assert [o["cost"] for o in mine["open"]] == [0.34, 0.34, 1.06]  # each row as before, rounded on its own
+    assert mine["books"] == {"live": {"open_at_cost": 1.04, "open_cost": 1.06, "open_positions": 1},
+                             "paper": {"open_at_cost": 0.66, "open_cost": 0.67, "open_positions": 2}}
+    monkeypatch.setattr(server.repo, "user_positions_in_ticker", lambda *a, **k: {"open": [], "closed": []})
+    assert explore._market_mine(ctx, "KXBTCD-26OCT2617-T113499.99", None)["books"] == {}
+
+
 def test_explore_market_says_what_a_cancelled_game_paid(monkeypatch):
     # Kalshi settles a game it cancels (postponed, abandoned) with result "scalar" at a price it sets. The page said
     # "Kalshi lists it as settled but sent no Yes or No result": it now gets the price (settle_value) to say what each

@@ -8,7 +8,7 @@ window.TauPage('research', (T) => {
     alert0, announce, api, ApiError, apNudge, apWhenSpan, armed, boardTitle, busy, clearTimers, errText, loadFail, clipWords, esc, EXAMPLE_NOTE, exampleLine,
     failText, feedMd, fig, fillLiveRow, flash, gl, glo, GLOSSARY, go, ICON, liveOpen, loading, logTime, marketPicker, marketShort,
     markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
-    runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, waitSpan, ageAt,
+    runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, usdShare, waitSpan, ageAt,
     dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay,
     whyFailedHtml, wireMarketPicker
   } = T;
@@ -96,7 +96,7 @@ window.TauPage('research', (T) => {
     const t = b.total, tr = b.trend;
     const delta = tr ? `<span class="rsi-score">${loopRate(tr.before.gate_reach_rate)} <span class="rsi-arrow">→</span> ${loopRate(tr.after.gate_reach_rate)}</span>` : '';
     const tag = tr ? (tr.better ? '<span class="rsi-tag">Improving</span>' : '<span class="rsi-tag quiet">Not improving yet</span>') : '<span class="rsi-tag quiet">Learning</span>';
-    const perIdea = t.explored ? usd(t.cost_usd / t.explored) : '—';
+    const perIdea = t.explored ? usd(usdShare(+t.cost_usd || 0, 1, t.explored)) : '—';  // rounded once from the exact quotient (usdShare)
     // Passed's note counts the passes that then held up on the one-time locked holdout, in the words the strategy pages use
     // ("missed the final test"): "5 held out" read as five kept back, beside sessions' "held back" (walk 2026-11-01).
     const figs = `<dl class="figures measure loop-figs">${fig('Ideas tried', num(t.explored), { small: `${num(t.runs)} session${t.runs === 1 ? '' : 's'}${SEP}14 days` })}${fig('Reached the gate', num(t.gated), { small: `${loopRate(t.gate_reach_rate)} of ideas` })}${fig('Passed', num(t.passed), { small: t.holdout_passed ? `${num(t.holdout_passed)} also passed the final test` : 'every gate' })}${fig('Spend', usd(t.cost_usd), { small: `${perIdea} per idea${SEP}${LOOP_SPEND_LEAVES}` })}${fig('Killed by our pipeline', loopRate(t.pipeline_death_share), { small: 'of dropped ideas' })}</dl>`;
@@ -114,7 +114,7 @@ window.TauPage('research', (T) => {
     const famOf = b.families || {}, famKeys = Object.keys(famOf).filter((f) => famOf[f] && +famOf[f].runs > 0);
     const famRows = famKeys.length < 2 ? '' : famKeys.sort((x, y) => (+famOf[y].cost_usd || 0) - (+famOf[x].cost_usd || 0) || x.localeCompare(y)).map((f) => {
       const r = famOf[f], g = +r.gated || 0, n = +r.runs || 0, ideas = +r.explored || 0;
-      return `<li><span class="loop-k">${esc(loopFamily(f))}</span><span class="loop-v"><b>${usd(+r.cost_usd || 0)}</b> spent${SEP}${num(n)} session${n === 1 ? '' : 's'}${SEP}${num(ideas)} idea${ideas === 1 ? '' : 's'} tried${SEP}${num(g)} reached the gate${SEP}${num(+r.passed || 0)} passed${g ? `${SEP}${usd((+r.cost_usd || 0) / g)} per idea that reached the gate` : ''}</span></li>`;
+      return `<li><span class="loop-k">${esc(loopFamily(f))}</span><span class="loop-v"><b>${usd(+r.cost_usd || 0)}</b> spent${SEP}${num(n)} session${n === 1 ? '' : 's'}${SEP}${num(ideas)} idea${ideas === 1 ? '' : 's'} tried${SEP}${num(g)} reached the gate${SEP}${num(+r.passed || 0)} passed${g ? `${SEP}${usd(usdShare(+r.cost_usd || 0, 1, g))} per idea that reached the gate` : ''}</span></li>`;
     }).join('');
     const fams = {};
     (b.playbooks || []).forEach((p) => { (fams[p.family] = fams[p.family] || {})[p.status] = p; });
