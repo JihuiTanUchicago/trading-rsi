@@ -269,6 +269,39 @@ def test_shared_reads_compute_once_then_refresh_in_one_background_thread(monkeyp
     assert server._shared("k", 60, fn, "cur") == 2 and calls[-1] == "bg"
 
 
+def test_a_cold_shared_read_is_worked_out_once_while_concurrent_callers_wait_for_it():
+    """Load test 2026-11-01: every page load right after a deploy read history_freshness cold side by side (one
+    12-14s scan each on prod), and a Research shell and its own scoreboard read worked the same 4.4s board out
+    twice. Concurrent first callers of one key now share one read."""
+    import threading as _th
+    calls, gate = [], _th.Event()
+
+    def slow(cur):
+        calls.append(cur)
+        gate.wait(5)
+        return "v"
+    out = []
+    ths = [_th.Thread(target=lambda i=i: out.append(server._shared("cold", 60, slow, i))) for i in range(8)]
+    for t in ths:
+        t.start()
+    time.sleep(0.3)  # every caller has asked by now
+    gate.set()
+    for t in ths:
+        t.join(5)
+    assert out == ["v"] * 8 and len(calls) == 1, calls
+    # Other keys never wait on it.
+    assert server._shared("other", 60, lambda cur: "o", None) == "o"
+
+
+def test_a_failed_cold_shared_read_is_never_served_and_the_next_caller_reads_again():
+    def boom(cur):
+        raise RuntimeError("db down")
+    with pytest.raises(RuntimeError):
+        server._shared("k2", 60, boom, None)
+    assert not caches._shared_kept("k2")
+    assert server._shared("k2", 60, lambda cur: "ok", None) == "ok" and caches._shared_kept("k2")
+
+
 def test_shared_refresh_failure_keeps_the_last_value(monkeypatch):
     server._shared("k", 60, lambda cur: "good", None)
     monkeypatch.setattr(caches, "get_db_conn", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
@@ -374,3 +407,38 @@ def test_me_and_the_theme_switch_keep_the_device_cookie_in_step(monkeypatch):
     c = ctx({"tau_ui": "meridian"}, "tau")
     assert server.set_ui_theme(c) == {"ok": True, "theme": "tau"}
     assert len(c.set_cookies) == 1 and c.set_cookies[0].startswith("tau_ui=tau;")
+
+
+def test_shared_reads_are_bounded_and_drop_the_oldest_idle_entries_first(monkeypatch):
+    """Load pass 2026-11-01: the scoreboard kept one board per user and ?days= in _SHARED (~120KB each for a
+    busy account) and never let one go, in a process capped at 1G."""
+    monkeypatch.setattr(caches, "SHARED_MAX", 8)
+    for i in range(8):
+        server._shared("board:%d" % i, 60, lambda cur, i=i: i, None)
+        server._SHARED["board:%d" % i]["at"] = 1000.0 + i
+    server._SHARED["board:0"]["busy"] = True  # a refresh under way is never dropped
+    server._shared("new", 60, lambda cur: "n", None)
+    assert "board:0" in server._SHARED and "board:1" not in server._SHARED and "board:2" not in server._SHARED
+    assert "new" in server._SHARED and "board:7" in server._SHARED and len(server._SHARED) == 7
+    assert server._shared("board:1", 60, lambda cur: "again", None) == "again"  # dropped: read afresh
+
+
+def test_only_a_busy_books_track_record_is_kept_and_the_keep_is_bounded(monkeypatch):
+    """Load pass 2026-11-01: every user's record was kept (a small book's is never served from the keep) and
+    none was let go; a busy book's is ~300KB."""
+    from app.web.routes import dashboard as dash
+    trades = {}
+    monkeypatch.setattr(dash.book_memo, "track_record", lambda cur, uid: {"modes": {"paper": {"trades": trades[uid]}}})
+    monkeypatch.setattr(dash, "_TRACK_RECORD", server._TRACK_RECORD)
+    server._TRACK_RECORD.clear()
+    ctx = lambda uid: SimpleNamespace(cur=None, uid=uid)
+    trades.update({1: 5, 2: dash.TRACK_RECORD_CACHE_MIN_TRADES})
+    dash.get_track_record(ctx(1))
+    dash.get_track_record(ctx(2))
+    assert 1 not in server._TRACK_RECORD and 2 in server._TRACK_RECORD  # a small book is read fresh: nothing kept
+    monkeypatch.setattr(dash, "TRACK_RECORD_KEEP_MAX", 2)
+    trades.update({3: 500, 4: 500})
+    dash.get_track_record(ctx(3))
+    dash.get_track_record(ctx(4))
+    assert list(server._TRACK_RECORD) == [4]
+    server._TRACK_RECORD.clear()
