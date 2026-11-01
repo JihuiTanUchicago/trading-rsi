@@ -17,7 +17,7 @@ window.TauPage('autopilot', (T) => {
   // The float is the single home for autopilot: the on/off toggle, live controls, and the agent
   // chat. The expanded shell is built ONCE; the 20s status poll updates only dynamic bits so it
   // never wipes the chat/composer. apChatTimer polls chat (3s) only while expanded.
-  let apChatLastId = 0, apChatTimer = null, apFeedFirst = true, apFeedDay = '';
+  let apChatLastId = 0, apChatTimer = null, apFeedFirst = true, apFeedDay = '', apBacklogOut = 0;
   // The feed's day line: the rail's times are the reader's clock, so each day starts with its date and zone.
   // The zone is the one in force on that day (dayZone, its noon): on the day the clocks changed, the days before it read
   // "times in CST" over times that were CDT, beside the bell's "Oct 30, 23:25 CDT" (walk 2026-11-01).
@@ -200,8 +200,17 @@ window.TauPage('autopilot', (T) => {
   async function apLoadChat(box, full, cfg, follow) {
     const msgs = box.querySelector('#apf-messages'); if (!msgs) return;
     apDays(msgs);
+    // A full read paints the whole backlog into the feed at once (the panel opening, a repaint mid-history), and as
+    // additions to a polite live region a screen reader read out every past line, hundreds on a long history (walk
+    // 2026-11-01). The backlog goes in with the region off; the next read turns it back on before it adds anything, so
+    // a new line is still said once. An empty feed's line, or one that didn't load, is still said.
+    // A poll that starts while a full read is out leaves the region off, or the backlog landing after it would be said.
+    const feedLive = (on) => { msgs.apQuiet = !on; msgs.setAttribute('aria-live', on ? 'polite' : 'off'); };
+    if (full) { apBacklogOut++; feedLive(false); }
+    else if (!apBacklogOut && msgs.apQuiet) feedLive(true);
     let d; try { d = await api('/api/chat?after=' + (full ? 0 : apChatLastId), undefined, { keep: true, ...cfg }); }
     catch (e) {
+      if (full && !--apBacklogOut) feedLive(true);
       // Nothing painted yet: say the feed didn't load rather than leave it blank. The poll retries.
       // Try again reads now: the poll backs off while reads fail (walk 2026-10-28: still "Retrying." 5s after Tau was back).
       if (!msgs.children.length) {
@@ -212,6 +221,8 @@ window.TauPage('autopilot', (T) => {
       return false;
     }
     msgs.querySelectorAll('.ap-fail').forEach((n) => n.remove());
+    if (full) apBacklogOut--;
+    if (full && !apBacklogOut && !d.messages.length) feedLive(true);
     const atEnd = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < 70;
     const sheet = box.scrollHeight > box.clientHeight + 1;
     const stick = follow === 'end' || (full && follow !== 'keep') || atEnd(msgs);

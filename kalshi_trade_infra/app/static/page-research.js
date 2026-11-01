@@ -354,6 +354,9 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     // Where its sessions show, wherever the list sits: "listed below" sat under the list on a Tau phone, where the
     // sessions come first and the form after (walk 2026-11-01).
     const apLines = `${S.me.user && !S.me.user.autopilot ? `<p class="research-ap">Rather not write ideas yourself? <button type="button" data-research-ap>Turn on autopilot</button> and it picks ideas and researches them on its own, on paper.</p>` : ''}${S.me.user ? `<p class="research-ap-on" data-ap-next${S.me.user.autopilot ? '' : ' hidden'}>Autopilot is on: the sessions it starts show in your session list with an Autopilot tag. You can still start a session of your own.</p>` : ''}`;
+    // Tau's engine summary has a heading of its own, hidden: the research card's h3s (By kind of market, Paper tournament)
+    // followed the h1 straight on a phone, where it moves above the sessions (researchFlow), and skipped a level (walk
+    // 2026-11-01, keyboard and screen reader, 390px).
     // Tau's page opens on the form, its figures and the sessions under it; Meridian's on the session at work, the
     // form folded under New session (open from ?new=1) and a table of the rest. New session shows at the top right,
     // beside the h1, so it comes right after the h1 in the markup and Tab reaches it first: it came after the session
@@ -364,6 +367,7 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
       <div id="rexample"></div>
       ${dispatchHtml}
       <div class="rengine" id="rengine">
+        <h2 class="vh">Your research engine</h2>
         <div class="statusline" id="rstatus"><p class="said"></p></div>
         <dl class="figures measure" id="rfigs"></dl><p class="stale-note" id="runs-stale" role="status"></p>
         <div id="rsimo"></div>

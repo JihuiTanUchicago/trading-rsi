@@ -126,8 +126,8 @@ window.TauPage('billing', (T) => {
               <section class="panel"><h2>Add credits</h2>
                 <label class="field"><span>Amount (USD)</span><input class="input" id="topup-amt" type="number" min="${d.min_topup}" max="${d.max_topup}" step="1" value="20"></label>
                 <p class="hint" id="topup-note" style="margin-top:8px">${feeNote}</p>
-                <button class="btn primary" id="topup-btn" style="margin-top:12px;width:100%" ${d.cards.length ? '' : 'aria-disabled="true"'}>Buy credits</button>
-                ${d.cards.length ? '' : `<p class="hint" style="margin-top:8px">${cardsUnread ? CARDS_UNREAD_BUY : 'Add a card first.'}</p>`}
+                <button class="btn primary" id="topup-btn" style="margin-top:12px;width:100%" aria-describedby="topup-note${d.cards.length ? '' : ' topup-why'}" ${d.cards.length ? '' : 'aria-disabled="true"'}>Buy credits</button>
+                ${d.cards.length ? '' : `<p class="hint" id="topup-why" style="margin-top:8px">${cardsUnread ? CARDS_UNREAD_BUY : 'Add a card first.'}</p>`}
                 <div id="topup-flash"></div>
               </section>
             </aside>
@@ -185,6 +185,7 @@ window.TauPage('billing', (T) => {
       // switch off on screen while auto-reload stayed on. The controls lock until Tau answers, so two
       // quick flips can't land out of order.
       let arSaved = { on: !!d.auto_reload, amount: d.autoreload_amount, threshold: d.autoreload_threshold };
+      let arTo = null;  // the locked control focus was headed to as a save began (the focusout below)
       const arPaint = (on, amount, threshold) => {
         arBox.checked = on; arAmt.value = amount; arThr.value = threshold;
         arSum.textContent = `Reload $${amount} at $${threshold}`;
@@ -202,6 +203,7 @@ window.TauPage('billing', (T) => {
         // Locking the controls blurs the one in use (the switch, or an amount saved with Enter), which left a
         // keyboard user at the top of the page: focus goes back to it once they unlock, as the autopilot switch's does.
         const had = [arBox, arAmt, arThr].find((x) => x === document.activeElement);
+        arTo = null;
         [arBox, arAmt, arThr].forEach((x) => { x.disabled = true; });
         const waited = waitNote(arBox.closest('.switch') || arBox);
         try {
@@ -217,7 +219,8 @@ window.TauPage('billing', (T) => {
         finally {
           [arBox, arAmt, arThr].forEach((x) => { x.disabled = false; });
           const a = document.activeElement;
-          if (had && had.isConnected && (!a || a === document.body) && had.focus) had.focus({ preventScroll: true });
+          const back = had || arTo; arTo = null;
+          if (back && back.isConnected && (!a || a === document.body) && back.focus) back.focus({ preventScroll: true });
         }
       };
       // Changed in another tab or on another device, the poll reads the new saved auto-reload: the switch and amounts
@@ -233,6 +236,11 @@ window.TauPage('billing', (T) => {
       };
       arBox.onchange = saveAutoReload;
       arAmt.onchange = arThr.onchange = () => { if (arBox.checked) saveAutoReload(); };
+      // Tab from one amount to the other saves the first as focus leaves it, and the save locks both: the browser has
+      // already let go of the first (the change fires after the blur) and the second is disabled as focus arrives, so
+      // focus fell to <body> (walk 2026-11-01, keyboard, both themes). Where focus was headed, when that was one of the
+      // locked controls, takes it once they unlock. Keyboard only: what is saved, and when, is unchanged.
+      [arAmt, arThr].forEach((x) => x.addEventListener('focusout', (e) => { const to = e && e.relatedTarget; arTo = [arBox, arAmt, arThr].includes(to) ? to : null; }));
       // A removed card redraws the list, and focus fell to the top of the page with no word that it went (walk
       // 2026-10-31): the page says so and focus goes to the Payment method heading.
       root.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => armed(b, 'Confirm remove', () => busy(b, async () => {

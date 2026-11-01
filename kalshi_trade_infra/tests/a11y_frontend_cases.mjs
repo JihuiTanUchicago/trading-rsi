@@ -1374,4 +1374,163 @@ export function a11yCases({name, frontend, storageFor, billingPage, cardedBillin
     }
     assert.ok(asked.every((p) => p.startsWith('/api/users/mention?q=')));
   });
+
+  // From a keyboard-only and screen-reader walk of the money flows on a heavy account (Funds, research from Explore and from
+  // Research, Strategies, Billing, Home's cards, bell and autopilot panel; Tab, Shift+Tab, Enter, Space, Escape; Playwright
+  // ARIA snapshots and a live-region watch; both themes, 390px and 1366px, 2026-11-01):
+  // - Tab from Billing's reload amount to the trigger amount saved the first and locked both: focus fell to <body>.
+  // - Buy credits was a bare "Buy credits": what the card would be charged ("You'll pay $21.10 ...") was not tied to it.
+  // - The autopilot card's Open autopilot left focus on the card: on a phone the page under the sheet went inert and focus
+  //   fell to <body>; wider, the panel sat at the far end of the page. Closing it with Tau's masthead Autopilot button sent
+  //   focus down to that card button instead of leaving it on the button just pressed.
+  // - Opening the panel painted the whole activity backlog into a polite live region: every past line was read out.
+  // - On a Tau phone the research card's h3s followed the h1 straight on (the engine summary moves above the sessions).
+  test(`${name}: Tab between Billing's two auto-reload amounts saves the first and focus lands on the second, not <body>`, async () => {
+    const posts = [];
+    const f = billingPage(cardedBilling(), posts, {'/api/billing/auto-reload': (options) => { posts.push(JSON.parse(options.body)); return response({ok: true}); }});
+    await f.viewBilling(); await flush();
+    const amt = f.root.querySelector('#reload-amt'), thr = f.root.querySelector('#reload-thr');
+    f.root.querySelector('#autorel-edit').onclick();
+    amt.focus(); f.document.activeElement = amt; thr.focusOptions = undefined; amt.focusOptions = undefined;
+    amt.value = '30';
+    // The browser lets go of the amount before its change fires, then moves on to the other amount (locked by then).
+    f.document.activeElement = f.document.body;
+    const saved = amt.onchange();
+    amt.dispatchEvent({type: 'focusout', relatedTarget: thr});
+    assert.equal(thr.disabled, true, 'the save locks both amounts');
+    await saved; await flush();
+    assert.deepEqual(posts, [{on: true, amount: 30, threshold: 8}]);
+    assert.equal(thr.disabled, false);
+    assert.equal(thr.focusOptions && thr.focusOptions.preventScroll, true, 'focus goes on to the amount Tab was headed to');
+    // Leaving for something the save doesn't lock (Shift+Tab to the button that opened them), focus is left where it went.
+    const edit = f.root.querySelector('#autorel-edit');
+    thr.focusOptions = undefined; amt.focusOptions = undefined; thr.value = '9';
+    f.document.activeElement = edit;
+    const again = thr.onchange();
+    thr.dispatchEvent({type: 'focusout', relatedTarget: edit});
+    await again; await flush();
+    assert.equal(thr.focusOptions, undefined); assert.equal(amt.focusOptions, undefined);
+    f.clearTimers();
+  });
+
+  test(`${name}: Buy credits is described by what the card will be charged`, async () => {
+    const f = billingPage(cardedBilling());
+    await f.viewBilling(); await flush();
+    const btn = f.root.querySelector('#topup-btn'), note = f.root.querySelector('#topup-note');
+    assert.equal(btn.textContent, 'Buy credits', 'the words it shows are unchanged');
+    assert.equal(btn.getAttribute('aria-describedby'), 'topup-note');
+    assert.match(note.textContent, /^You’ll pay \$/);
+    // With no card, the line saying to add one is read with it too.
+    const none = billingPage(cardedBilling({cards: []}));
+    await none.viewBilling(); await flush();
+    assert.equal(none.root.querySelector('#topup-btn').getAttribute('aria-describedby'), 'topup-note topup-why');
+    assert.equal(none.root.querySelector('#topup-why').textContent, 'Add a card first.');
+    f.clearTimers(); none.clearTimers();
+  });
+
+  test(`${name}: the autopilot card's Open autopilot takes focus into the panel; Tau's masthead button that closes it keeps it`, async () => {
+    const store = new Map([['tau_ap_open', '0']]);
+    const f = frontend({storage: storageFor(store), fetchImpl: (path) => {
+      if (path.startsWith('/api/dashboard')) return response(dashboard());
+      if (path === '/api/autopilot/status') return response({...apStatus, focus: ['crypto']});
+      if (path.startsWith('/api/chat')) return response({messages: [], agent_busy: false});
+      if (path === '/api/models') return response({models: [], default: ''});
+      return response({});
+    }});
+    f.S.me.user.autopilot = true; f.S.ap = {...apStatus, focus: ['crypto']};
+    await f.viewDashboard(); await flush();
+    f.S.ap = {...apStatus, focus: ['crypto']}; f.paintDashAp();
+    const box = f.document.getElementById('autopilot-float');
+    const open = f.root.querySelector('#dash-ap [data-apcard="open"]');
+    open.focusOptions = undefined;
+    await open.onclick(); await flush(); await flush();
+    assert.equal(store.get('tau_ap_open'), '1');
+    const x = box.querySelector('.apf-x');
+    assert.ok(x && x.focusOptions && x.focusOptions.preventScroll === true, 'focus is on the panel’s close button');
+    // Esc still brings it back to Open autopilot.
+    box.onkeydown({key: 'Escape', stopPropagation() {}}); await flush(); await flush();
+    assert.equal(store.get('tau_ap_open'), '0');
+    assert.equal(open.focusOptions && open.focusOptions.preventScroll, true);
+    if (name === 'Tau') {
+      const entry = f.root.querySelector('[data-ap-entry]');
+      assert.ok(entry, 'Tau’s masthead has the Autopilot button');
+      await open.onclick(); await flush(); await flush();
+      assert.equal(store.get('tau_ap_open'), '1');
+      open.focusOptions = undefined; entry.focusOptions = undefined;
+      await entry.onclick({currentTarget: entry}); await flush(); await flush();
+      assert.equal(store.get('tau_ap_open'), '0', 'the masthead button closed it');
+      assert.equal(open.focusOptions, undefined, 'focus did not jump down to the card');
+      assert.equal(entry.focusOptions && entry.focusOptions.preventScroll, true, 'it stays on the button pressed');
+    }
+    f.clearTimers();
+  });
+
+  test(`${name}: opening the autopilot panel paints its backlog without reading it out; a new line is still said`, async () => {
+    const line = (id, content, role = 'agent') => ({id, role, content, created_at: '2026-11-01T08:0' + (id % 10) + ':00Z'});
+    let chat = {messages: [line(1, 'Started research on BTC.'), line(2, 'Why that one?', 'user'), line(3, 'It had the most history.')], agent_busy: false};
+    const store = new Map([['tau_ap_open', '1']]);
+    const f = frontend({storage: storageFor(store), fetchImpl: (path) => {
+      if (path.startsWith('/api/chat?')) return response(chat);
+      if (path === '/api/models') return response({models: [], default: ''});
+      throw new Error('Unexpected offline request: ' + path);
+    }});
+    f.S.me = {...f.S.me, user: {...(f.S.me && f.S.me.user), id: 7, autopilot: true}};
+    f.S.ap = {...f.S.ap, autopilot: true, mode: 'paper', paper_running: 2};
+    const box = f.document.createElement('div'); box.id = 'autopilot-float'; f.document.body.appendChild(box);
+    // Each line added to the feed, with the live region's setting as it went in (the instance only, no shared prototype).
+    const said = [];
+    f.renderAutopilot(box, null);
+    const msgs = box.querySelector('#apf-messages');
+    const add = msgs.appendChild.bind(msgs);
+    msgs.appendChild = (child) => { said.push([msgs.getAttribute('aria-live'), (child.textContent || '').trim()]); return add(child); };
+    for (let i = 0; i < 4; i++) await flush();
+    const backlog = said.filter(([, t]) => /Started research|Why that one|most history/.test(t));
+    assert.equal(backlog.length, 3, 'the backlog is painted');
+    assert.deepEqual([...new Set(backlog.map(([live]) => live))], ['off'], 'with the live region off');
+    // The next read turns it back on before it adds anything: a new line goes into a polite region.
+    said.length = 0;
+    chat = {messages: [line(4, 'Paused the ETH strategy.')], agent_busy: false};
+    await f.apLoadChat(box, false); await flush();
+    assert.equal(msgs.getAttribute('aria-live'), 'polite');
+    assert.deepEqual(said.filter(([, t]) => /Paused the ETH/.test(t)).map(([live]) => live), ['polite']);
+    // An empty feed's own line is still said (the region is on as it lands).
+    const f2 = frontend({storage: storageFor(new Map([['tau_ap_open', '1']])), fetchImpl: (path) => {
+      if (path.startsWith('/api/chat?')) return response({messages: [], agent_busy: false});
+      if (path === '/api/models') return response({models: [], default: ''});
+      throw new Error('Unexpected offline request: ' + path);
+    }});
+    f2.S.me = {...f2.S.me, user: {...(f2.S.me && f2.S.me.user), id: 7}};
+    const box2 = f2.document.createElement('div'); box2.id = 'autopilot-float'; f2.document.body.appendChild(box2);
+    f2.renderAutopilot(box2, null); await flush(); await flush();
+    assert.equal(box2.querySelector('#apf-messages').getAttribute('aria-live'), 'polite');
+    f.clearTimers(); f2.clearTimers();
+  });
+
+  test(`${name}: the research engine summary has a heading, so the research card's h3s never follow the h1 straight on`, async () => {
+    const f = frontend({fetchImpl: (path) => {
+      if (path === '/api/models') return response({models: [], default: ''});
+      if (path.startsWith('/api/runs')) return response({runs: [], counts: {research_running: 0, research_queued: 0}, policy: null, v: 'v1'});
+      return response({});
+    }});
+    f.S.me.user.autopilot = false; f.location.pathname = '/research';
+    await f.viewResearch(); for (let i = 0; i < 6; i++) await flush();
+    const eng = f.root.querySelector('#rengine');
+    assert.ok(eng, 'the engine summary is on the page');
+    if (name === 'Tau') {
+      assert.ok(eng.querySelector('#rsimo'), 'the research card sits in it');
+      const h = eng.querySelector('h2');
+      assert.ok(h, 'an h2 of its own');
+      assert.equal(h.getAttribute('class'), 'vh', 'hidden: nothing shown changes');
+      assert.equal(h.textContent, 'Your research engine');
+      // A phone moves the summary right under the h1 (researchFlow): with the card's sections under it, no level skips.
+      const host = f.document.createElement('section');
+      host.innerHTML = '<h1>Research</h1>' + eng.innerHTML.replace('<div id="rsimo"></div>', '<div id="rsimo"><h3>By kind of market</h3></div>');
+      assert.ok(host.querySelector('h3'));
+      assert.deepEqual(headingSkips(host), []);
+    } else {
+      // Meridian's summary sits under "Recent sessions" (h2) with its own h3, as before.
+      assert.deepEqual(headingSkips(f.root), []);
+    }
+    f.clearTimers();
+  });
 }

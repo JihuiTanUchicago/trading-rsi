@@ -3429,7 +3429,10 @@
         <p class="ap-focus">${apFocusLine(d.focus, 'data-apcard="focus"')}</p>` : ''}
         <dl class="apcard-figs">${cells.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl><p class="stale-note" id="dash-ap-stale" role="status">${apStale()}</p>${apWeek(d.week, d, open)}</div>
       <div class="apcard-act"><button type="button" class="btn" data-apcard="open">Open autopilot</button></div>`);
-    host.querySelector('[data-apcard="open"]').onclick = () => apOpen('open');
+    // Open autopilot opened the panel and left focus on the card: on a phone the page under the sheet goes inert, so focus
+    // fell to <body>; wider, the panel sat at the far end of the page from the card (walk 2026-11-01, keyboard, both themes).
+    // Focus goes into the panel, its close button first, as the pill's does; closing it still brings focus back here.
+    host.querySelector('[data-apcard="open"]').onclick = () => { apOpen('open'); apShowPanel(document.getElementById('autopilot-float')); };
     const idleFocus = host.querySelector('[data-apcard="idle-focus"]');
     if (idleFocus) idleFocus.onclick = () => { apOpen('idle-focus'); apShowFocus(document.getElementById('autopilot-float')); };
     apBindFocus(host);
@@ -3548,6 +3551,11 @@
     const key = (focus || []).join(',');
     if (fline.dataset.cur !== key) { fline.dataset.cur = key; fline.innerHTML = apFocusLine(focus, 'data-ap="focus"'); const b = fline.querySelector('[data-ap="focus"]'); if (b) b.onclick = () => apShowFocus(box); }
     fline.hidden = false;
+  }
+  // Put the reader in the open panel, on its close button (first in it).
+  function apShowPanel(box) {
+    const x = box && apExpanded() && box.querySelector('.apf-x');
+    if (x && x.focus) x.focus({ preventScroll: true });
   }
   // Open "Model and markets" and put the reader on the focus select.
   function apShowFocus(box) {
@@ -4051,7 +4059,9 @@
       // Opened from the masthead's Autopilot button, the panel gives focus back to it when it closes (its
       // X, Esc, or the button again), as it does to the pill it was opened from.
       const t = e && e.currentTarget, fromEntry = !!(t && t.dataset && t.dataset.apEntry !== undefined);
-      const back = !opening && S.apFromEntry;
+      // Closed with the masthead's button itself, focus stays on it, wherever the panel was opened from: it went to the
+      // card's Open autopilot, down the page from the button just pressed (walk 2026-11-01, keyboard).
+      const back = !opening && (S.apFromEntry || fromEntry);
       S.apFromEntry = opening && fromEntry;
       // Opened from the autopilot card's Change or Open autopilot (apOpen), focus goes back to that button: it went to
       // the pill, at the other end of the page from the card (walk 2026-11-01, keyboard, both themes).
