@@ -31,6 +31,8 @@ import json
 import math
 import os
 import random
+import threading
+from collections import OrderedDict
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -227,6 +229,35 @@ def allocate(entries: List[Dict], seed: str = "") -> List[Dict]:
     return out
 
 
+ALLOCATIONS_KEPT_MAX = 256  # allocations kept across users (one per user, hour and set of entrants); oldest dropped first
+_ALLOCATIONS: "OrderedDict[Tuple, List[Dict]]" = OrderedDict()
+_ALLOCATIONS_LOCK = threading.Lock()
+
+
+def allocate_kept(entries: List[Dict], seed: str = "") -> List[Dict]:
+    """`allocate`, kept per seed and entrants' inputs, for the read-only standings. The answer is a
+    function of exactly what the key holds (each entrant's strategy, deployment and per-event returns,
+    the seed, the draw settings), so a hit returns the rows computing them would. The seed carries the
+    user and the hour, so the research scoreboard (one board per range of days, each refreshed every
+    minute) and the review stop redoing DRAWS simulated draws per entrant (~35-50ms of CPU on a busy
+    account) for an answer that is fixed until a trip closes or the hour turns. The hourly rebalance
+    calls `allocate` itself. Bounded by ALLOCATIONS_KEPT_MAX, least recently used dropped first."""
+    key = (seed, DRAWS, EXPLORE, PRIOR_TRIPS, SD_FLOOR,
+           tuple((e["strategy_id"], e.get("id"), tuple(e["returns"])) for e in entries))
+    with _ALLOCATIONS_LOCK:
+        hit = _ALLOCATIONS.get(key)
+        if hit is not None:
+            _ALLOCATIONS.move_to_end(key)
+            return [dict(a) for a in hit]
+    out = allocate(entries, seed)
+    with _ALLOCATIONS_LOCK:
+        _ALLOCATIONS[key] = [dict(a) for a in out]
+        _ALLOCATIONS.move_to_end(key)
+        while len(_ALLOCATIONS) > ALLOCATIONS_KEPT_MAX:
+            _ALLOCATIONS.popitem(last=False)
+    return out
+
+
 def verdict(entry: Dict, arm: Dict, now) -> Optional[str]:
     """Why this entrant should be retired now, or None. Statistical death after enough trips, or
     dormancy (no trade at all after DORMANT_DAYS)."""
@@ -337,7 +368,7 @@ def standings(cur, user_id: int, deps: Optional[List[Dict]] = None,
     if trips_by is None:
         trips_by = repo.paper_round_trips_by_strategy(cur, user_id, paper_strategy_ids(deps))
     ents = entrants(cur, user_id, [d for d in deps if d.get("status") != "stopped"], trips_by)
-    arms = allocate(ents, seed="%s:%s" % (user_id, now.strftime("%Y%m%d%H")))
+    arms = allocate_kept(ents, seed="%s:%s" % (user_id, now.strftime("%Y%m%d%H")))
     by_sid = {e["strategy_id"]: e for e in ents}
     rows = []
     for a in arms:
