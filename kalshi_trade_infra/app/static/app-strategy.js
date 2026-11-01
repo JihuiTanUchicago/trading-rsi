@@ -1057,7 +1057,10 @@ window.TauPage('strategy', (T) => {
     // figures and the poll's line says how old they are.
     if (!restricted) {
       const depsKey = (x) => (x.deployments || []).map((d) => `${d.id}:${d.mode}:${d.status}`).join(' '), drawnDeps = depsKey(s);
-      const liveKey = (x) => JSON.stringify(LIVE_PARTS.map((k) => x[k]));
+      // With its marks' words (markedAt): with the engine stopped each read is the same, so a holding marked just before
+      // load went on reading "as of 20:46 CDT", undimmed, for hours (walk 2026-11-01). Once a mark is old its words say
+      // its age, so the parts are drawn again as that age moves, at the poll's own pace. Display only: no read is added.
+      const liveKey = (x) => JSON.stringify([...LIVE_PARTS.map((k) => x[k]), (x.holdings || []).map((p) => (p.mark_ts ? markedAt(p.mark_ts) : ''))]);
       // Road to live is read again only when its books moved (a trade closed, a deployment changed), not with each mark.
       const roadKey = (x) => JSON.stringify([x.deployments, x.book_totals]);
       let liveDrawn = liveKey(s), roadDrawn = roadKey(s);

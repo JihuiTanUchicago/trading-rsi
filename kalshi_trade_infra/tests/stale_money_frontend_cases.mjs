@@ -153,6 +153,33 @@ export function staleMoneyCases({name, frontend, detailStrategy, dashboard}) {
     f.clearTimers();
   });
 
+  // Walked 2026-11-01 (w9756) with the engine stopped: each read of the strategy page came back the same (no newer mark),
+  // so the poll drew nothing, and a holding marked a minute before load still read "Unrealized +$0.32 as of 20:46 CDT",
+  // undimmed, four hours on, where Home and Deploy said "as of 4 hours ago" over a dimmed figure for the same position.
+  test(`${name}: a strategy's held position whose mark goes old with no newer price says how old, on the poll, with the same read`, async () => {
+    const markTs = new Date(Date.now() - 60e3).toISOString();
+    const held = {id: 7, deployment_id: 501, mode: 'paper', ticker: 'KXBTC15M-26NOV012338-00', side: 'yes', qty: 10, entry_price: 0.42,
+      cost: 4.38, at_cost: 4.2, mark: 0.47, value: 4.7, unrealized: 0.32, mark_ts: markTs, market_close_time: new Date(Date.now() + 6 * 3600e3).toISOString(), status: 'open'};
+    const detail = detailStrategy({deployments: [{id: 501, mode: 'paper', status: 'running', closed_trades: 0, realized_pnl: 0, open_positions: 1, stake: 5, created_at: '2026-10-20T10:00:00Z'}],
+      book_totals: {paper: {pnl: 0, trades: 0, open: 1}}, holdings: [held], holdings_books: {paper: {open_cost: 4.38, open_positions: 1}}});
+    const f = frontend({fetchImpl: (path) => path === '/api/strategies/42' ? response(detail) : path === '/api/strategies/42/live-readiness' ? BAD() : response({})});
+    f.location.pathname = '/strategies/42';
+    await f.viewStrategy(42); await settle();
+    const held1 = () => f.root.querySelector('#holding-now');
+    assert.ok(held1(), 'it shows what it holds');
+    assert.doesNotMatch(held1().textContent, /min ago|hours? ago/, 'a minute-old mark reads as its time');
+    assert.equal(held1().querySelectorAll('.mark-old').length, 0);
+    // Four minutes on, the same answer (the engine stopped marking): the holding and its book's line say how old.
+    f.shiftClock(4 * 60e3); polls(f)[0](); await settle();
+    assert.match(held1().textContent, /Unrealized \+\$0\.32 as of 5 min ago/);
+    assert.ok(held1().querySelectorAll('.mark-old').length >= 2, 'its figure and its book’s sum are dimmed');
+    // An hour on, it says the hour.
+    f.shiftClock(60 * 60e3); polls(f)[0](); await settle();
+    assert.match(held1().textContent, /as of 65 min ago/);
+    assert.equal(writes(f).length, 0, 'the poll never writes');
+    f.clearTimers();
+  });
+
   test(`${name}: back from a sleep Home's line says it is refreshing while its read is out, and retrying once that read failed`, async () => {
     let hang = null;
     const f = frontend({fetchImpl: (path) => {

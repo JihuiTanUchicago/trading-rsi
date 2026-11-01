@@ -77,7 +77,11 @@ def _exit(pos: Dict, spec: Optional[Dict]) -> Optional[str]:
     gain = out - float(pos["entry_price"])
     at = "Exited at %s" % _c(out)
     if reason == "settled":
-        return "Held to settlement: " + ("paid $1" if out >= 1 else "expired worthless" if out <= 0 else "paid %s" % _c(out))
+        # A yes/no contract settles at $1 or nothing. Paid anything between, Kalshi cancelled the market (a postponed
+        # game, a retired player: it settles them "scalar" at a price it sets, or refunds at cost) and the line says so:
+        # "paid 50¢" read as an odd win or loss (walk 2026-11-01). Words only: the exit price and P&L are the engine's.
+        return "Held to settlement: " + ("paid $1" if out >= 1 else "expired worthless" if out <= 0
+                                         else "Kalshi cancelled this market and paid %s a contract" % _c(out))
     if reason == "take_profit":
         target = " vs %s target" % _move(x["take_profit"]) if x.get("take_profit") is not None else ""
         return "%s: take-profit (%s%s)" % (at, _move(gain), target)

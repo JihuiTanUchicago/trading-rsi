@@ -24,6 +24,8 @@ def _closed(reason, exit_price, **kw):
     ("stop_loss", 0.30, "Exited at 30¢: stop-loss (−11¢ vs −10¢ stop)"),
     ("settled", 1.0, "Held to settlement: paid $1"),
     ("settled", 0.0, "Held to settlement: expired worthless"),
+    # A market Kalshi cancelled settles at a price it sets (result "scalar"): said as a cancel, never a bare "paid 50¢".
+    ("settled", 0.5, "Held to settlement: Kalshi cancelled this market and paid 50¢ a contract"),
     ("edge_gone", 0.5, "Exited at 50¢: the model's edge fell below its hold line"),
     ("stop", 0.38, "Exited at 38¢: your loss stop closed this strategy's positions"),
     ("drawdown", 0.2, "Exited at 20¢: your drawdown limit closed this strategy's positions"),
