@@ -40,6 +40,15 @@ def _num(v: Any, feature: str = "") -> str:
     return ("−%g" % abs(v)) if v < 0 else "%g" % v
 
 
+def _filter(f: Dict) -> str:
+    """One entry filter as the strategy page's plain reading names it: a weather or sports fair value in words, its
+    value in cents, percent or °F (spec.market_filter_words); any other by plain_feature."""
+    said = specmod.market_filter_words(f["feature"], f["value"])
+    if said:
+        return "%s %s %s" % (said[0], _OPS.get(f["op"], f["op"]), said[1])
+    return "%s %s %s" % (specmod.plain_feature(f["feature"]), _OPS.get(f["op"], f["op"]), _num(f["value"], f["feature"]))
+
+
 def _entry(pos: Dict, spec: Optional[Dict]) -> Optional[str]:
     at = "Entered at %s" % _c(pos["entry_price"])
     if (pos.get("order_ref") or "") == ADOPTED_REF:
@@ -51,8 +60,7 @@ def _entry(pos: Dict, spec: Optional[Dict]) -> Optional[str]:
     if spec.get("cross"):
         return at + ": one leg of a relative-value pair"
     e = spec.get("entry") or {}
-    rule = ["%s %s %s" % (specmod.plain_feature(f["feature"]), _OPS.get(f["op"], f["op"]), _num(f["value"], f["feature"]))
-            for f in e.get("filters") or []]
+    rule = [_filter(f) for f in e.get("filters") or []]
     edge = float(e.get("min_edge") or 0)
     rule.append("edge ≥ %s after fees" % _c(edge) if edge > 0 else "fair value at or above the price after fees")
     return at + ": " + ", ".join(rule)

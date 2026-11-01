@@ -1270,6 +1270,9 @@ def _plain_filter(flt: Dict) -> str:
     name, value = flt["feature"], float(flt["value"])
     if name == "moneyness":
         return _plain_moneyness(flt["op"], value)
+    said = market_filter_words(name, value)
+    if said:
+        return "Only when %s %s %s." % (said[0], _OP_WORDS.get(flt["op"], flt["op"]), said[1])
     words = plain_feature(name)
     if words == name and FEATURES.get(name):
         doc = FEATURES[name].split(": ", 1)[-1]  # "BTC markets only: ETH log return ..." -> the rest
@@ -1292,6 +1295,49 @@ def plain_filter_value(name: str, value: float) -> Optional[str]:
     if value == 0:
         return "0%"
     return ("%+.2f%%" if pct.group(1) == "ret" else "%.2f%%") % (value * 100)
+
+
+# The weather and sports fair-value features in words, with how their value reads: an edge in cents (it is a chance
+# minus the price, as "edge ≥ 5¢" says the rule's own), a chance in percent, a temperature in °F. The trade line on
+# the book said "Entered at 28¢: fcst_edge_cal > 0.06" where a Bitcoin trade says "the 5-minute return > +0.20%"
+# (walk 2026-11-01). Only the strategy page's plain reading and that trade line use these: plain_feature, which the
+# entry scan's lines (and so research) read, is unchanged. Display only: the spec keeps the feature and value.
+_MARKET_FEATURE_WORDS = {
+    "fcst_edge": ("the forecast's edge over the price", "c"),
+    "fcst_edge_cal": ("the calibrated forecast's edge over the price", "c"),
+    "fcst_p_yes": ("the forecast's chance of Yes", "%"),
+    "fcst_p_yes_cal": ("the calibrated forecast's chance of Yes", "%"),
+    "fcst_high_f": ("the forecast high", "F"), "fcst_low_f": ("the forecast low", "F"),
+    "fcst_sd_f": ("the forecast's spread", "F"), "fcst_bias_f": ("how warm the forecast has been running", "F"),
+    "fcst_age_h": ("the forecast's age in hours", ""),
+    "fcst_yes_margin_f": ("how far the forecast sits inside the Yes range", "F"),
+    "obs_yes_margin_f": ("how far today's reading sits inside the Yes range", "F"),
+    "obs_high_f": ("today's high so far", "F"), "obs_low_f": ("today's low so far", "F"), "obs_temp_f": ("the latest temperature", "F"),
+    "strike_lo_f": ("the lowest temperature that pays Yes", "F"), "strike_hi_f": ("the highest temperature that pays Yes", "F"),
+    "book_p_yes": ("the sportsbooks' chance of Yes", "%"), "book_edge": ("the sportsbooks' edge over the price", "c"),
+    "book_n": ("the number of sportsbooks quoting it", ""), "book_age_min": ("the sportsbook odds' age in minutes", ""),
+}
+
+
+def market_filter_words(name: str, value: float) -> Optional[Tuple[str, str]]:
+    """(words, value as read) for a weather or sports fair-value feature ('fcst_edge_cal', 0.06 -> ("the calibrated
+    forecast's edge over the price", "6¢")); None for any other feature."""
+    w = _MARKET_FEATURE_WORDS.get(name or "")
+    if not w:
+        return None
+    words, unit = w
+    v = float(value)
+    sign = "−" if v < 0 else ""
+    if unit == "c":
+        c = round(abs(v) * 100, 1)
+        shown = sign + ("%d¢" % round(c) if abs(c - round(c)) < 1e-9 else "%.1f¢" % c)
+    elif unit == "%":
+        shown = "%g%%" % round(v * 100, 1)
+    elif unit == "F":
+        shown = sign + "%g°F" % abs(v)
+    else:
+        shown = sign + "%g" % abs(v)
+    return words.replace("'", "\u2019"), shown
 
 
 def _plain_moneyness(op: str, value: float) -> str:

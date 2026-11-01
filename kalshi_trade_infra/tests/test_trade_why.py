@@ -58,6 +58,27 @@ def test_a_return_or_volatility_rule_reads_as_the_strategy_pages_percent():
     assert "Only when the 5-minute return is above +0.20%." in specmod.describe(dict(spec, market="btc15m"))
 
 
+def test_a_weather_or_sports_fair_value_rule_reads_in_words_as_the_strategy_page_says_it():
+    # Walk 2026-11-01: an NYC high's trade line read "Entered at 28¢: fcst_edge_cal > 0.06" and its strategy page "Only
+    # when fcst_p_yes_cal minus the contract's mid is above 0.06", where a Bitcoin trade's says its rule in words. An edge
+    # reads in cents (a chance minus the price, as "edge ≥ 5¢"), a chance in percent, a temperature in °F.
+    spec = specmod.validate({"market": "high_ny", "side": "yes", "entry": {"min_edge": 0.05, "filters": [
+        {"feature": "fcst_edge_cal", "op": ">", "value": 0.06}, {"feature": "fcst_p_yes", "op": ">=", "value": 0.55},
+        {"feature": "obs_high_f", "op": "<", "value": 64}]}})
+    pos = {"status": "open", "entry_price": 0.28, "order_ref": None}
+    assert trade_why(pos, spec).startswith(
+        "Entered at 28¢: the calibrated forecast\u2019s edge over the price > 6¢, the forecast\u2019s chance of Yes ≥ 55%, "
+        "today\u2019s high so far < 64°F, edge ≥ 5¢ after fees")
+    rules = specmod.describe(spec)
+    assert "Only when the calibrated forecast\u2019s edge over the price is above 6¢." in rules
+    assert "Only when today\u2019s high so far is below 64°F." in rules
+    assert not any("fcst_" in r or "obs_" in r for r in rules)
+    assert specmod.market_filter_words("book_edge", -0.035) == ("the sportsbooks\u2019 edge over the price", "−3.5¢")
+    assert specmod.market_filter_words("ret_5m", 0.002) is None
+    # The entry scan's lines (which research reads) keep their names.
+    assert specmod.plain_feature("fcst_edge_cal") == "fcst_edge_cal"
+
+
 def test_without_the_strategy_spec_only_what_the_row_stores_is_said():
     # A stopped deployment's spec isn't read: the exit reason still comes from the row, with no target.
     assert trade_why(_closed("take_profit", 0.62), None) == "Exited at 62¢: take-profit (+21¢)"
