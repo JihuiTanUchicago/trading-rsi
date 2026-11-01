@@ -163,7 +163,7 @@ def paper_transfer(ctx: Ctx):
             return {"ok": True}
         bal = repo.paper_balance(tx, ctx.uid)
         if kind == "withdraw" and amount > bal:
-            raise ApiError(409, "You only have $%.2f of paper cash free." % bal)
+            raise ApiError(409, "You only have $%s of paper cash free." % "{:,.2f}".format(bal))
         if kind == "deposit" and bal + amount > MAX_PAPER_BALANCE:
             raise ApiError(409, "Paper accounts top out at $%s." % "{:,.0f}".format(MAX_PAPER_BALANCE))
         repo.add_ledger(tx, ctx.uid, "deposit" if kind == "deposit" else "withdrawal",
