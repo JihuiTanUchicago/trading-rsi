@@ -460,7 +460,9 @@ def context_lines(st: Dict, limit: int = 8) -> List[str]:
     out = ["Paper tournament (every paper entrant trades; a bandit splits a virtual $%.0f book by realized "
            "paper results; it retires losers itself, so do not pause entrants on a few bad trades):" % b["capital"]]
     for r in sorted(ents, key=lambda r: -r["weight"])[:limit]:
-        out.append("- #%d %s (%s): %.0f%% of the book, %d events, net $%.2f, P(edge>0)=%.0f%%%s" % (
+        # strategy_id=, as the context's other strategy lines name one: a bare "#3" here was a strategy and "#3" in the
+        # running line a deployment, so a reply could name the wrong one.
+        out.append("- strategy_id=%d %s (%s): %.0f%% of the book, %d events, net $%.2f, P(edge>0)=%.0f%%%s" % (
             r["strategy_id"], r["title"], r["market"], 100 * r["weight"], r["trips"], r["net_pnl"],
             100 * (r["p_positive"] or 0), ("; retiring: " + r["verdict"]) if r.get("verdict") else ""))
     if cash:

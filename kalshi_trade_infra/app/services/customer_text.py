@@ -123,6 +123,82 @@ NOTICE_FALLBACK = "There’s an update on your account."
 CHAT_FALLBACK = "The agent hit an internal error here."
 
 
+# -- the chat agent's own reply ------------------------------------------------------------------
+# The model answers from a context that names deployments, strategies and research sessions by their row ids
+# (deployment_id=7, strategy_id=3, run #9: what its actions take) and markets by their keys (high_ny, KXHIGHCHI).
+# Its reply was posted as said, so "#7 is up $5.32 on btc15m" reached the panel (audit 2026-11-01). The reply as
+# the panel shows it names each by its title or label instead; a model id reads "the AI model", and a reply that
+# carries a raw error, a host, a path or a secret's name reads CHAT_FALLBACK (clean).
+_REPLY_DEP = re.compile(r"\bdeployment(?:[_ ]?id)?\s*(?:=|:|#|no\.?\s*)\s*#?(\d+)\b", re.I)
+_REPLY_STRAT = re.compile(r"\bstrateg(?:y|ies)(?:[_ ]?id)?\s*(?:=|:|#|no\.?\s*)\s*#?(\d+)\b", re.I)
+_REPLY_RUN = re.compile(r"\b(?:(?:the|that|this)\s+)?(?:research\s+)?(?:run|session)(?:[_ ]?id)?\s*(?:=|:|#)\s*#?\d+\b", re.I)
+_REPLY_EXP = re.compile(r"\b(?:(?:the|that|this|its)\s+)?experiment(?:[_ ]?id)?\s*(?:=|:|#)\s*#?\d+\b", re.I)
+_REPLY_BARE = re.compile(r"(?<![\w&/#])#(\d+)\b")
+_HERE = "\x00"  # where an id stood whose title follows it
+# "deployment_id=5 (NBA road dogs) paused" reads "“NBA road dogs” paused": the bracketed title takes the id's place.
+_REPLY_HERE = re.compile(r"\x00\s*\(\s*[“\"]?([^()“”\"\n]{1,80}?)[”\"]?\s*\)")
+_REPLY_GAP_END = re.compile(r"[\s()\[\]“”\"'’:,—-]+$")
+_REPLY_GAP_START = re.compile(r"^[\s()\[\]“”\"'’:,—-]+")
+_REPLY_TIDY = ((re.compile(r"\(\s*[,;]?\s*\)"), ""), (re.compile(r"\(\s*[,;]\s*"), "("), (re.compile(r"\s*[,;]\s*\)"), ")"),
+               (re.compile(r"[ \t]{2,}"), " "), (re.compile(r" +([,.;:!?)])"), r"\1"), (re.compile(r"\( +"), "("),
+               # A sentence opening on "a research session" is capitalised.
+               (re.compile(r"(^|[.!?]\s+)(a research session|its research record)\b"), lambda m: m.group(1) + m.group(2)[0].upper() + m.group(2)[1:]))
+
+
+def agent_reply(text: Optional[str], deployments: Optional[Dict[int, Dict]] = None,
+                strategies: Optional[Dict[int, str]] = None, markets: Optional[Dict[str, str]] = None) -> Optional[str]:
+    """The chat agent's reply as the panel shows it. `deployments` is {id: {"title", "mode"}} (stopped ones too),
+    `strategies` {id: title}, `markets` {key or series ticker: label}. A deployment or strategy named by its id reads
+    by its title (“Late fade”), with its book when that title runs in more than one; when the title already stands
+    beside the id, the id is just dropped. A research session's or an experiment's number reads "a research session"
+    / "its research record". A bare "#N" reads as the deployment with that id (the context's "#N" are deployments); any
+    other is left as written (it may be a list number). A market key reads by its label. Then ``clean``."""
+    if not text:
+        return text
+    s = str(text)
+    deps, strats = deployments or {}, strategies or {}
+    books: Dict[str, set] = {}
+    for d in deps.values():
+        books.setdefault(str(d.get("title") or ""), set()).add(d.get("mode"))
+
+    def named(title: Optional[str], mode: Optional[str], m) -> str:
+        t = str(title or "").strip() or "Untitled strategy"
+        before = _REPLY_GAP_END.sub("", m.string[max(0, m.start() - len(t) - 8):m.start()]).lower()
+        after = _REPLY_GAP_START.sub("", m.string[m.end():m.end() + len(t) + 8]).lower()
+        if before.endswith(t.lower()):
+            return ""  # "Late fade (deployment_id=7)": the title already stands before it
+        if after.startswith(t.lower()):
+            return _HERE  # "#7 “Late fade”", "deployment_id=5 (NBA road dogs)": the title follows (see _REPLY_HERE)
+        tail = m.string[m.end():m.end() + 16].lower()
+        book = mode if mode and len(books.get(t, ())) > 1 and str(mode) not in tail else None
+        return "“%s”%s" % (t, " on %s" % book if book else "")
+
+    def dep(m):
+        d = deps.get(int(m.group(1)))
+        return named(d.get("title"), d.get("mode"), m) if d else m.group(0)
+
+    def strat(m):
+        t = strats.get(int(m.group(1)))
+        return named(t, None, m) if t is not None else m.group(0)
+
+    def bare(m):  # the context's "#N" are deployments (its running line); a strategy is always "strategy_id=N" there
+        d = deps.get(int(m.group(1)))
+        return named(d.get("title"), d.get("mode"), m) if d else m.group(0)
+    out = _REPLY_DEP.sub(dep, s)
+    out = _REPLY_STRAT.sub(strat, out)
+    out = _REPLY_RUN.sub("a research session", out)
+    out = _REPLY_EXP.sub("its research record", out)
+    out = _REPLY_BARE.sub(bare, out)
+    if markets:
+        keys = sorted((k for k in markets if k), key=len, reverse=True)
+        rx = re.compile(r"(?<![\w-])(%s)(?![\w-])" % "|".join(re.escape(k) for k in keys))
+        out = rx.sub(lambda m: markets[m.group(1)], out)
+    out = _REPLY_HERE.sub(lambda m: "“%s”" % m.group(1).strip(), out).replace(_HERE, "")
+    for rx, to in _REPLY_TIDY:
+        out = rx.sub(to, out)
+    return clean(out.strip(), CHAT_FALLBACK)
+
+
 def run_rows(runs: List[Dict]) -> List[Dict]:
     """A research session's stored error (an older failed run kept the provider's raw text)."""
     for r in runs:
@@ -323,8 +399,8 @@ def notification_rows(items: List[Dict]) -> List[Dict]:
 
 def chat_rows(messages: List[Dict], paused: Optional[Dict[int, Dict]] = None,
               focus_words: Optional[Callable[[List[str]], str]] = None) -> List[Dict]:
-    """The autopilot panel's lines Tau wrote (role system). The user's own lines and the agent's
-    replies are as they were said. A once-only line's marker ("[live-ready #12]") is dropped (unmarked).
+    """The autopilot panel's lines Tau wrote (role system). The user's own lines are as they were said; the agent's
+    replies (written through agent_reply) go through ``clean`` again, for one stored before it. A once-only line's marker ("[live-ready #12]") is dropped (unmarked).
     A risk or execution change an older line wrote as the setting's
     key ("max_open_notional=200.0") reads in words, as new lines are written (control_changes).
     The engine's "Paused deployment #N automatically. <why>" reads as the "Last move" line does
@@ -347,6 +423,10 @@ def chat_rows(messages: List[Dict], paused: Optional[Dict[int, Dict]] = None,
                 text = stop_sold_line(text, (paused or {}).get(dep))
             text = demo_unmarked(forward_line(text))
             m["content"] = ladder_words(plain_controls(clean(unknown_action_line(focus_set_line(unmarked(text), focus_words)), CHAT_FALLBACK)))
+        elif m.get("role") == "agent" and m.get("content"):
+            # A reply stored before agent_reply named things by title still goes through clean on the way out: a model
+            # id reads "the AI model", and a raw error never reaches the panel.
+            m["content"] = clean(m["content"], CHAT_FALLBACK)
     return messages
 
 
