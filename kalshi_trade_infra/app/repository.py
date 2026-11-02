@@ -612,14 +612,15 @@ def _newest_events(rows, limit: int) -> List[Dict]:
     return sorted(rows, key=lambda r: r.get("id") or 0, reverse=True)[:limit]
 
 
-def dropped_theses(cur, user_id: int, market: str, limit: int = 20) -> List[Dict]:
+def dropped_theses(cur, user_id: int, market: str, limit: int = 20, since=None) -> List[Dict]:
     """Theses this user's recent research on this market abandoned before they ever became a
     strategy (DOA: wrong mechanism, missing feed, 0 research-fold trades), newest first, as
     {title, why}. They never reach app_strategies, so strategy_memory can't warn the proposer off
     them and every run re-proposes the same dead idea. Reasons are research-fold only (leak-safe)."""
+    after, args = (" AND created_at >= %s", (since,)) if since is not None else ("", ())
     cur.execute(
-        "SELECT id FROM app_agent_runs WHERE user_id=%s AND kind='research' AND market=%s "
-        "ORDER BY id DESC LIMIT %s", (user_id, market, DROPPED_RECENT_RUNS))
+        "SELECT id FROM app_agent_runs WHERE user_id=%s AND kind='research' AND market=%s" + after +
+        " ORDER BY id DESC LIMIT %s", (user_id, market) + args + (DROPPED_RECENT_RUNS,))
     ids = [r["id"] for r in cur.fetchall()]
     if not ids:
         return []
@@ -641,15 +642,17 @@ def dropped_theses(cur, user_id: int, market: str, limit: int = 20) -> List[Dict
 SIBLING_RECENT_RUNS = 40
 
 
-def sibling_dropped_theses(cur, user_id: int, markets: List[str], limit: int = 400) -> List[Dict]:
+def sibling_dropped_theses(cur, user_id: int, markets: List[str], limit: int = 400, since=None) -> List[Dict]:
     """dropped_theses across this user's recent runs on SIBLING markets (same family), as
     {market, title, why}. Each run used to rediscover alone that, say, favorite-longshot calibration
     is dead on every crypto 15m strike ladder; this is what lets one market learn from the others."""
     if not markets:
         return []
+    after, args = (" AND created_at >= %s", (since,)) if since is not None else ("", ())
     cur.execute(
-        "SELECT id, market FROM app_agent_runs WHERE user_id=%%s AND kind='research' AND market IN (%s) "
-        "ORDER BY id DESC LIMIT %%s" % ",".join(["%s"] * len(markets)), (user_id, *markets, SIBLING_RECENT_RUNS))
+        ("SELECT id, market FROM app_agent_runs WHERE user_id=%%s AND kind='research' AND market IN (%s)"
+         % ",".join(["%s"] * len(markets))) + after + " ORDER BY id DESC LIMIT %s",
+        (user_id, *markets) + args + (SIBLING_RECENT_RUNS,))
     runs = {r["id"]: r["market"] for r in cur.fetchall()}
     if not runs:
         return []

@@ -43,6 +43,7 @@ MIN_CLUSTERS = 30
 FDR = 0.10
 MAX_ENTRY = 0.98        # backtest.MAX_ENTRY_ASK: a 99c buy can never profit after the fee
 SHOW = 12
+EXAMPLES = 4
 EPS = 1e-9
 
 
@@ -71,6 +72,8 @@ def price_label(i: int) -> str:
 
 
 def ttc_label(i: int) -> str:
+    if i < 0:
+        return "any time"
     lo, hi = TTC_BANDS_H[i], TTC_BANDS_H[i + 1]
     return ">%gh" % lo if math.isinf(hi) else "%g-%gh" % (lo, hi)
 
@@ -83,25 +86,38 @@ def _payout(result, side: str) -> Optional[float]:
     return None
 
 
+def _real(v: Optional[float]) -> Optional[float]:
+    """A range print strictly inside (0, 1): Kalshi reports an emptied side as 0 or 1, which is no
+    one trading there, not a print through anyone's order."""
+    return v if v is not None and 0.0 < v < 1.0 else None
+
+
 def _maker_fill(side: str, post: Bar, nxt: Bar) -> Optional[float]:
     """The price a maker order posted on `post` fills at on `nxt`, or None."""
     if side == "yes":
         p = post.bid
-        through = ((nxt.ask_low is not None and nxt.ask_low < p - EPS)
-                   or (nxt.trade_low is not None and nxt.trade_low < p - EPS))
+        al, pl = _real(nxt.ask_low), _real(nxt.trade_low)
+        through = (al is not None and al < p - EPS) or (pl is not None and pl < p - EPS)
         return p if through else None
     a = post.ask
-    through = ((nxt.bid_high is not None and nxt.bid_high > a + EPS)
-               or (nxt.trade_high is not None and nxt.trade_high > a + EPS))
+    bh, ph = _real(nxt.bid_high), _real(nxt.trade_high)
+    through = (bh is not None and bh > a + EPS) or (ph is not None and ph > a + EPS)
     return 1.0 - a if through else None
 
 
 def contract_fills(bars: Sequence[Bar], close_ts: int, period_s: int, result,
                    maker_fee: Callable[[int, float], float],
-                   taker_fee: Callable[[int, float], float]) -> Dict[Tuple, Tuple[float, int]]:
+                   taker_fee: Callable[[int, float], float], ttc_known: bool = True) -> Dict[Tuple, Tuple[float, int]]:
     """{(side, mode, price band, ttc band): (net P&L per contract after the cost stress, bars the
     order was posted)} for one contract's first fill in each cell. A maker cell that was posted
-    but never filled appears with P&L None so fill rates can be counted."""
+    but never filled appears with P&L None so fill rates can be counted.
+
+    `ttc_known=False` puts every bar in one time band (-1): a market that closes EARLY when its
+    outcome is decided (sports props, totals) has a settled close_time that says when the outcome
+    happened, so "an hour to close" would select contracts about to resolve YES (first scan,
+    2026-11-02: every sports "lead" sat in the last hours and won 100% of fills; see
+    sports-tte-lookahead). The bar that contains the close is never a fill bar either: the book
+    empties as the market settles."""
     out: Dict[Tuple, Tuple[Optional[float], int]] = {}
     filled = set()
     gap = 2 * max(period_s, 1)
@@ -109,9 +125,9 @@ def contract_fills(bars: Sequence[Bar], close_ts: int, period_s: int, result,
         b, n = bars[i], bars[i + 1]
         if b.bid is None or b.ask is None or not (0.0 < b.bid < b.ask < 1.0):
             continue
-        if n.end_ts - b.end_ts > gap or n.end_ts > close_ts:
+        if n.end_ts - b.end_ts > gap or n.end_ts > close_ts - period_s:
             continue
-        tb = band(max(0.0, (close_ts - b.end_ts) / 3600.0), TTC_BANDS_H)
+        tb = band(max(0.0, (close_ts - b.end_ts) / 3600.0), TTC_BANDS_H) if ttc_known else -1
         for side in SIDES:
             pay = _payout(result, side)
             if pay is None:
@@ -146,6 +162,7 @@ def contract_fills(bars: Sequence[Bar], close_ts: int, period_s: int, result,
 class _Cell:
     clusters: Dict[str, List[float]] = field(default_factory=lambda: defaultdict(lambda: [0.0, 0.0, 0.0]))
     posted: int = 0          # contracts the order was posted on (maker)
+    examples: List[Tuple[str, float]] = field(default_factory=list)   # (ticker, P&L) to audit a lead
     halves: List[List[float]] = field(default_factory=lambda: [[0.0, 0], [0.0, 0]])
 
 
@@ -156,7 +173,7 @@ class Scan:
         self.cells: Dict[Tuple, _Cell] = defaultdict(_Cell)
         self.contracts = 0
 
-    def add(self, family: str, cluster: str, half: int, fills: Dict[Tuple, Tuple]) -> None:
+    def add(self, family: str, cluster: str, half: int, fills: Dict[Tuple, Tuple], ticker: str = "") -> None:
         """One contract's fills. `half` (0/1) is which half of its market's research window it
         closed in: a lead must be positive in both, so one lucky stretch can't carry it."""
         self.contracts += 1
@@ -165,6 +182,8 @@ class Scan:
             c.posted += 1
             if pnl is None:
                 continue
+            if len(c.examples) < EXAMPLES:
+                c.examples.append((ticker, round(pnl, 4)))
             row = c.clusters[cluster]
             row[0] += pnl
             row[1] += 1
@@ -195,7 +214,7 @@ class Scan:
                 "contracts": n, "clusters": k,
                 "fill_rate": round(n / c.posted, 3) if mode == "maker" and c.posted else None,
                 "mean_c": round(100 * mean, 2), "t": round(t, 2), "p": p,
-                "halves_c": halves, "testable": k >= MIN_CLUSTERS,
+                "halves_c": halves, "testable": k >= MIN_CLUSTERS, "examples": c.examples,
             })
         tested = [r for r in rows if r["testable"]]
         keep = _bh([r["p"] for r in tested], FDR)

@@ -80,6 +80,35 @@ def _iso(ts: int) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
+def _event_of(ticker: str) -> str:
+    return ticker.rsplit("-", 1)[0]
+
+
+def outcome_event_closes(markets: List[Dict]) -> Dict[str, datetime]:
+    """{event: the LATEST settled close among its contracts}, the close every contract of an
+    outcome-settled (underlying=None) event is timed against.
+
+    A settled row's close_time is when THAT contract stopped trading. Sports contracts that can
+    close early (totals, spreads, props) stop the moment their outcome is decided, so timing each
+    one against its own close told the backtest which strikes were about to resolve: a spec trading
+    "the last hour" bought exactly the contracts whose outcome came within the hour (found
+    2026-11-02 by the maker scan, whose sports cells won ~100% in the final hours). The event's
+    last close is when the game ended for every strike at once, so it says nothing about which
+    one resolves. Live times sports against expected_expiration_time (engine.decision_close_time),
+    which settled rows don't store; the game's real length (overtime) still shows here, a much
+    smaller leak. Weather contracts of one event all close together, so nothing changes there."""
+    out: Dict[str, datetime] = {}
+    for m in markets:
+        ct = m.get("close_time")
+        if ct is None:
+            continue
+        ct = ct if ct.tzinfo else ct.replace(tzinfo=timezone.utc)
+        e = _event_of(m["ticker"])
+        if e not in out or ct > out[e]:
+            out[e] = ct
+    return out
+
+
 def build_dataset(market: Market, markets: List[Dict], candles: List[Dict], btc: List[Tuple[int, float]],
                   micro: Optional[Dict[Tuple[str, int], Dict[str, float]]] = None,
                   frame_series: Optional[Dict[str, List[Tuple[int, float]]]] = None,
@@ -105,8 +134,9 @@ def build_dataset(market: Market, markets: List[Dict], candles: List[Dict], btc:
     has_underlying = market.underlying is not None
     contracts = {}
     results = {}
+    event_close = outcome_event_closes(markets) if not has_underlying else {}
     for m in markets:
-        ct = m["close_time"]
+        ct = event_close.get(_event_of(m["ticker"])) or m["close_time"]
         ct = ct if ct.tzinfo else ct.replace(tzinfo=timezone.utc)
         contracts[m["ticker"]] = Contract(m["ticker"], float(m["strike"]), ct, series=market.series)
         results[m["ticker"]] = dataset_result(m)  # "yes"/"no", or a cancelled market's settlement price

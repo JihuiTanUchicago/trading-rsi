@@ -89,13 +89,15 @@ def run(cur, markets: List[Market], log=print, deadline_s: float = DEADLINE_S) -
             bars = [maker_scan.Bar(**b) for b in crr.candle_ranges(cur, r["ticker"], m.candle_minutes)]
             if len(bars) < 2:
                 continue
+            # Weather closes on schedule; sports close when the outcome is decided, so their
+            # settled close_time must not pick the time band (maker_scan.contract_fills).
             fills = maker_scan.contract_fills(bars, close_ts, m.candle_minutes * 60, dataset_result(r),
-                                              maker_fee_dollars, taker_fee_dollars)
+                                              maker_fee_dollars, taker_fee_dollars, ttc_known=pooled)
             if not fills:
                 continue
             cluster = r["close_time"].strftime("%Y-%m-%d") if pooled else (r.get("event_ticker")
                                                                            or r["ticker"].rsplit("-", 1)[0])
-            scan.add(fam, cluster, 0 if close_ts < mid else 1, fills)
+            scan.add(fam, cluster, 0 if close_ts < mid else 1, fills, r["ticker"])
             n += 1
         done.append({"market": m.key, "family": fam, "contracts": n,
                      "window": [since.isoformat()[:10], until.isoformat()[:10]]})
