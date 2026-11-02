@@ -1,0 +1,6 @@
+[Unit]
+Description=Run the sports re-score once, soon after a deploy installs it (no schedule)
+[Timer]
+OnActiveSec=5min
+[Install]
+WantedBy=timers.target

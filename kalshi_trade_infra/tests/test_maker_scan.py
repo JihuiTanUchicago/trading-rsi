@@ -178,3 +178,33 @@ def test_run_scans_the_window_and_reports_the_maker_cell(monkeypatch):
     assert rep["contracts"] == 40 and rep["markets"][0]["family"] == "weather-high"
     maker = [r for r in rep["best"] if r["mode"] == "maker" and r["side"] == "yes"]
     assert maker and maker[0]["clusters"] == 40 and maker[0]["fill_rate"] == 1.0
+
+
+def test_an_emptied_book_print_is_not_a_fill():
+    # Kalshi reports a side that emptied out as 0 (ask) or 1 (bid): nobody traded through anyone.
+    bs = bars((0, 0.40, 0.42), (H, 0.40, 0.42, 0.0, 1.0, None, None))
+    out = fills(bs, 10 * H, "yes")
+    assert all(v[0] is None for k, v in out.items() if k[1] == "maker")
+
+
+def test_the_bar_that_holds_the_close_is_never_a_fill_bar():
+    bs = bars((0, 0.40, 0.42), (H, 0.38, 0.39, 0.38, None, 0.38, None))
+    assert fills(bs, H, "yes") == {}                 # bar 2 ends at the close: the book is settling
+    assert fills(bs, 2 * H, "yes") != {}
+
+
+def test_an_early_closing_market_gets_no_time_band():
+    """A sports contract closes when its outcome is decided: binning by the settled close_time would
+    pick contracts about to resolve (the first prod scan's 100%-win "leads")."""
+    bs = bars((0, 0.40, 0.42), (H, 0.38, 0.39, 0.38, None, None, None))
+    out = ms.contract_fills(bs, 10 * H, H, "yes", maker_fee_dollars, taker_fee_dollars, ttc_known=False)
+    assert out and {k[3] for k in out} == {-1}
+    assert ms.ttc_label(-1) == "any time"
+
+
+def test_a_lead_carries_tickers_to_audit():
+    s = ms.Scan()
+    for i in range(40):
+        s.add("fam", "c%d" % i, i % 2, {("yes", "maker", 3, -1): (0.05 + 0.01 * (i % 3), 1)}, "T-%d" % i)
+    lead = s.finish()["leads"][0]
+    assert lead["ttc"] == "any time" and [t for t, _ in lead["examples"]] == ["T-0", "T-1", "T-2", "T-3"]

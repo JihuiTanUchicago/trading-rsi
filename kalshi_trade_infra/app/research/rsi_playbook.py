@@ -28,6 +28,8 @@ import re
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
+from app.research import quarantine
+
 
 _LOG = logging.getLogger(__name__)
 
@@ -86,8 +88,14 @@ def _now():
 
 
 def _row(cur, where: str, args) -> Optional[Dict]:
+    """The newest matching playbook. One written before its family's quarantine cut (research.quarantine)
+    was learned on leaky backtests: it keeps its row and stats but reads as empty text, so neither the
+    proposer nor the next reflection builds on it."""
     cur.execute("SELECT %s FROM app_rsi_playbooks WHERE %s ORDER BY version DESC LIMIT 1" % (_COLS, where), args)
-    return cur.fetchone()
+    row = cur.fetchone()
+    if row and quarantine.hides(row.get("family"), row.get("created_at")):
+        row = dict(row, text="")
+    return row
 
 
 def active(cur, user_id: int, family: str) -> Dict:
