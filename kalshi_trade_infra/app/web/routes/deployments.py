@@ -9,8 +9,8 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 from app import repository as repo
-from app.research import agent, gatekeeper
-from app.services import book_memo, page_poll, paper_checks
+from app.research import agent
+from app.services import book_memo, page_poll, paper_checks, road_ahead
 from app.trading import engine
 from app.trading import spec as specmod
 from app.trading.markets import MARKETS
@@ -174,25 +174,6 @@ def _paper_pace(deps: List[Dict], strategy_id: int, trades: int, events: int, sp
             "trades_per_day": round(rate["per_day"], 1) if rate else None, "rate_from": rate["source"] if rate else None}
 
 
-def _forward_eta(deps: List[Dict], strategy_id: int, trades: int, events: int, sample: int) -> Optional[float]:
-    """Days until a strategy in its paper forward test could hold the record its one judgment counts (its
-    experiment's `sample` realistic trips from gatekeeper.PAPER_MIN_EVENTS separate events), at the pace it trades
-    (rsi.paper_trade_rate, the pace _paper_pace counts on, from its oldest running paper deployment). None while
-    none runs or with no pace. Display only: the judgment itself is the forward gate's, and it may not pass."""
-    from app.research import rsi
-    running = [d for d in deps if int(d["strategy_id"]) == int(strategy_id) and d["mode"] == "paper"
-               and d["status"] == "running" and isinstance(d.get("created_at"), datetime)]
-    if not running:
-        return None
-    rate = rsi.paper_trade_rate(min(running, key=lambda d: d["created_at"]), trades)
-    if rate is None:
-        return None
-    days = max(0, int(sample) - int(trades)) / rate["per_day"]
-    if trades >= 3 and rate["hours"] > 0 and events:
-        days = max(days, max(0, gatekeeper.PAPER_MIN_EVENTS - int(events)) / (events / rate["hours"] * 24.0))
-    return round(days, 1)
-
-
 def _paper_record(trips: List[Dict]) -> Dict:
     """Trades, separate events and first-to-last hours of a strategy's realistic paper round trips,
     counted as agent.paper_evidence counts them, for the Deploy board's road-to-live line."""
@@ -220,8 +201,9 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
     its record clears every check, which never moves it to live money by itself. A strategy the gatekeeper
     can no longer clear (the deployment read's cleared_never: its one later judgment is in and didn't promote
     it) carries `cleared_never` (which judgment), and the board says so instead of its way toward live. One still in
-    its paper forward test (the deployment read's forward_sample) carries `forward_sample`, `forward_events_needed` and
-    `forward_eta_days`: its one judgment comes first, and the board says how far its record is from it.
+    its paper forward test (the deployment read's forward_sample) carries road_ahead.forward_figure (`forward_sample`,
+    `forward_events_needed`, `forward_eta_days`, and `then_trades_needed` / `then_eta_days` when the live check's count
+    comes after): its one judgment comes first, and the board says how far its record is from it.
     Display only, cached per user for ROAD_TTL."""
     sids = sorted({int(d["strategy_id"]) for d in deps if d["mode"] == "paper"})
     if not sids:
@@ -254,8 +236,8 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
         elif sid in forward:
             # Still in its paper forward test: its one judgment comes at its experiment's min_sample realistic trips
             # from PAPER_MIN_EVENTS separate events (gatekeeper.paper_judged_prefix, counted from the same trips).
-            road.update(forward_sample=forward[sid], forward_events_needed=gatekeeper.PAPER_MIN_EVENTS,
-                        forward_eta_days=_forward_eta(deps, sid, rec["trades"], rec["events"], forward[sid]))
+            # The one figure its page's ladder and Road to live, the autopilot panel and the chat read too (road_ahead).
+            road.update(road_ahead.forward_figure(deps, sid, rec["trades"], rec["events"], forward[sid], road.get("eta_days")))
         out[sid] = road
     if len(_ROADS) > 5000:
         _ROADS.clear()
@@ -272,11 +254,19 @@ def strategy_live_readiness(ctx: Ctx):
         raise ApiError(404, "No such strategy.")
     candidate = bool(agent._is_deployment_candidate(ctx.cur, s["id"]))
     paper = agent.paper_evidence(ctx.cur, ctx.uid, s["id"])
-    pace = _paper_pace(repo.list_deployments_brief(ctx.cur, ctx.uid), s["id"], int(paper["trades"]),
-                       int(paper.get("events") or 0), float(paper.get("span_hours") or 0))
+    deps = repo.list_deployments_brief(ctx.cur, ctx.uid)
+    pace = _paper_pace(deps, s["id"], int(paper["trades"]), int(paper.get("events") or 0), float(paper.get("span_hours") or 0))
     live_ok, live_why = agent.live_autopilot_ok(ctx.cur, ctx.user)
     blocking = ("" if candidate else "the gatekeeper hasn't cleared it as a deployment candidate") \
         or paper["why"] or live_why
+    # Still in its paper forward test (its paper row's forward_sample, as Deploy reads it): Deploy's own figure
+    # (road_ahead.forward_figure) from the same record and pace, so its page's ladder and Road to live say the same N of
+    # M and the same estimate, first, before the live check's (walk 2026-11-01: 8 of 40, then 8 of 30 and 25 days here,
+    # 36 days on Deploy). None otherwise.
+    sample = next((int(d["forward_sample"]) for d in deps if int(d["strategy_id"]) == int(s["id"]) and d["mode"] == "paper"
+                   and d.get("forward_sample")), None)
+    forward = road_ahead.forward_figure(deps, s["id"], int(paper["trades"]), int(paper.get("events") or 0), sample,
+                                        pace.get("eta_days")) if sample else None
     return {
         "strategy_id": s["id"], "status": s["status"],
         "deployment_candidate": candidate,
@@ -285,6 +275,7 @@ def strategy_live_readiness(ctx: Ctx):
         "ready": candidate and paper["ready"] and live_ok,
         "blocking": blocking,
         "pace": pace,
+        "forward": forward,
     }
 
 

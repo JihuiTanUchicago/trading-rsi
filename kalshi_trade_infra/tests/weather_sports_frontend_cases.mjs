@@ -106,16 +106,39 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     assert.match(rows, /Arsenal vs Chelsea Winner\? (?:· )?Arsenal /);
     assert.doesNotMatch(rows, /Minnesota wins · Minnesota/, 'a title that already says its side says it once');
     if (f.clearTimers) f.clearTimers();
-    // The contract's own page heads with the side too, under its plain contract name.
+    // The contract's own page is headed in Tau's words, the ones its positions use, and the line under it doesn't name it
+    // again: it was headed "Kansas City at Buffalo Winner? · Kansas City" over "NFL: Chiefs vs Bills on Nov 1, Chiefs to
+    // win" (regression walk 2026-11-01). Its price says Yes in the same team names.
     const page = {ticker: 'KXNFLGAME-26NOV01KCBUF-KC', series: 'KXNFLGAME', title: 'Kansas City at Buffalo Winner?', sub: 'Kansas City', status: 'active',
       yes_bid: '0.50', yes_ask: '0.52', last: '0.51', volume_24h: '10', open_interest: '5', close_time: '2026-11-15T21:25:00Z', settles_at: '2026-11-02T00:30:00Z',
       as_of: '2026-11-01T02:00:00Z', rules: 'If Kansas City wins, Yes.', rules_more: '', period_min: 60, points: [], mine: {open: [], closed: []}, my_markets: []};
-    const g = frontend({fetchImpl: (path) => (path.startsWith('/api/explore/market?') ? response(page) : response({}))});
-    g.S.me.markets = MARKETS;
-    await g.viewMarketDetail(page.ticker); await flush();
-    assert.match(g.root.querySelector('h1').innerHTML, /^Kansas City at Buffalo Winner\?\u00a0· Kansas City$/);
-    assert.match(g.root.querySelector('.deck').innerHTML, /^NFL: Chiefs vs Bills on Nov 1, Chiefs to win\u00a0· /);
-    if (g.clearTimers) g.clearTimers();
+    const head = async (over) => {
+      const p = {...page, ...over};
+      const g = frontend({fetchImpl: (path) => (path.startsWith('/api/explore/market?') ? response(p) : response({}))});
+      g.S.me.markets = MARKETS.concat([{key: 'nhl_game', label: 'NHL game winner (moneyline)', series: 'KXNHLGAME', category: 'Sports', has_data: true}]);
+      await g.viewMarketDetail(p.ticker); await flush();
+      const out ={h1: g.root.querySelector('h1').innerHTML, deck: g.root.querySelector('.deck').innerHTML, body: text(g.root.innerHTML)};
+      if (g.clearTimers) g.clearTimers();
+      return out;
+    };
+    const nfl = await head({});
+    assert.equal(nfl.h1, 'NFL: Chiefs vs Bills on Nov 1, Chiefs to win');
+    assert.doesNotMatch(nfl.deck, /Chiefs|Kansas City|NFL/);
+    assert.match(nfl.body, /≈ 51% chance of Yes \(Chiefs win\)/);
+    assert.match(nfl.body, /If Kansas City wins, Yes\./, 'Kalshi’s own rules are quoted as Kalshi wrote them');
+    // NBA, NHL and the Premier League alike, a draw included.
+    assert.equal((await head({ticker: 'KXNBAGAME-26NOV01LALBOS-BOS', series: 'KXNBAGAME', title: 'Los Angeles L at Boston Winner?', sub: 'Boston'})).h1,
+      'NBA: Lakers vs Celtics on Nov 1, Celtics to win');
+    const nhl = await head({ticker: 'KXNHLGAME-26NOV01TORBOS-TOR', series: 'KXNHLGAME', title: 'Toronto at Boston Winner?', sub: 'Toronto'});
+    assert.equal(nhl.h1, 'NHL: Maple Leafs vs Bruins on Nov 1, Maple Leafs to win');
+    assert.match(nhl.body, /chance of Yes \(Maple Leafs win\)/);
+    const epl = await head({ticker: 'KXEPLGAME-26NOV01ARSCHE-TIE', series: 'KXEPLGAME', title: 'Arsenal vs Chelsea Winner?', sub: 'Tie'});
+    assert.equal(epl.h1, 'English Premier League: Arsenal vs Chelsea on Nov 1, a draw');
+    assert.match(epl.body, /chance of Yes \(the game ends in a draw\)/);
+    // A team Tau doesn't name keeps Kalshi's title and side, and says Yes in them.
+    const odd = await head({ticker: 'KXNBAGAME-26NOV01LALXYZ-LAL', series: 'KXNBAGAME', title: 'Los Angeles L at Nowhere Winner?', sub: 'Los Angeles L'});
+    assert.match(odd.h1, /^Los Angeles L at Nowhere Winner\? · Los Angeles L$/);
+    assert.match(odd.body, /chance of Yes \(Los Angeles L wins\)/);
   });
 
   test(`${name}: a game Kalshi cancelled says so and what each contract paid, never "no result sent" or "scalar"`, async () => {
@@ -129,7 +152,8 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
     const html = f.root.innerHTML;
     assert.match(html, /Result<\/dt><dd><span class="fig ">Cancelled<\/span><\/dd><dd class="sub-fig">Kalshi cancelled this market and paid 50¢ a contract: no Yes or No result/);
     assert.match(html, /<h2>How it settles<\/h2><p>Cancelled by Kalshi · paid 50¢ a contract<\/p>/);
-    assert.equal(f.root.querySelector('.deck').innerHTML, 'NBA: Warriors vs Heat on Oct 30, Warriors to win · Cancelled by Kalshi');
+    assert.equal(f.root.querySelector('h1').innerHTML, 'NBA: Warriors vs Heat on Oct 30, Warriors to win');
+    assert.equal(f.root.querySelector('.deck').innerHTML, 'Cancelled by Kalshi');
     assert.doesNotMatch(text(html), /scalar|no result sent|sent no Yes or No|chance of Yes/i);
     if (f.clearTimers) f.clearTimers();
   });

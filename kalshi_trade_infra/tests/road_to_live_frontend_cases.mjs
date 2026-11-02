@@ -25,19 +25,24 @@ export function roadToLiveCases({name, frontend, detailStrategy, strategyFronten
       dep(1, {...r, forward_sample: 40, forward_events_needed: 20, forward_eta_days: 4.6}),
       dep(2, {...r, trades: 40, events: 24, forward_sample: 40, forward_events_needed: 20, forward_eta_days: 0}),
       dep(3, {...r, forward_sample: 40, forward_events_needed: 20, forward_eta_days: null, running: false}),
-      dep(4, {...r, cleared_never: 'paper_held'}), dep(5, {...r, cleared_never: 'holdout_held'}), dep(6, r)], open_positions: []}) : response({})});
+      dep(4, {...r, cleared_never: 'paper_held'}), dep(5, {...r, cleared_never: 'holdout_held'}), dep(6, r),
+      dep(7, {...r, trades: 6, events: 6, eta_days: 24, forward_sample: 25, forward_events_needed: 20, forward_eta_days: 19, then_trades_needed: 30, then_eta_days: 24})],
+    open_positions: []}) : response({})});
     await f.viewDeploy(); await settle();
     const lines = f.root.querySelectorAll('.road-line').map((el) => plain(el.innerHTML));
     f.clearTimers && f.clearTimers();
     assert.deepEqual(lines, [
-      'In its paper forward test: 22/40 trades · 18/20 separate events · enough in about 5 days at its pace, then one judgment on them decides whether it can be cleared to trade.',
-      'In its paper forward test: its 40 trades from 20+ separate events are in, so its one judgment on them is due. Only a pass clears it to trade.',
-      'In its paper forward test: 22/40 trades · 18/20 separate events · paused, so not growing, then one judgment on them decides whether it can be cleared to trade.',
+      'Toward live, first its paper forward test: 22 of 40 trades · 18 of 20 separate events · about 5 days at its pace. One judgment on them decides whether it can be cleared to trade; if it passes, the live check then looks at the same record’s P&amp;L, edge and demo orders.',
+      'Toward live, first its paper forward test: its 40 trades from 20+ separate events are in, so its one judgment on them is due. Only a pass can clear it to trade; if it passes, the live check then looks at the same record’s P&amp;L, edge and demo orders.',
+      'Toward live, first its paper forward test: 22 of 40 trades · 18 of 20 separate events · paused, so not growing. One judgment on them decides whether it can be cleared to trade; if it passes, the live check then looks at the same record’s P&amp;L, edge and demo orders.',
       'It can’t be cleared to trade: it passed its one judgment on its own paper trades but was held back, so its paper record doesn’t lead to live.',
       'It can’t be cleared to trade: it passed its one-time final test but was held back, so its paper record doesn’t lead to live.',
       'Its paper record toward live: 22/30 trades · 18/20 separate events · enough in about 2 days at its pace',
+      // A min_sample under the live check's 30: both gates, in the order they come, each with its own estimate.
+      'Toward live, first its paper forward test: 6 of 25 trades · 6 of 20 separate events · about 19 days at its pace. One judgment on them decides whether it can be cleared to trade; if it passes, the live check then needs 30 trades (about 24 days at its pace) and looks at their P&amp;L, edge and demo orders.',
     ]);
-    for (const line of lines.slice(0, 3)) assert.doesNotMatch(line, /toward live|\/30/);
+    // The live check's own count and estimate (30 trades, about 2 days) are never said as the next step.
+    for (const line of lines.slice(0, 3)) assert.doesNotMatch(line, /\b30\b|about 2 days/);
   });
 
   test(`${name}: "Furthest on paper" in its paper forward test counts toward that judgment, not toward live`, async () => {
@@ -49,16 +54,18 @@ export function roadToLiveCases({name, frontend, detailStrategy, strategyFronten
       : path === '/api/models' ? response({models: [], default: ''}) : response({})});
     f.S.me.user.autopilot = true;
     await f.viewDashboard(); await settle();
-    const prog = {strategy_id: 8, title: 'OKC probe up', trades: 22, trades_needed: 40, net_pnl: 48.92, strategies: 2, forward_sample: 40};
+    const prog = {strategy_id: 8, title: 'OKC probe up', trades: 22, trades_needed: 40, net_pnl: 48.92, strategies: 2, forward_sample: 40, forward_events_needed: 20,
+      events: 18, running: true, forward_eta_days: 4.6};
     const card = (p) => { f.S.ap = {autopilot: true, mode: 'paper', research: {active: []}, paper_progress: p}; f.paintDashAp(); return plain(f.root.querySelector('#dash-ap .apcard-figs').innerHTML); };
-    assert.match(card(prog), /Furthest on paper\s*22 of the 40 realistic paper trades its paper forward test judges/);
+    assert.match(card(prog), /Furthest on paper\s*22 of 40 realistic paper trades for its paper forward test, about 5 days at its pace/);
+    assert.match(card({...prog, forward_eta_days: null}), /22 of 40 realistic paper trades for its paper forward test(?!,)/);
     assert.match(card({...prog, trades: 41}), /41 realistic paper trades \(its paper forward test judges 40\)/);
     assert.match(card({...prog, trades_needed: 30, forward_sample: undefined}), /22 of 30 realistic paper trades/);
     f.clearTimers();
   });
 
   const d = (id, mode, status = 'running') => ({id, mode, status, closed_trades: 22, realized_pnl: 3, open_positions: 0, stake: 5, created_at: '2026-10-20T08:00:00Z'});
-  const readiness = (trades, events) => ({ready: false, blocking: 'the gatekeeper hasn’t cleared it as a deployment candidate', deployment_candidate: false,
+  const readiness = (trades, events, forward = null) => ({forward, ready: false, blocking: 'the gatekeeper hasn’t cleared it as a deployment candidate', deployment_candidate: false,
     live_autopilot: {ok: false, why: 'live autopilot is off'}, pace: {running: true, eta_days: 2.2, trades_per_day: 3.7, rate_from: 'paper'},
     paper: {ready: false, why: 'it needs 30+ closed paper trades on realistic fills first (has 22)', trades, trades_needed: 30, net_pnl: 48.9, events, events_needed: 20,
       span_hours: 127, span_needed_hours: 48, p_value: null, p_value_needed: 0.1, recent_trades: 11, recent_net_pnl: 20, realization: null,
@@ -73,33 +80,67 @@ export function roadToLiveCases({name, frontend, detailStrategy, strategyFronten
       return response({});
     });
     await f.viewStrategy(42); await settle();
-    const ladder = f.root.querySelector('#ladder-body'), glance = f.root.querySelector('.verdict-glance');
-    const out = {ladder: ladder ? plain(ladder.innerHTML) : '', glance: glance ? plain(glance.innerHTML) : '', reads};
+    const ladder = f.root.querySelector('#ladder-body'), glance = f.root.querySelector('.verdict-glance'), roadBody = f.root.querySelector('#road-live-body');
+    const out = {ladder: ladder ? plain(ladder.innerHTML) : '', glance: glance ? plain(glance.innerHTML) : '', road: roadBody ? plain(roadBody.innerHTML) : '', reads};
     f.clearTimers && f.clearTimers();
     return out;
   };
   const probation = {min_sample: 40, classification: 'inconclusive', validation: {classification: 'inconclusive', n_trades: 26}, holdout: null, paper: null, promoted: false};
 
+  // The server's one figure for a strategy in its paper forward test (road_ahead.forward_figure), as Deploy's row carries it.
+  const fwd = (trades, events, more = {}) => ({trades, events, running: true, forward_sample: 40, forward_events_needed: 20, forward_eta_days: 4.6,
+    then_trades_needed: null, then_eta_days: null, ...more});
   test(`${name}: a strategy in its paper forward test says its one judgment is next, with the gate's own counts`, async () => {
-    const p = await page({experiment: probation, deployments: [d(1, 'paper')]}, readiness(22, 18));
-    assert.match(p.ladder, /Next rung: its one judgment on its own paper trades, at 40 realistic paper trades from 20\+ separate events: 18 more trades \(22 of 40\) and 2 more separate events \(18 of 20\)\. Only a pass there can clear it to trade, so live can’t come before it\./);
-    assert.doesNotMatch(p.ladder, /Next rung, demo|nothing needed|before live money/);
-    assert.match(p.glance, /It’s on paper now as a forward test: one judgment on its own paper trades, made once its record holds 40 of them from 20\+ separate events, can still clear it to trade\./);
+    const p = await page({experiment: probation, deployments: [d(1, 'paper')]}, readiness(22, 18, fwd(22, 18)));
+    assert.match(p.ladder, /Next rung, its paper forward test: 22 of 40 trades · 18 of 20 separate events · about 5 days at its pace\. One judgment on them decides whether it can be cleared to trade; if it passes, the live check then looks at the same record’s P&amp;L, edge and demo orders\./);
+    assert.doesNotMatch(p.ladder, /Next rung, demo|nothing needed|before live money|of 30/);
+    assert.match(p.glance, /It’s in its paper forward test now: one judgment on its own paper trades, made once its record holds 40 of them from 20\+ separate events, can still clear it to trade\./);
     assert.ok(p.reads.includes('/api/strategies/42/live-readiness'), 'its counts come from the same read as Road to live');
-    const one = await page({experiment: probation, deployments: [d(1, 'paper'), d(2, 'demo')]}, readiness(39, 19));
-    assert.match(one.ladder, /1 more trade \(39 of 40\) and 1 more separate event \(19 of 20\)/);
+    const one = await page({experiment: probation, deployments: [d(1, 'paper'), d(2, 'demo')]}, readiness(39, 19, fwd(39, 19, {forward_eta_days: 0.4})));
+    assert.match(one.ladder, /39 of 40 trades · 19 of 20 separate events · under a day at its pace/);
     assert.doesNotMatch(one.ladder, /Next rung, live/);
-    const due = await page({experiment: probation, deployments: [d(1, 'paper')]}, readiness(40, 24));
-    assert.match(due.ladder, /at 40 realistic paper trades from 20\+ separate events\. Both are in, so that judgment is due\./);
+    const due = await page({experiment: probation, deployments: [d(1, 'paper')]}, readiness(40, 24, fwd(40, 24, {forward_eta_days: 0})));
+    assert.match(due.ladder, /Next rung, its paper forward test: its 40 trades from 20\+ separate events are in, so its one judgment on them is due\./);
+    // A min_sample under the live check's 30: the live check's trades come after, in that order, each with its estimate.
+    const low = await page({experiment: {...probation, min_sample: 25}, deployments: [d(1, 'paper')]},
+      readiness(6, 6, fwd(6, 6, {forward_sample: 25, forward_eta_days: 19, then_trades_needed: 30, then_eta_days: 24})));
+    assert.match(low.ladder, /6 of 25 trades · 6 of 20 separate events · about 19 days at its pace\. One judgment on them decides whether it can be cleared to trade; if it passes, the live check then needs 30 trades \(about 24 days at its pace\)/);
     // Before (or without) the read, the step still reads, without counts.
     const blind = await page({experiment: probation, deployments: [d(1, 'paper')]}, null);
-    assert.match(blind.ladder, /Next rung: its one judgment on its own paper trades, at 40 realistic paper trades from 20\+ separate events\. Only a pass/);
+    assert.match(blind.ladder, /Next rung, its paper forward test: one judgment on 40 realistic paper trades from 20\+ separate events decides whether it can be cleared to trade, so live can’t come before it\./);
     // Not on paper: no forward test is running, and the glance says nothing of one.
     const off = await page({experiment: probation, deployments: []}, null);
     assert.doesNotMatch(off.glance, /forward test/);
     assert.ok(!off.reads.includes('/api/strategies/42/live-readiness'));
   });
 
+  // Regression walk 2026-11-01: one "passed" strategy in its paper forward test read "Next rung ... 8 of 40" on its ladder,
+  // "8 of 30 ... about 25 days" in its Road to live a few lines lower, and "about 36 days" on Deploy. Its ladder, its Road
+  // to live and Deploy's row now say one figure, the server's, the same way, the forward test first.
+  test(`${name}: a passed strategy in its paper forward test says one N of M and one estimate on its ladder, its Road to live and Deploy`, async () => {
+    const figure = fwd(8, 8, {forward_eta_days: 36});
+    const road = {...readiness(8, 8, figure), pace: {running: true, eta_days: 24.8, trades_per_day: 0.9, rate_from: 'paper'}};
+    const p = await page({status: 'passed', why_failed: [], experiment: probation, deployments: [d(1, 'paper')]}, road);
+    const said = 'its paper forward test: 8 of 40 trades · 8 of 20 separate events · about 36 days at its pace. One judgment on them decides whether it can be cleared to trade; if it passes, the live check then looks at the same record’s P&amp;L, edge and demo orders.';
+    assert.ok(p.ladder.includes('Next rung, ' + said), p.ladder);
+    assert.ok(p.road.includes('First, ' + said), p.road);
+    // Then the live check's other checks, without the counts the forward test covers or a second estimate.
+    assert.match(p.road, /Then the live check, on its record at that point: 2 more checks before it may trade real money: the edge test, run once the trades and events are in; 20 more demo orders \(0 of 20\) on a demo deployment\./);
+    const summary = p.road.split('Realistic paper trades')[0];
+    assert.doesNotMatch(summary, /8 of 30|22 more paper trades|about 25 days|gatekeeper’s clearance/);
+    assert.match(p.road, /Gatekeeper cleared\s*needs paper forward test \+ diversification/);
+    // The live check's own counts in its table say the forward test's sample covers them.
+    assert.match(p.road, /Realistic paper trades\s*needs 30\+, met once its paper forward test’s 40 are in/);
+    assert.match(p.road, /Separate events\s*needs 20\+, met once its paper forward test’s 20 are in/);
+    const f = frontend({fetchImpl: (path) => path === '/api/deployments' ? response({deployments: [{id: 1, strategy_id: 42, title: 'Fwd', market: 'high_ny', mode: 'paper',
+      status: 'running', status_reason: null, realized_pnl: 0, closed_trades: 8, open_positions: 0, unrealized_pnl: null, created_at: '2026-10-24T08:00:00Z', curve: [], stake: 5,
+      max_positions: 1, backtest: {}, road: {trades: 8, trades_needed: 30, events: 8, events_needed: 20, span_hours: 94, span_needed_hours: 48, running: true, eta_days: 24.8,
+        trades_per_day: 0.9, rate_from: 'paper', ...figure}}], open_positions: []}) : response({})});
+    await f.viewDeploy(); await settle();
+    const deployLine = plain(f.root.querySelector('.road-line').innerHTML);
+    f.clearTimers && f.clearTimers();
+    assert.equal(deployLine, 'Toward live, first ' + said);
+  });
   test(`${name}: one that can never be cleared to trade has no next rung toward live money, and a held-back pass says it passed`, async () => {
     const held = await page({verdict: 'held_back', why_failed: [{gate: 'diversification', label: 'Too similar to a strategy you already run', measured: 'a 0.81 correlation', needed: '0.70 or less', fix: ''}],
       experiment: {...probation, classification: 'forward_validated', paper: {classification: 'forward_validated', n_trades: 40}}, deployments: [d(1, 'paper')]}, readiness(44, 26));

@@ -11,7 +11,7 @@ window.TauPage('strategy', (T) => {
     gl, glo, gloSep, go, ICON, isPerpetual, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
-    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt, neverCleared
+    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt, neverCleared, FORWARD_HEAD, forwardBody
   } = T;
 
   // ---------- strategy research paper (RESEARCH_PIPELINE_DESIGN.md §D) ----------
@@ -432,14 +432,16 @@ window.TauPage('strategy', (T) => {
   // A signed figure in the sentence stays on one line: "(now \u2212$13.56)" broke between the minus and the $ on a phone.
   const roadAmt = (v) => `<span class="amt">${usd(v, true)}</span>`;
   const roadClear = (r) => !!(r.deployment_candidate && r.paper && r.paper.ready);
+  // With `r.forward` (its paper forward test, the server's road_ahead figure) what that test already counts is left to it:
+  // the gatekeeper's clearance (only a pass there gives it), and the trades and events its sample covers.
   function roadLeft(r, s) {
-    const p = r.paper, c = p.checks || {}, left = [];
+    const p = r.paper, c = p.checks || {}, left = [], f = r.forward;
     const more = (have, need, unit) => `${num(Math.max(0, need - have))} more ${unit} (${num(have)} of ${num(need)})`;
     const demoOn = (s.deployments || []).some((d) => d.mode === 'demo' && d.status !== 'stopped');
-    if (!r.deployment_candidate) left.push('the gatekeeper’s clearance');
-    if (c.realistic_trades === false) left.push(more(+p.trades, +p.trades_needed, 'paper trades'));
+    if (!r.deployment_candidate && !f) left.push('the gatekeeper’s clearance');
+    if (c.realistic_trades === false && !(f && +f.forward_sample >= +p.trades_needed)) left.push(more(+p.trades, +p.trades_needed, 'paper trades'));
     if (c.legacy_pnl === false) left.push(`paper P&amp;L with every fill at $0 or above (now ${roadAmt(p.legacy_pnl)})`);
-    if (c.events === false) left.push(more(+p.events, +p.events_needed, 'events'));
+    if (c.events === false && !(f && +f.forward_events_needed >= +p.events_needed)) left.push(more(+p.events, +p.events_needed, 'events'));
     if (c.net_pnl === false) left.push(`net P&amp;L above $0 (now ${roadAmt(p.net_pnl)})`);
     if (c.span === false) left.push(`${num(Math.ceil(p.span_needed_hours - p.span_hours))}h more of record (${num(Math.floor(p.span_hours))}h of ${num(p.span_needed_hours)}h)`);
     if (c.edge === false) left.push(p.p_value == null ? 'the edge test, run once the trades and events are in' : `a clearer edge (p ${roadP(p.p_value)}, needs ${p.p_value_needed.toFixed(2)} or lower)`);
@@ -452,12 +454,21 @@ window.TauPage('strategy', (T) => {
         : 'a check of its demo book against the demo exchange in the last 24h');
     }
     // A failing check this page doesn't name is said in the server's own words, "the Funds page" linked (fundsLinked).
-    if (!left.length && !roadClear(r)) left.push(fundsLinked(esc(p.why || r.blocking || 'a check this page can’t name')));
+    if (!left.length && !roadClear(r) && !f) left.push(fundsLinked(esc(p.why || r.blocking || 'a check this page can’t name')));
     return left;
   }
   function roadSummary(r, s, liveWhy, total, apPaper) {
     const p = r.paper, c = p.checks || {}, pace = r.pace, left = roadLeft(r, s);
     const lines = [];
+    // Still in its paper forward test (the server's `forward`, Deploy's figure): that test first, in Deploy's words and
+    // figures, then what the live check still needs after it. The estimate toward the live check's own counts is left
+    // out: its "8 of 30 ... about 25 days" sat under the ladder's 8 of 40, with Deploy at 36 days (walk 2026-11-01).
+    if (r.forward && !roadClear(r)) {
+      lines.push(`<p class="road-sum road-forward"><b>First, ${FORWARD_HEAD}:</b> ${forwardBody(r.forward)}</p>`);
+      lines.push(`<p class="road-sum road-then"><b>Then the live check</b>, on its record at that point: ${left.length ? `${num(left.length)} more check${left.length === 1 ? '' : 's'} before it may trade real money: ${left.join('; ')}.` : 'nothing else is short today.'}</p>`);
+      if (pace && !pace.running && (s.deployments || []).some((d) => d.mode === 'paper' && d.status === 'paused')) lines.push('<p class="hint">Its paper deployment is paused, so its record isn’t growing. <a href="/deploy">Resume it on Deploy</a>.</p>');
+      return lines.join('');
+    }
     if (roadClear(r)) {
       lines.push(`<p class="road-sum"><b>Its record clears every check.</b> It still trades paper money only. ${liveWhy ? 'Before it can go live: ' + liveWhy : 'Moving it to live money is your call: Deploy with live money, then type LIVE.'}</p>`);
     } else {
@@ -494,18 +505,12 @@ window.TauPage('strategy', (T) => {
     if (!exp || !(+exp.min_sample > 0) || exp.paper || exp.holdout || exp.promoted || (v && v.classification === 'statistically_supported')) return 0;
     return (s.deployments || []).some((d) => d.mode === 'paper' && d.status !== 'stopped') ? +exp.min_sample : 0;
   };
-  // That paper forward test's next step in words, with the record's own counts once Road to live's read is in (its
-  // realistic trades and separate events, which the judgment counts too). The judgment is made once.
-  const forwardNext = (need, road) => {
-    const p = road && road.paper, evNeed = 20;
-    let have = '';
-    if (p) {
-      const left = [[+p.trades, need, 'trade'], [+p.events, evNeed, 'separate event']].filter(([h, n]) => h < n)
-        .map(([h, n, unit]) => `${num(n - h)} more ${unit}${n - h === 1 ? '' : 's'} (${num(h)} of ${num(n)})`);
-      have = left.length ? `: ${left.join(' and ')}` : '. Both are in, so that judgment is due';
-    }
-    return `Next rung: its one judgment on its own paper trades, at ${num(need)} realistic paper trades from ${num(evNeed)}+ separate events${have}. Only a pass there can clear it to trade, so live can’t come before it.`;
-  };
+  // That paper forward test as its next rung. Once Road to live's read is in, in Deploy's words and figures (the server's
+  // `forward`, road_ahead's one figure: its N of M and the estimate at its pace, then what the live check needs after); it
+  // counted "8 of 40" here over a Road to live of "8 of 30 ... about 25 days", and Deploy said 36 days (walk 2026-11-01).
+  // Before that read, what the judgment needs. The judgment is made once.
+  const forwardNext = (need, road) => (road && road.forward ? `Next rung, ${FORWARD_HEAD}: ${forwardBody(road.forward)}`
+    : `Next rung, ${FORWARD_HEAD}: one judgment on ${num(need)} realistic paper trades from 20+ separate events decides whether it can be cleared to trade, so live can’t come before it.`);
   function ladderLines(s, { canDeploy, demoWhy, road, apPaper }) {
     const deps = s.deployments || [];
     // A paused book is still on its rung (deploying it there again would double its positions): it says paused.
@@ -536,7 +541,7 @@ window.TauPage('strategy', (T) => {
     }
     const next = LADDER[running.length ? LADDER.indexOf(running[running.length - 1]) + 1 : 0];
     let need = '';
-    const judged = laterJudged(s), testing = forwardPending(s);
+    const judged = laterJudged(s), testing = road && road.forward ? +road.forward.forward_sample : forwardPending(s);
     if (next && next[0] !== 'paper' && judged) need = `${neverCleared(judged)}, so it has no next rung toward live money.`;
     else if (next && next[0] !== 'paper' && testing) need = forwardNext(testing, road);
     else if (!next) need = liveOpen() ? 'Top rung: it trades live money.' : 'Top rung: live money, but live trading isn\u2019t open yet, so it places no orders.';
@@ -588,7 +593,7 @@ window.TauPage('strategy', (T) => {
   // validation miss alone ("Verdict, below, has … what to try next"), never that its paper trades can still clear it.
   const paperPending = (s) => {
     const need = ['failed', 'rejected'].includes(s.status) ? forwardPending(s) : 0;
-    return need ? ` It’s on paper now as a forward test: one judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.` : '';
+    return need ? ` It’s in its paper forward test now: one judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.` : '';
   };
   function verdictGlance(s, missed) {
     const exp = s.experiment, h = exp && exp.holdout, v = exp && exp.validation, p = exp && exp.paper;
@@ -987,12 +992,14 @@ window.TauPage('strategy', (T) => {
         const lb = root.querySelector('#ladder-body');
         if (lb) keepFocus(lb, () => { lb.innerHTML = ladderWas = ladderLines(s, { canDeploy, demoWhy, road: r, apPaper }); });
         const p = r.paper, c = p.checks;
+        // In its paper forward test, a count that test's sample covers says so: "8 / 30" sat under "8 of 40" unexplained.
+        const covered = (need, key, ok) => (r.forward && ok === false && +r.forward[key] >= +need ? `, met once its paper forward test’s ${num(+r.forward[key])} are in` : '');
         const rows = [
-          { name: 'Gatekeeper cleared', threshold: 'holdout + diversification', ok: r.deployment_candidate, value: r.deployment_candidate ? 'yes' : 'no' },
-          { name: 'Realistic paper trades', threshold: p.trades_needed + '+', ok: c.realistic_trades, value: num(p.trades) + ' / ' + num(p.trades_needed) },
+          { name: 'Gatekeeper cleared', threshold: r.forward ? FORWARD_HEAD.replace(/^its /, '') + ' + diversification' : 'holdout + diversification', ok: r.deployment_candidate, value: r.deployment_candidate ? 'yes' : 'no' },
+          { name: 'Realistic paper trades', threshold: p.trades_needed + '+' + covered(p.trades_needed, 'forward_sample', c.realistic_trades), ok: c.realistic_trades, value: num(p.trades) + ' / ' + num(p.trades_needed) },
           ...(c.legacy_pnl === false ? [{ name: 'Paper P&L, every fill', threshold: '$0 or above', ok: false, value: p.legacy_pnl }] : []),
           { name: 'Net, ' + PAPER_NET, threshold: 'above $0', ok: c.net_pnl, value: p.net_pnl },
-          { name: 'Separate events', threshold: (p.events_needed || 20) + '+', ok: c.events, value: p.events == null ? '—' : num(p.events) + ' / ' + num(p.events_needed || 20) },
+          { name: 'Separate events', threshold: (p.events_needed || 20) + '+' + covered(p.events_needed || 20, 'forward_events_needed', c.events), ok: c.events, value: p.events == null ? '—' : num(p.events) + ' / ' + num(p.events_needed || 20) },
           { name: 'First to last paper trade', threshold: p.span_needed_hours + 'h+', ok: c.span, value: num(Math.floor(p.span_hours)) + 'h / ' + num(p.span_needed_hours) + 'h' },
           { name: 'Edge is not luck', threshold: 'p ≤ ' + p.p_value_needed.toFixed(2), ok: c.edge, value: roadP(p.p_value) },
           { name: 'Still working lately', threshold: 'newer half above $0', ok: c.recent, value: p.recent_trades ? p.recent_net_pnl : '—' },

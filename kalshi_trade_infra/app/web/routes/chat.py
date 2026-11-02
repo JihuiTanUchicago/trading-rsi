@@ -15,7 +15,7 @@ from app.adapters.kalshi_perps import kalshi_perps_trading
 from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.research import agent
-from app.services import book_memo, customer_text, reader_day
+from app.services import book_memo, customer_text, reader_day, road_ahead
 from app.trading import engine
 from app.trading.markets import customer_name
 from app.web.caches import _forget_own_change
@@ -448,14 +448,11 @@ def _autopilot_story(d: Dict) -> List[str]:
         # Every paper strategy whose record could count toward live has none yet, and the furthest is in its paper
         # forward test (autopilot_status picks it only then): its trades count toward its one judgment there, and
         # live isn't on its road before that passes. It read "has 40 realistic paper trades (live needs 30)".
-        have, need = int(prog["trades"]), int(prog["forward_sample"])
-        lines.append("%s on paper (pretend money). The furthest along is in its paper forward test: it has %s and is %s "
-                     "on them %s. Only a pass there can clear it to trade, and that judgment is made once." % (
-                         _plural(paper, "strategy is", "strategies are"),
-                         ("%s of the %d realistic paper trades its one judgment needs" % ("{:,}".format(have), need)) if have < need
-                         else ("%s realistic paper trades (its one judgment needs %d, from %d separate events)"
-                               % ("{:,}".format(have), need, agent.MIN_PAPER_EVENTS)),
-                         _money(prog["net_pnl"]), customer_text.PAPER_NET_SHORT))
+        # Its N of M and estimate are Deploy's and its page's (road_ahead.forward_figure, said by forward_words).
+        lines.append("%s on paper (pretend money). The furthest along is %s on its realistic paper trades %s, and is in "
+                     "its paper forward test: %s" % (
+                         _plural(paper, "strategy is", "strategies are"), _money(prog["net_pnl"]),
+                         customer_text.PAPER_NET_SHORT, road_ahead.forward_words(prog)))
     elif prog and int(prog.get("trades") or 0) > 0:
         # Its count and net are the realistic paper record across all its paper runs (the road to live's),
         # not one deployment's realized P&L: said so, since the Deploy row beside it shows that one.
@@ -1096,6 +1093,11 @@ def autopilot_status(ctx: Ctx):
                           "trades_needed": forward.get(best, agent.MIN_REALISTIC_PAPER_TRADES), "net_pnl": cents(net),
                           "strategies": len(sids), **({"cleared_never": never[best]} if best in never else {}),
                           **({"forward_sample": forward[best]} if best in forward and best not in never else {})}
+        if paper_progress.get("forward_sample"):
+            # Deploy's figure for it (road_ahead): the same N of M and the same estimate at its pace as its row and page.
+            ev_n = events.get(best) or 0
+            paper_progress.update(road_ahead.forward_figure(paper_run, best, trades, ev_n, forward[best],
+                                                            road_ahead.live_eta(paper_run, best, trades, ev_n)))
         # When the soonest one that can still be cleared could have a full record for the live check, at the pace
         # each trades.
         from app.research import rsi
