@@ -370,6 +370,27 @@ export function phoneSpeedCases({name, frontend, storageFor, railOpenWide, sourc
     f.clearTimers();
   });
 
+  // A device's first load: the shell can't count the reader's day (no zone cookie yet), so it names Home's two reads
+  // with no URL of their own and boot.js asks them as it starts, with the zone, beside the bundle's download
+  // (shell_reads.zone_reads). Home takes both answers, once, and asks neither itself.
+  test(`${name}: a first load's Home takes the day-counting reads boot.js started with the zone, once each`, async () => {
+    const f = dashFrontend(() => response({}));
+    f.window.__TAU_FIRST__ = [{then: ['/api/dashboard', '/api/autopilot/status']}];
+    f.window.__TAU_EARLY__ = {
+      '/api/dashboard': Promise.resolve(response({...keyedDash({pending: undefined, balance: 1234.56, balance_at: new Date().toISOString()}), v: 'early1'})),
+      '/api/autopilot/status': Promise.resolve(response({autopilot: false, mode: 'off'})),
+    };
+    await f.viewDashboard(); await settle();
+    assert.equal(asked(f, '/api/dashboard'), 0, 'the figures came from the read boot.js started');
+    assert.equal(asked(f, '/api/autopilot/status'), 0, 'and so did the autopilot card');
+    assert.deepEqual(Object.keys(f.window.__TAU_EARLY__), [], 'each taken once');
+    assert.match(dashPage(f), /\$1,001\.60/);
+    assert.match(dashCash(f), /Kalshi cash ?\$1,234\.56/);
+    // The entry with no URL of its own never stands in for a read.
+    assert.equal(f.window.__TAU_FIRST__.length, 1);
+    f.clearTimers();
+  });
+
   test(`${name}: a newer dashboard poll is never painted over by the cash follow-up`, async () => {
     let answerLive;
     const liveHeld = new Promise((resolve) => { answerLive = resolve; });

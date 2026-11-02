@@ -5,6 +5,7 @@ request, the same JSON; nothing for a URL the shell can't name exactly, or for a
 import http.client
 import json
 import re
+import time
 from datetime import datetime
 from decimal import Decimal
 from http.server import ThreadingHTTPServer
@@ -138,12 +139,7 @@ def test_an_app_page_shell_carries_its_first_read_under_the_url_the_page_asks(we
     ("/explore", "rsid=abc"),
     ("/community", "rsid=abc"),
     ("/settings", "rsid=abc"),
-    # A device's first load (no tau_tz yet: a sign-in link opened in a new browser): the dashboard and the autopilot
-    # status count the reader's day, which the shell can't know, so the page asks them once boot.js has set the cookie.
-    ("/", "rsid=abc"),
-    ("/dashboard", "rsid=abc"),
-    ("/", "rsid=abc; tau_tz=abc"),
-    ("/", "rsid=abc; tau_tz=99999"),
+    ("/?x=1", "rsid=abc"),  # a query: the page's URL says more, so nothing of its own is carried or named
 ])
 def test_shells_with_no_read_they_can_name_carry_only_the_bell(web, monkeypatch, path, cookie):
     # The masthead's bell is on every signed-in page, whatever its query: its list is carried all the same.
@@ -152,6 +148,40 @@ def test_shells_with_no_read_they_can_name_carry_only_the_bell(web, monkeypatch,
     bell = _record(monkeypatch, "notifications", BELL)
     r, html = _shell(web, path, cookie)
     assert r.status == 200 and _first(html) == [] and bell == [((), {}, 7)]
+
+
+@pytest.mark.parametrize("path,cookie,named", [
+    # A device's first load (no tau_tz yet: a sign-in link opened in a new browser): the dashboard and the autopilot
+    # status count the reader's day, which the shell can't know. It never reads them; it names them first, with no
+    # URL of their own, and boot.js asks them right after it has written the zone cookies, beside the bundle's
+    # download (they went out only once the bundle had run: ~0.5s later on a phone's slow network).
+    ("/", "rsid=abc", ["/api/dashboard", "/api/autopilot/status"]),
+    ("/dashboard", "rsid=abc", ["/api/dashboard", "/api/autopilot/status"]),
+    ("/", "rsid=abc; tau_tz=abc", ["/api/dashboard", "/api/autopilot/status"]),
+    ("/", "rsid=abc; tau_tz=99999", ["/api/dashboard", "/api/autopilot/status"]),
+    # Under the URL the page asks: its ?since= from the visit cookie, as with the zone.
+    ("/", "rsid=abc; tau_visit=%d.%d" % (int(time.time()) - 4000, int(time.time()) - 60),
+     ["/api/dashboard?since=%d" % (int(time.time()) - 4000), "/api/autopilot/status"]),
+])
+def test_a_first_load_shell_names_the_reads_that_count_the_readers_day_and_never_reads_them(web, monkeypatch, path, cookie, named):
+    for name in ROUTES:
+        _record(monkeypatch, name, AssertionError("not asked"))
+    bell = _record(monkeypatch, "notifications", BELL)
+    r, html = _shell(web, path, cookie)
+    assert r.status == 200 and _first(html) == [{"then": named}] and bell == [((), {}, 7)]
+    # After the scripts, as every carried read: boot.js (deferred) reads it once the page has been parsed.
+    assert html.index('id="tau-first"') > html.index('src="/static/boot.js')
+
+
+def test_a_first_load_research_shell_carries_its_list_and_names_its_loop_board(web, monkeypatch):
+    # The loop card's per-day bars count the reader's day: named for boot.js, never read (nor kept) without the zone.
+    runs = {"runs": [], "v": "r1"}
+    _record(monkeypatch, "list_runs", runs)
+    board = _record(monkeypatch, "research_scoreboard", AssertionError("not asked"))
+    monkeypatch.setattr(shell_reads, "scoreboard_kept", lambda uid, days: (_ for _ in ()).throw(AssertionError("not asked")))
+    r, html = _shell(web, "/research", "rsid=abc")
+    assert r.status == 200 and board == []
+    assert _first(html) == [{"then": ["/api/research/scoreboard?days=14"]}, {"url": "/api/runs", "body": _wire(runs)}]
 
 
 @pytest.mark.parametrize("path,cookie", [
@@ -765,6 +795,14 @@ def test_only_the_named_pages_have_first_requests():
     # Without the zone (a device's first load) the reads that count the reader's day are the page's own to ask.
     assert shell_reads.first_requests("/", "", {}) == shell_reads.first_requests("/dashboard", "", {"tau_tz": ""}) == []
     assert [r[0] for r in shell_reads.first_requests("/research", "", {})] == ["/api/runs"]
+    # Those are the ones the shell names for boot.js to ask once it has written the zone; none once the zone is known.
+    assert shell_reads.zone_reads("/", "", {}) == shell_reads.zone_reads("/dashboard", "", {"tau_tz": ""}) == ["/api/dashboard", "/api/autopilot/status"]
+    assert shell_reads.zone_reads("/research", "", {}) == ["/api/research/scoreboard?days=14"]
+    for page in ("/", "/dashboard", "/research", "/funds", "/deploy", "/strategies", "/research/12", "/billing"):
+        assert shell_reads.zone_reads(page, "", {"tau_tz": "300"}) == [], page
+    for page in ("/funds", "/deploy", "/strategies", "/research/12", "/explore"):
+        assert shell_reads.zone_reads(page, "", {}) == [], page
+    assert shell_reads.zone_reads("/", "x=1", {}) == shell_reads.zone_reads("/research", "new=1", {}) == []
     assert [r[0] for r in shell_reads.first_requests("/funds", "", {})] == ["/api/funds"]
     assert [r[0] for r in shell_reads.first_requests("/settings/account", "", {})] == ["/api/funds"]
 

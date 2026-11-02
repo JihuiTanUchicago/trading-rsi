@@ -17,7 +17,7 @@ change, a trip) names a URL the page doesn't ask, and the page asks as before. I
 account Stripe has no cards to list for: the saved-card list waits on Stripe, and a slow Stripe must
 never hold the whole shell blank (the page's own read keeps it behind a skeleton instead). The same cookie
 gates the reads that count the reader's own day (the dashboard, the autopilot status, the research card's
-board): without it the page asks them itself, once boot.js has set it (first_requests).
+board): without it the shell only names them, and boot.js asks them once it has set it (zone_reads).
 
 Funds is carried by the same rule, always: its read never asks Kalshi (nor do the dashboard's and the
 autopilot's, whether the shell, an in-app visit or a poll asks them; only /api/funds/cash does).
@@ -145,6 +145,37 @@ def billing_tz(cookie: Optional[str]) -> Optional[int]:
     return int(cookie) if cookie and _TZ.match(cookie) else None
 
 
+def _page_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Tuple[Request, bool]]:
+    """Each read an app page asks for first, as the page will ask it, and whether it counts the reader's own day
+    (the dashboard's and the autopilot's "today", the research card's per-day bars: app.services.reader_day)."""
+    if query:
+        return []
+    if path in ("/", "/dashboard"):
+        at = dashboard_since(cookies.get("tau_visit"))
+        return [((("/api/dashboard?since=%d" % at if at else "/api/dashboard"), dashboard, (), ({"since": str(at)} if at else {})), True),
+                (("/api/autopilot/status", autopilot_status, (), {}), True)]
+    if path == "/research":
+        return [(("/api/runs", list_runs, (), {}), False),
+                (("/api/research/scoreboard?days=%d" % LOOP_DAYS, kept_loop_board, (), {"days": str(LOOP_DAYS)}), True)]
+    if path == "/strategies":
+        return [(("/api/strategies?page=0", list_strategies, (), {"page": "0"}), False)]
+    if path == "/deploy":
+        return [(("/api/deployments", list_deployments, (), {}), False)]
+    if path in ("/funds", "/settings/account"):
+        return [(("/api/funds", funds, (), {}), False)]
+    if path in ("/billing", "/settings/billing"):
+        tz = billing_tz(cookies.get("tau_tz"))
+        return [] if tz is None else [(("/api/billing?tz=%d" % tz, billing_without_stripe, (), {"tz": str(tz)}), False)]
+    m = _RUN_PAGE.match(path)
+    if m:
+        return [(("/api/runs/%s?after=0" % m.group(1), get_run, (m.group(1),), {"after": "0"}), False)]
+    return []
+
+
+def _zoned(cookies: Dict[str, str]) -> bool:
+    return reader_day.offset_minutes(cookies.get(reader_day.TZ_COOKIE)) is not None
+
+
 def first_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Request]:
     """The reads an app page asks for first, as the page will ask them; [] when the shell can't name them.
 
@@ -152,32 +183,21 @@ def first_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Reque
     per-day bars: app.services.reader_day) is carried only once the browser has told us its zone (tau_tz, which
     boot.js writes as it starts). Without it (a device's first load: a sign-in link opened in a new browser)
     the shell's read counted the UTC day, and the first paint said "Today (UTC)" until the next poll. Left
-    out, the page asks for it itself, after boot.js has set the cookie, and its first paint is the reader's day."""
-    if query:
+    out, boot.js asks for it right after it has set the cookie (zone_reads), and the first paint is the reader's day."""
+    zoned = _zoned(cookies)
+    return [read for read, counts_day in _page_requests(path, query, cookies) if zoned or not counts_day]
+
+
+def zone_reads(path: str, query: str, cookies: Dict[str, str]) -> List[str]:
+    """The URLs of the page's first reads the shell left out for want of the reader's zone (a device's first load);
+    [] once tau_tz is set. Never read here: the shell has no zone to count the day by. The shell names them
+    (first_reads) and boot.js starts them as it starts, right after it has written the zone cookies, so each goes
+    out with the zone and beside the bundle's download. The page asked them only once its bundle had arrived and
+    run: on a phone's slow network, its first figure came ~0.5s after a later load's (whose shell carries them).
+    The page takes each answer once, as it takes a carried read's "then" (api())."""
+    if _zoned(cookies):
         return []
-    zoned = reader_day.offset_minutes(cookies.get(reader_day.TZ_COOKIE)) is not None
-    if path in ("/", "/dashboard"):
-        if not zoned:
-            return []
-        at = dashboard_since(cookies.get("tau_visit"))
-        return [(("/api/dashboard?since=%d" % at if at else "/api/dashboard"), dashboard, (), ({"since": str(at)} if at else {})),
-                ("/api/autopilot/status", autopilot_status, (), {})]
-    if path == "/research":
-        return [("/api/runs", list_runs, (), {})] + (
-            [("/api/research/scoreboard?days=%d" % LOOP_DAYS, kept_loop_board, (), {"days": str(LOOP_DAYS)})] if zoned else [])
-    if path == "/strategies":
-        return [("/api/strategies?page=0", list_strategies, (), {"page": "0"})]
-    if path == "/deploy":
-        return [("/api/deployments", list_deployments, (), {})]
-    if path in ("/funds", "/settings/account"):
-        return [("/api/funds", funds, (), {})]
-    if path in ("/billing", "/settings/billing"):
-        tz = billing_tz(cookies.get("tau_tz"))
-        return [] if tz is None else [("/api/billing?tz=%d" % tz, billing_without_stripe, (), {"tz": str(tz)})]
-    m = _RUN_PAGE.match(path)
-    if m:
-        return [("/api/runs/%s?after=0" % m.group(1), get_run, (m.group(1),), {"after": "0"})]
-    return []
+    return [read[0] for read, counts_day in _page_requests(path, query, cookies) if counts_day]
 
 
 def shell_requests(path: str) -> List[Request]:
@@ -189,10 +209,15 @@ def shell_requests(path: str) -> List[Request]:
 def first_reads(path: str, query: str, cookies: Dict[str, str], make_ctx: MakeCtx) -> Tuple[List[Dict[str, Any]], List[str]]:
     """([{url, body}] for each first read that answered, with "then": the reads its page asks next, when
     there are any, each named once; the cookies they set). A read that fails is left out: the page asks for
-    it itself and shows what it gets."""
+    it itself and shows what it gets. On a load with no zone yet, first: {"then": [...]} with no URL of its own,
+    the reads that count the reader's day (zone_reads), which boot.js starts once it has written the zone."""
     reads: List[Dict[str, Any]] = []
     set_cookies: List[str] = []
     named: set = set()
+    zone_first = zone_reads(path, query, cookies)
+    if zone_first:
+        reads.append({"then": zone_first})
+        named.update(zone_first)
     for url, fn, params, q in first_requests(path, query, cookies) + shell_requests(path):
         try:
             ctx = make_ctx(params, q)
