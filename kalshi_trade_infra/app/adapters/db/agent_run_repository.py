@@ -533,7 +533,8 @@ def research_verdicts_after(cur, user_id: int, markets: List[str], after_run_id:
         created = run.get("created_at")
         out.append({"run_id": r["run_id"], "market": run["market"],
                     "day": created.strftime("%Y-%m-%d") if hasattr(created, "strftime") else str(created or "")[:10],
-                    "message": r.get("message") or "", "data": _loads(r.get("data_json")) or {}})
+                    "message": r.get("message") or "", "data": _loads(r.get("data_json")) or {},
+                    "created_at": created})
     return out
 
 

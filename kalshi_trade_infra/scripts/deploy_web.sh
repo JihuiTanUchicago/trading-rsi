@@ -32,7 +32,7 @@ MEMORY_CAPS=${MEMORY_CAPS:-"recursive-agents=8G recursive-web=1G recursive-engin
 # Unit files this script owns on the box (same mechanism as deploy_collector.sh): shipped in the
 # bundle, copied to /etc/systemd/system when they differ, timers enabled --now. Older web-box timers
 # (tau-scout, tau-research-watch, ...) are still hand-installed and not listed here.
-UNITS=${UNITS:-"tau-lip-maker-paper.service tau-lip-maker-paper.timer tau-code-paper.service tau-code-paper.timer tau-maker-lab.service tau-maker-lab.timer tau-maker-scan.service tau-maker-scan.timer"}
+UNITS=${UNITS:-"tau-lip-maker-paper.service tau-lip-maker-paper.timer tau-code-paper.service tau-code-paper.timer tau-maker-lab.service tau-maker-lab.timer tau-maker-scan.service tau-maker-scan.timer tau-sports-rescore.service tau-sports-rescore.timer"}
 # Brotli for the static bundles (app/web/webperf.py): the one package a deploy makes sure of, because the
 # box's venv is otherwise installed by hand. Same pin as requirements.txt, hash-locked to the CPython
 # 3.13 manylinux wheels (x86_64, aarch64); binary only. Best effort: without it static files go out

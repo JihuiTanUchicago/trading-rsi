@@ -33,6 +33,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from app.research import quarantine
+
 _LOG = logging.getLogger(__name__)
 
 SLEEP_MIN_NEW = 40       # ideas since the last consolidation before the next one (~5 runs)
@@ -335,11 +337,15 @@ def consolidate(model, usage, family: str, lessons: List[Dict], ledger: Dict, ev
 _COLS = "id, user_id, family, version, through_run_id, runs, ideas, ledger_json, lessons_json, changes, created_at"
 
 
-def latest(cur, user_id: int, family: str) -> Optional[Dict]:
+def latest(cur, user_id: int, family: str, include_quarantined: bool = False) -> Optional[Dict]:
+    """The family's newest memory version, or None. A version consolidated before the family's
+    quarantine cut (research.quarantine) was learned on leaky backtests and reads as no memory."""
     cur.execute("SELECT %s FROM app_rsi_knowledge WHERE user_id=%%s AND family=%%s ORDER BY version DESC LIMIT 1"
                 % _COLS, (user_id, family))
     row = cur.fetchone()
     if not row:
+        return None
+    if not include_quarantined and quarantine.hides(family, row.get("created_at")):
         return None
     row = dict(row)
     row["ledger"] = json.loads(row.pop("ledger_json") or "{}")
@@ -362,19 +368,21 @@ def sleep(cur, model, usage, user_id: int, family: str, markets: List[str], run_
     Returns a one-line account of what happened, or None when it isn't time yet. The ledger part is
     saved even when the model call fails (the lessons then carry over unchanged)."""
     from app import repository as repo
-    prev = latest(cur, user_id, family)
+    prev = latest(cur, user_id, family)    # None while only quarantined versions exist: bootstrap afresh
+    # version numbers keep counting past quarantined versions (unique key on user, family, version)
+    newest = latest(cur, user_id, family, include_quarantined=True) if quarantine.since(family) else prev
     after = max(int(prev["through_run_id"]) - _REREAD_IDS, 0) if prev else 0
     seen = set((prev or {}).get("ledger", {}).get("seen") or [])
     events = [ev for ev in repo.research_verdicts_after(cur, user_id, markets, after, include_run_id=run_id,
                                                         max_runs=BOOTSTRAP_RUNS)
-              if ev["run_id"] not in seen]
+              if ev["run_id"] not in seen and not quarantine.hides(family, ev.get("created_at"))]
     ideas = [ev for ev in events if outcome(ev)]
     if not ideas or (prev and len(ideas) < min_new):
         return None
     ledger = fold(prev["ledger"] if prev else {}, events)
     lessons = list(prev["lessons"]) if prev else []
     through = max([int(ev["run_id"]) for ev in events] + [int(prev["through_run_id"]) if prev else 0])
-    version = (int(prev["version"]) + 1) if prev else 1
+    version = (int(newest["version"]) + 1) if newest else 1
     try:
         merged = consolidate(model, usage, family, lessons, ledger, evidence_lines(events))
         lessons, changes = [dict(l, since=l.get("since", version)) for l in merged["lessons"]], merged["changes"]

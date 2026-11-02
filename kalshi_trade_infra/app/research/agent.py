@@ -1903,15 +1903,17 @@ _OWN_DROPS_READ = 80
 def _recent_drops(cur, user_id: int, market: str) -> List[Dict]:
     """This market's recent drops, then its siblings' (same family; rows carry "market").
     Advisory only: a failed read just means the proposer isn't warned off old dead ends."""
+    from app.research import quarantine, rsi
+    fam = rsi.family(market)
+    since = quarantine.since(fam)   # drops judged on leaky backtests (research.quarantine) don't count
     try:
-        own = repo.dropped_theses(cur, user_id, market, limit=_OWN_DROPS_READ)
+        own = repo.dropped_theses(cur, user_id, market, limit=_OWN_DROPS_READ,
+                                  **({"since": since} if since else {}))
     except Exception:
         return []
-    from app.research import rsi
-    fam = rsi.family(market)
     siblings = [k for k in MARKETS if k != market and fam not in ("other", "unknown") and rsi.family(k) == fam]
     try:
-        return own + repo.sibling_dropped_theses(cur, user_id, siblings)
+        return own + repo.sibling_dropped_theses(cur, user_id, siblings, **({"since": since} if since else {}))
     except Exception:
         return own
 
