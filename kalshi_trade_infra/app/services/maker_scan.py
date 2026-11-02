@@ -197,39 +197,25 @@ class Scan:
             wl[1] += 1
 
     def finish(self) -> Dict:
-        rows = []
-        for (fam, side, mode, pb, tb), c in self.cells.items():
-            xs = list(c.clusters.values())
-            n = sum(x[1] for x in xs)
-            k = len(xs)
-            if n == 0:
-                continue
-            mean = sum(x[0] for x in xs) / n
-            if k >= 2:
-                var = sum((x[0] - mean * x[1]) ** 2 for x in xs) * k / (k - 1) / (n * n)
-                se = math.sqrt(var) if var > 0 else float("inf")
-            else:
-                se = float("inf")
-            t = mean / se if se and not math.isinf(se) else 0.0
-            p = _p_one_sided(t, k - 1)
-            q_even = _break_even_loss_rate(c)
-            lost = sum(1 for x in xs if x[0] < 0)
-            if q_even is not None and q_even < TAIL_Q:
-                # Picking up nickels: a few cents won almost always against a rare loss of the whole stake.
-                # A cell that never saw a loss has a near-zero SE, so its t is meaningless. Ask instead how
-                # likely so few losing events were if the true loss rate were the break-even one.
-                p = max(p, _binom_cdf(lost, k, q_even))
-            halves = [round(100 * h[0] / h[1], 2) if h[1] else None for h in c.halves]
-            rows.append({
-                "family": fam, "side": side, "mode": mode,
-                "price": price_label(pb), "ttc": ttc_label(tb),
-                "contracts": n, "clusters": k,
-                "fill_rate": round(n / c.posted, 3) if mode == "maker" and c.posted else None,
-                "mean_c": round(100 * mean, 2), "t": round(t, 2), "p": p,
-                "halves_c": halves, "testable": k >= MIN_CLUSTERS, "examples": c.examples,
-                "losing_clusters": lost,
-                "break_even_loss": round(q_even, 4) if q_even is not None else None,
-            })
+        rows = [r for r in (_stats(key, c) for key, c in self.cells.items()) if r]
+        return self._report(rows)
+
+    def rows_for(self, cells: List[Dict]) -> List[Dict]:
+        """The stats of named cells ({family, side, mode, price, ttc} labels, as a report prints them),
+        for a pre-registered confirmation: one row per cell, None-filled when it saw no fill."""
+        out = []
+        for want in cells:
+            hit = None
+            for key, c in self.cells.items():
+                fam, side, mode, pb, tb = key
+                if (fam, side, mode, price_label(pb), ttc_label(tb)) == (
+                        want["family"], want["side"], want["mode"], want["price"], want["ttc"]):
+                    hit = _stats(key, c)
+                    break
+            out.append(hit or dict(want, contracts=0, clusters=0))
+        return out
+
+    def _report(self, rows: List[Dict]) -> Dict:
         tested = [r for r in rows if r["testable"]]
         keep = _bh([r["p"] for r in tested], FDR)
         for r, k in zip(tested, keep):
@@ -273,6 +259,43 @@ class Scan:
         return out
 
 
+def _stats(key: Tuple, c: "_Cell") -> Optional[Dict]:
+    """One cell's row: P&L per contract, cluster-robust t and p (with the tail test for lopsided
+    payoffs), halves, losing events. None when the cell never filled."""
+    fam, side, mode, pb, tb = key
+    xs = list(c.clusters.values())
+    n = sum(x[1] for x in xs)
+    k = len(xs)
+    if n == 0:
+        return None
+    mean = sum(x[0] for x in xs) / n
+    if k >= 2:
+        var = sum((x[0] - mean * x[1]) ** 2 for x in xs) * k / (k - 1) / (n * n)
+        se = math.sqrt(var) if var > 0 else float("inf")
+    else:
+        se = float("inf")
+    t = mean / se if se and not math.isinf(se) else 0.0
+    p = _p_one_sided(t, k - 1)
+    q_even = _break_even_loss_rate(c)
+    lost = sum(1 for x in xs if x[0] < 0)
+    if q_even is not None and q_even < TAIL_Q:
+        # Picking up nickels: a few cents won almost always against a rare loss of the whole stake.
+        # A cell that never saw a loss has a near-zero SE, so its t is meaningless. Ask instead how
+        # likely so few losing events were if the true loss rate were the break-even one.
+        p = max(p, _binom_cdf(lost, k, q_even))
+    halves = [round(100 * h[0] / h[1], 2) if h[1] else None for h in c.halves]
+    return {
+        "family": fam, "side": side, "mode": mode,
+        "price": price_label(pb), "ttc": ttc_label(tb),
+        "contracts": n, "clusters": k,
+        "fill_rate": round(n / c.posted, 3) if mode == "maker" and c.posted else None,
+        "mean_c": round(100 * mean, 2), "t": round(t, 2), "p": p,
+        "halves_c": halves, "testable": k >= MIN_CLUSTERS, "examples": c.examples,
+        "losing_clusters": lost,
+        "break_even_loss": round(q_even, 4) if q_even is not None else None,
+    }
+
+
 TAIL_Q = 0.20      # break-even loss rate below which a cell is judged by its losing events, not its t
 
 
@@ -286,7 +309,9 @@ def _break_even_loss_rate(c: "_Cell") -> Optional[float]:
     if not c.wins[1]:
         return None
     w = c.wins[0] / c.wins[1]
-    l = -c.losses[0] / c.losses[1] if c.losses[1] else 1.0 - w
+    # A binary loss costs the whole stake (1 - average win). A voided market settles at a fair price
+    # and loses less, so the average loss alone would understate it (kxuslgame, 2026-11-02 rerun).
+    l = max(-c.losses[0] / c.losses[1] if c.losses[1] else 0.0, 1.0 - w)
     return w / (w + l) if (w + l) > 0 else None
 
 
