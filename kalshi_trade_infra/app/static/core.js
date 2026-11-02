@@ -658,6 +658,12 @@
   };
   // What a game contract's Yes pays on, in Tau's team names ("Chiefs win", "the game ends in a draw"); '' for another.
   const gameYes = (ticker) => { const g = gameParts(ticker); return !g ? '' : g.out === 'TIE' ? 'the game ends in a draw' : `${teamName(ticker, g.out)} win`; };
+  // A game contract in Tau's team names past its league ("Chiefs vs Bills on Nov 1, Chiefs to win"), the words contractWords
+  // puts after "NFL: "; '' for another.
+  const gameWords = (ticker) => {
+    const g = gameParts(ticker), nm = (code) => teamName(ticker, code);
+    return !g ? '' : `${g.pair ? `${nm(g.pair[0])} vs ${nm(g.pair[1])} ` : ''}on ${g.day}, ${g.out === 'TIE' ? 'a draw' : nm(g.out) + ' to win'}`;
+  };
   const contractWords = (ticker, name) => {
     const t = String(ticker || ''), w = WX_CONTRACT.exec(t), mon = w && TICKER_MON[w[1]];
     if (!name) return '';
@@ -667,10 +673,8 @@
       const lo = Math.floor(x - 0.5 + 1e-9);
       return `${name} on ${day}, ${lo}° to ${lo + 1}°F`;
     }
-    const g = !w && gameParts(t);
-    if (!g) return '';
-    const nm = (code) => teamName(t, code), lead = name.replace(LEAGUE_OF, '');
-    return `${lead}: ${g.pair ? `${nm(g.pair[0])} vs ${nm(g.pair[1])} ` : ''}on ${g.day}, ${g.out === 'TIE' ? 'a draw' : nm(g.out) + ' to win'}`;
+    const g = !w && gameWords(t);
+    return g ? `${name.replace(LEAGUE_OF, '')}: ${g}` : '';
   };
   // Bitcoin series the app shows (Explore, the hot rail, a market page, a position held at Kalshi) that no
   // market here covers: KXBTC's hourly price ranges. Each still says its contract and close as the markets above

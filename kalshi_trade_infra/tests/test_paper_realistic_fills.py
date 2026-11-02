@@ -326,11 +326,18 @@ def test_autopilot_status_reports_paper_strategy_closest_to_live(monkeypatch):
     monkeypatch.setattr(server.repo, "autopilot_paper_week", lambda *a, **k: {"started": 0, "pnl": 0.0, "trades": 0})
     monkeypatch.setattr(server.repo, "strategies_passed_since", lambda *a, **k: 0)
     seen = {}
-    monkeypatch.setattr(server.repo, "paper_progress",
-                        lambda cur, uid, sids: seen.setdefault("sids", sids) and {1: (4, 9.0), 2: (11, -1.0)})
+    # Each one's realistic round trips (the Deploy board's read): Slow 4 trades from 4 events, up $9.00; Fast 11 from one
+    # event, down $1.00.
+    now = server.repo.now_utc().replace(tzinfo=None)
+    hrs = __import__("datetime").timedelta(hours=1)
+    trips = {1: [{"pnl": 2.25, "opened_at": now - (60 - 12 * i) * hrs, "closed_at": now - (58 - 12 * i) * hrs,
+                  "ticker": "KXHIGHNY-26OCT%02d-B60.5" % (10 + i)} for i in range(4)],
+             2: [{"pnl": -1.0 if i == 0 else 0.0, "opened_at": now - (30 - i) * hrs, "closed_at": now - (29 - i) * hrs,
+                  "ticker": "KXHIGHNY-26OCT20-B6%d.5" % i} for i in range(11)]}
+    monkeypatch.setattr(server.repo, "paper_round_trips_by_strategy",
+                        lambda cur, uid, sids: seen.setdefault("sids", sids) and {s: trips[s] for s in sids if s in trips})
     monkeypatch.setattr(server.repo, "user_open_exposure",
                         lambda cur, uid, mode=None: {"n": 4 if mode == "paper" else 9, "notional": 3.0})
-    monkeypatch.setattr(server.repo, "paper_event_counts", lambda cur, uid, sids: {1: 4, 2: 1})
     out = server.autopilot_status(ctx)
     assert out["paper_open"] == 4, "open PAPER positions only"
     assert (out["today_live_pnl"], out["today_paper_pnl"]) == (-2.0, 1.23), "each book's own day"
@@ -343,6 +350,64 @@ def test_autopilot_status_reports_paper_strategy_closest_to_live(monkeypatch):
                                      "net_pnl": -1.0, "strategies": 2,
                                      # Slow: 4 trips in 72h is 1.33/day -> 26 more in 19.5 days. Fast has no pace.
                                      "soonest_days": 19.5, "soonest_title": "Slow"}
+
+
+def test_the_panels_live_estimates_are_deploys_from_the_records_own_span(monkeypatch):
+    """Walk 2026-11-01: the autopilot card's live estimate counted the record's hours from the deployment's age, where
+    Deploy's road line (and its forward test figure) counts the record's own first-to-last span. A strategy ten days on
+    paper whose 30 trades from 20 events all came in the last 20 hours read "already has the trades, events and hours"
+    on the card beside Deploy's "about a day". The panel now reads the same round trips and pace as Deploy's road
+    (road_ahead.paper_record and live_eta), so both give the same days, for the soonest one and for a forward test's
+    "then the live check" alike."""
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from app import server
+    from app.web.routes import deployments
+    from tests.autopilot_status_parts import stub_merged_reads
+    now = server.repo.now_utc().replace(tzinfo=None, microsecond=0)
+    hrs = timedelta(hours=1)
+    stub_merged_reads(monkeypatch)
+    for name, val in (("positions_version", (17, 13, 40)), ("deployment_strategies", {}), ("engine_last_tick_age_seconds", 20),
+                      ("get_kalshi_key", None), ("last_autopilot_action", None), ("last_review_at", None), ("active_agent_run", None),
+                      ("list_runs", []), ("research_week", []), ("research_spent_since", 0.0), ("strategies_passed_since", 0),
+                      ("autopilot_paper_week", {"started": 0, "pnl": 0.0, "trades": 0})):
+        monkeypatch.setattr(server.repo, name, lambda *a, _v=val, **k: _v)
+    monkeypatch.setattr(server.repo, "realized_pnl_by_mode", lambda cur, uid, modes, since, fills=False: ({m: 0.0 for m in modes}, {m: 0 for m in modes}))
+    monkeypatch.setattr(server.repo, "user_open_exposure", lambda cur, uid, mode=None: {"n": 0, "notional": 0.0})
+    monkeypatch.setattr(server.billing, "configured", lambda: False)
+    user = {"id": 7, "email": "t@example.invalid", "name": "S", "picture_url": None, "autopilot": 1, "autopilot_live": 0,
+            "autopilot_daily_loss_limit": 50, "autopilot_model": None}
+
+    def dep(sid, title, days, sample=None):
+        return {"id": sid, "strategy_id": sid, "title": title, "mode": "paper", "status": "running", "created_at": now - timedelta(days=days),
+                "forward_sample": sample, "cleared_never": None, "result": {}}
+
+    def trips(n, events, hours):
+        # n round trips from `events` separate events, the first opened `hours` before the last one closed.
+        return [{"pnl": 0.5, "opened_at": now - hours * hrs + (hours - 2) * hrs * i / (n - 1), "closed_at": now - (n - 1 - i) * hrs * (hours - 2) / (n - 1),
+                 "ticker": "KXHIGHNY-26OCT%02d-B6%d.5" % (1 + i % events, i)} for i in range(n)]
+
+    def both(deps, by):
+        monkeypatch.setattr(server.repo, "list_deployments_brief", lambda *a: deps)
+        monkeypatch.setattr(server.repo, "paper_round_trips_by_strategy", lambda cur, uid, sids: {s: by[s] for s in sids if s in by})
+        deployments._ROADS.clear()
+        roads = deployments._deploy_roads(None, 7, deps)
+        deployments._ROADS.clear()
+        ctx = server.Ctx(SimpleNamespace(cursor=lambda: object()), user, (), {}, {}, SimpleNamespace())
+        return roads, server.autopilot_status(ctx)
+
+    # Ten days on paper, its 30 trades from 20 events all in the last 20 hours: 28 more hours of record, about a day.
+    roads, out = both([dep(1, "Late burst", 10)], {1: trips(30, 20, 20)})
+    assert roads[1]["span_hours"] == 20.0 and roads[1]["eta_days"] == 1.2
+    assert out["paper_progress"]["soonest_days"] == roads[1]["eta_days"]
+    assert not any("already has the trades, events and hours" in line for line in out["story"])
+    assert any("the soonest one could have enough for the live check is about a day (Late burst)" in line for line in out["story"])
+    # A forward test whose 25-trade sample is in, the live check's 30 after it: its "then" estimate is Deploy's too.
+    roads, out = both([dep(2, "Fwd", 10, sample=25)], {2: trips(29, 20, 10)})
+    prog = out["paper_progress"]
+    assert roads[2]["then_eta_days"] == 1.6
+    assert {k: prog[k] for k in ("forward_eta_days", "then_trades_needed", "then_eta_days")} == {
+        k: roads[2][k] for k in ("forward_eta_days", "then_trades_needed", "then_eta_days")}
 
 
 def test_autopilot_status_reports_research_activity(monkeypatch):

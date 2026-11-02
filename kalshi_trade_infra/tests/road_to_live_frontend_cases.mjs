@@ -140,6 +140,18 @@ export function roadToLiveCases({name, frontend, detailStrategy, strategyFronten
     const deployLine = plain(f.root.querySelector('.road-line').innerHTML);
     f.clearTimers && f.clearTimers();
     assert.equal(deployLine, 'Toward live, first ' + said);
+    // Its glance says what its gatekeeper record holds: it read "Passed validation. It cleared the checks on 26 trades it
+    // had never seen" over an inconclusive validation and this forward test (walk 2026-11-01).
+    assert.equal(p.glance, 'In its paper forward test. Its first test on unseen data (26 trades) was too weak to show an edge that isn’t luck, so it didn’t pass validation. One judgment on its own paper trades, made once its record holds 40 of them from 20+ separate events, can still clear it to trade.');
+    // Off paper, no forward test runs: it says the validation was inconclusive and it isn't cleared.
+    const off = await page({status: 'passed', why_failed: [], experiment: probation, deployments: []}, null);
+    assert.equal(off.glance, 'Validation inconclusive. Its first test on unseen data (26 trades) was too weak to show an edge that isn’t luck, so it didn’t pass validation, and the gatekeeper hasn’t cleared it to trade.');
+    const rejected = await page({status: 'passed', why_failed: [], experiment: {...probation, validation: {classification: 'rejected', n_trades: 26}}, deployments: []}, null);
+    assert.match(rejected.glance, /^Missed validation\. Its first test on unseen data \(26 trades\) didn’t show an edge that holds up/);
+    // A validation that passed still reads as before.
+    const ok = await page({status: 'passed', why_failed: [], experiment: {...probation, classification: 'statistically_supported',
+      validation: {classification: 'statistically_supported', n_trades: 26}}, deployments: []}, null);
+    assert.match(ok.glance, /^Passed validation\. It cleared the checks on 26 trades it had never seen/);
   });
   test(`${name}: one that can never be cleared to trade has no next rung toward live money, and a held-back pass says it passed`, async () => {
     const held = await page({verdict: 'held_back', why_failed: [{gate: 'diversification', label: 'Too similar to a strategy you already run', measured: 'a 0.81 correlation', needed: '0.70 or less', fix: ''}],

@@ -317,3 +317,34 @@ def test_one_figure_for_a_forward_test_on_deploy_its_page_the_panel_and_the_chat
     assert (low["forward_eta_days"], low["then_trades_needed"], low["then_eta_days"]) == (19.1, 30, 24.8)
     assert road_ahead.forward_words(low).endswith("if it passes, the live check then needs 30 trades (about 25 days at its pace) and "
                                                   "looks at their P&L, edge and demo orders.")
+
+
+def test_the_chats_live_check_reason_is_the_count_the_pages_give():
+    """Walk 2026-11-01: the chat's facts said "paper evidence: 3/30 realistic paper trades ... not live-ready: it needs 8+
+    closed paper trades first (has 3)", the live gate's first (legacy) check, beside a forward test of "3 of 40 trades";
+    no page says it, since the 30 realistic trades after it are always more. The reason is now the realistic count's own
+    (or the check between them), and one in its paper forward test says the live check comes after that judgment."""
+    import inspect
+    from app.research import agent
+    from app.services import chat_facts
+    ev = {"ready": False, "why": "it needs 8+ closed paper trades first (has 3)", "trades": 3, "trades_needed": 30, "legacy_pnl": 2.1,
+          "checks": {"legacy_trades": False, "legacy_pnl": True, "realistic_trades": False, "events": False}}
+    assert chat_facts.live_check_why(ev) == "it needs 30+ closed paper trades on realistic fills first (has 3)"
+    # The gate's own words for its next checks, so the reason reads as the gate gives it.
+    src = inspect.getsource(agent.paper_evidence)
+    assert '"it needs %d+ closed paper trades on realistic fills first (has %d)"' in src
+    assert '"it\'s still down $%.2f on paper"' in src
+    down = dict(ev, legacy_pnl=-1.5, checks=dict(ev["checks"], legacy_pnl=False))
+    assert chat_facts.live_check_why(down) == "it's still down $1.50 on paper"
+    fwd = {"trades": 3, "events": 3, "running": True, "forward_sample": 40, "forward_events_needed": 20, "forward_eta_days": 12.0,
+           "then_trades_needed": None, "then_eta_days": None}
+    said = chat_facts.live_check_why(ev, fwd)
+    assert said.startswith("the live check counts this record only after its paper forward test passes") and "8+" not in said
+    # Past the legacy count, the gate's own reason stands; a ready record has none.
+    later = dict(ev, why="its paper edge isn't statistically clear yet (p=0.21, needs 0.10 or lower)",
+                 checks=dict(ev["checks"], legacy_trades=True, realistic_trades=True))
+    assert chat_facts.live_check_why(later) == later["why"]
+    assert chat_facts.live_check_why(dict(ev, ready=True)) == ""
+    line = agent.paper_evidence_line(dict(ev, net_pnl=1.0, span_hours=12.0, why=chat_facts.live_check_why(ev)))
+    assert "8+" not in line and line.endswith("not live-ready: it needs 30+ closed paper trades on realistic fills first (has 3)")
+    assert "chat_facts.live_check_why(" in inspect.getsource(agent._copilot_context)

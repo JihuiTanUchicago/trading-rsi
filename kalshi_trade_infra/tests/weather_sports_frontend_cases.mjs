@@ -97,15 +97,36 @@ export function weatherSportsCases({name, frontend, detailStrategy, strategyFron
       ? response({at: '2026-11-01T02:00:00Z', total: 3, shown: 3, matched: 3, page: 0, per: 40, sort: 'v24', markets: [
         row('KXNFLGAME-26NOV01KCBUF-KC', 'Kansas City at Buffalo Winner?', 'Kansas City'),
         row('KXEPLGAME-26NOV01ARSCHE-ARS', 'Arsenal vs Chelsea Winner?', 'Arsenal'),
+        row('KXNBAGAME-26NOV01LALXYZ-LAL', 'Los Angeles L at Nowhere Winner?', 'Los Angeles L'),
         row('KXOTHER-A', 'Minnesota wins', 'Minnesota')]}) : response({}))});
     f.S.me.markets = MARKETS;
     await f.viewExplore(); await settle();
-    // Tau joins a row's title and side on one line; Meridian sets the side on its own line under the title.
+    // A game whose teams Tau names reads in Tau's words, as its market page is headed (gameTitle): the rows said Kalshi's
+    // "Kansas City at Buffalo Winner? · Kansas City" for the page headed "NFL: Chiefs vs Bills on Nov 1, Chiefs to win"
+    // (walk 2026-11-01). A team Tau doesn't name keeps Kalshi's title and side: Tau joins them on one line, Meridian sets
+    // the side on its own line under the title. Meridian's Context cell is drawn from Kalshi's title as before.
     const rows = text(f.root.querySelector('#xrows').innerHTML);
-    assert.match(rows, /Kansas City at Buffalo Winner\? (?:· )?Kansas City /);
-    assert.match(rows, /Arsenal vs Chelsea Winner\? (?:· )?Arsenal /);
+    assert.match(rows, /NFL: Chiefs vs Bills on Nov 1, Chiefs to win /);
+    assert.match(rows, /English Premier League: Arsenal vs Chelsea on Nov 1, Arsenal to win /);
+    assert.doesNotMatch(rows, /Kansas City|Arsenal vs Chelsea Winner/);
+    assert.match(rows, /Los Angeles L at Nowhere Winner\? (?:· )?Los Angeles L /);
     assert.doesNotMatch(rows, /Minnesota wins · Minnesota/, 'a title that already says its side says it once');
+    const named = f.root.querySelector('#xrows a[href="/explore?m=KXNFLGAME-26NOV01KCBUF-KC"]');
+    assert.equal(text(named.innerHTML).trim().split(' NFL winner')[0], 'NFL: Chiefs vs Bills on Nov 1, Chiefs to win');
     if (f.clearTimers) f.clearTimers();
+    // The hot rail names them the same way, title and words read aloud alike.
+    const h = frontend({fetchImpl: () => response({})});
+    h.S.me.markets = MARKETS;
+    h.root.innerHTML = '<aside id="hotrail"></aside>';
+    h.S.hot = {at: new Date().toISOString(), markets: [row('KXNFLGAME-26NOV01KCBUF-KC', 'Kansas City at Buffalo Winner?', 'Kansas City'),
+      row('KXNBAGAME-26NOV01LALXYZ-LAL', 'Los Angeles L at Nowhere Winner?', 'Los Angeles L')]};
+    h.renderHotRail();
+    const [kc, unnamed] = h.root.querySelectorAll('.hot-row');
+    assert.equal(kc.querySelector('.hot-title').getAttribute('title'), 'NFL: Chiefs vs Bills on Nov 1, Chiefs to win');
+    assert.match(text(kc.querySelector('.hot-title').innerHTML), /Chiefs vs Bills on Nov 1, Chiefs to win/);
+    assert.doesNotMatch(text(kc.innerHTML) + (kc.getAttribute('aria-label') || ''), /Kansas City/);
+    assert.match(unnamed.querySelector('.hot-title').getAttribute('title'), /^Los Angeles L at Nowhere Winner\?\s·\sLos Angeles L$/);
+    if (h.clearTimers) h.clearTimers();
     // The contract's own page is headed in Tau's words, the ones its positions use, and the line under it doesn't name it
     // again: it was headed "Kansas City at Buffalo Winner? · Kansas City" over "NFL: Chiefs vs Bills on Nov 1, Chiefs to
     // win" (regression walk 2026-11-01). Its price says Yes in the same team names.

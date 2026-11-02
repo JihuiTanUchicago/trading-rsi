@@ -1037,7 +1037,7 @@ def test_the_research_scoreboard_takes_live_ready_from_the_deploy_boards_kept_ch
     statements and ~165 -> ~95ms cold, byte-identical JSON. Nothing kept: the gate is asked, as before."""
     from app.research import agent
     from app.services import paper_checks
-    from app.web.routes.deployments import _paper_record
+    from app.services.road_ahead import paper_record
 
     asked = []
     ready_ids = {2, 5}
@@ -1063,7 +1063,7 @@ def test_the_research_scoreboard_takes_live_ready_from_the_deploy_boards_kept_ch
         for t in rows[SB_TRIPS]:
             trips.setdefault(t["strategy_id"], []).append(t)
         for sid, ts in trips.items():
-            rec = _paper_record(ts)
+            rec = paper_record(ts)
             assert paper_checks.failing(None, 7, sid, (rec["trades"], rec["events"], rec["span_hours"])) == (
                 ["candidate"] if sid == 5 else []) + ([] if sid in ready_ids else ["demo"])
         server._SHARED.clear()

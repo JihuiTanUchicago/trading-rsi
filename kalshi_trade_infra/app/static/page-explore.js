@@ -9,7 +9,7 @@ window.TauPage('explore', (T) => {
   'use strict';
   const {
     announce, api, boardTitle, BTC_CONTRACT, cents, chartScale, clock, closeClock, dayWatch, closeLeft, comboTitle, compactCondition, curveWords, finitePts, thinCurve,
-    contractMarket, contractMkt, contractShort, contractWords, gameNamed, gameYes, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
+    contractMarket, contractMkt, contractShort, gameTitle, gameYes, errText, esc, exitWord, EXPLORE_NO_FEED, EXPLORE_WAIT, exploreEmpty,
     exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, fig, hourET, ICON, kalshiUrl, keepFocus, keepZone,
     liveClose, loading, markedAt, marketFull, marketSpot, markFig, markOld, midOf, MKT_GONE, MKT_STATUS, mktLabel, pricesOld,
     money, NO_MARK, NOT_MARKED, markedOf, notice, num, pageLede, paint, paintRows, phone, poll, retried, root, rulesText, S, SEP,
@@ -162,9 +162,8 @@ window.TauPage('explore', (T) => {
     // "NFL: Chiefs vs Bills on Nov 1, Chiefs to win"): it was headed with Kalshi's title, "Kansas City at Buffalo Winner?
     // · Kansas City", over a line reading "NFL: Chiefs vs Bills on Nov 1, Chiefs to win" (regression walk 2026-11-01).
     // Kalshi's own words stay in How it settles. A league or team Tau doesn't name keeps Kalshi's title (gameNamed).
-    const gameMkt = gameNamed(d.ticker) && contractMkt(d.ticker);
-    const gameLabel = gameMkt ? contractWords(d.ticker, marketFull(gameMkt.key)) : '';
-    const label = gameLabel || mktLabel({ ti: d.title, su: d.sub, t: d.ticker });
+    const gameLabel = gameTitle(d.ticker);
+    const label = mktLabel({ ti: d.title, su: d.sub, t: d.ticker });
     const gran = d.period_min >= 1440 ? 'daily' : d.period_min >= 60 ? 'hourly' : 'per-minute';
     // Kalshi's "candles" are a trader's word: the chart says how often it has a price ("A price each minute").
     const GRAN_EACH = { daily: 'A price each day', hourly: 'A price each hour', 'per-minute': 'A price each minute' };
@@ -484,9 +483,12 @@ window.TauPage('explore', (T) => {
         // first ("… · $113,000 or above") where the row shows "≥ $113,000", so voice control couldn't say what it saw, and
         // its close went stale under the ticking one. A shortened condition keeps the source's words beside it, for a
         // screen reader only. A space parts each piece (a flex or grid item draws none), so they never run together.
-        const chip = contractShort(m.t);
+        // A game whose teams Tau names says it in Tau's words (gameTitle, as Tau's rows, the hot rail and its market page
+        // do): "Kansas City at Buffalo Winner? Kansas City" sat over a page headed "NFL: Chiefs vs Bills on Nov 1, Chiefs to
+        // win" (walk 2026-11-01). Its Context cell is drawn from Kalshi's title as before.
+        const chip = contractShort(m.t), game = gameTitle(m.t);
         const spoken = conditionDisplay !== separateCondition ? `<span class="vh"> (${esc(separateCondition)})</span>` : '';
-        const contractLink = `<a class="market-name single" href="/explore?m=${encodeURIComponent(m.t)}">${separateCondition ? `<span class="market-identity-line"><span class="market-event" title="${esc(title)}">${eventDisplay}</span> <strong>${esc(conditionDisplay)}</strong>${spoken}</span>` : `<strong>${esc(title || condition || label)}</strong>`}${chip ? ` <span class="market-chip"><span class="mk quiet">${esc(chip)}</span></span>` : ''}${m.ct ? ' ' + liveClose(m.ct, 'chip', { cap: true, cls: 'market-close' }) : ''}</a>${vsHtml(m)}`;
+        const contractLink = `<a class="market-name single" href="/explore?m=${encodeURIComponent(m.t)}">${game ? `<strong>${esc(game)}</strong>` : separateCondition ? `<span class="market-identity-line"><span class="market-event" title="${esc(title)}">${eventDisplay}</span> <strong>${esc(conditionDisplay)}</strong>${spoken}</span>` : `<strong>${esc(title || condition || label)}</strong>`}${chip ? ` <span class="market-chip"><span class="mk quiet">${esc(chip)}</span></span>` : ''}${m.ct ? ' ' + liveClose(m.ct, 'chip', { cap: true, cls: 'market-close' }) : ''}</a>${vsHtml(m)}`;
         return [m.t, `<tr>${separateCondition ? `<td class="name market-contract">${contractLink}</td><td class="market-context-cell" data-lab="Context">${titleParts.length > 1 ? `<span class="market-context" title="${esc(title)}">${esc(titleParts.slice(1).join(SEP))}</span>` : '<span class="unavailable" title="No separate context in source title"><span aria-hidden="true">—</span><span class="vh">No separate context</span></span>'}</td>` : `<td class="name" colspan="2">${contractLink}</td>`}
           <td class="num yes-price" data-lab="Yes price">${yesPrice(m)}</td><td class="num quote-side quote-bid" data-lab="Yes bid">${quoteSide(m.bid, 'No bid')}</td><td class="num quote-side quote-ask" data-lab="Yes ask">${quoteSide(m.ask, 'No ask')}</td><td class="num market-volume" data-lab="24h volume">${countCell(m.v24)}</td><td class="num market-interest" data-lab="Open interest">${countCell(m.oi)}</td>
           <td class="num xlink"><a href="${kalshiUrl(m)}" target="_blank" rel="noopener" aria-label="Open on Kalshi">${ICON.ext}</a></td></tr>`];

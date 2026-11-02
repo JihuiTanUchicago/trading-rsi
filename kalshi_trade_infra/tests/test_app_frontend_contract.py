@@ -1033,8 +1033,7 @@ def test_autopilot_status_counts_trading_strategies_across_books(monkeypatch):
                 'scan': None, 'updated_at': None}
     deps = [dep(1, 9, 'paper'), dep(2, 9, 'demo'), dep(3, 10, 'paper'), dep(4, 11, 'live'), dep(5, 12, 'paper', 'paused')]
     monkeypatch.setattr(server.repo, 'list_deployments_brief', lambda *a, **k: deps)
-    monkeypatch.setattr(server.repo, 'paper_progress', lambda *a: {})
-    monkeypatch.setattr(server.repo, 'paper_event_counts', lambda *a: {})
+    monkeypatch.setattr(server.repo, 'paper_round_trips_by_strategy', lambda *a: {})
     monkeypatch.setattr(chat_routes.engine, 'LIVE_TRADING_ENABLED', False)
     out = server.autopilot_status(ctx)
     assert (out['paper_running'], out['demo_running'], out['live_running']) == (2, 1, 1)
@@ -1061,8 +1060,7 @@ def test_autopilot_status_carries_idle_and_reads_the_engine_only_with_something_
     dep = {'id': 3, 'strategy_id': 9, 'title': 'Fade tails', 'mode': 'paper', 'status': 'running', 'market': 'btc15m',
            'scan': None, 'updated_at': None}
     monkeypatch.setattr(server.repo, 'list_deployments_brief', lambda *a, **k: [dep])
-    monkeypatch.setattr(server.repo, 'paper_progress', lambda *a: {})
-    monkeypatch.setattr(server.repo, 'paper_event_counts', lambda *a: {})
+    monkeypatch.setattr(server.repo, 'paper_round_trips_by_strategy', lambda *a: {})
     monkeypatch.setattr(server.repo, 'user_open_exposure', lambda *a: {'n': 0})
     out = server.autopilot_status(ctx)
     assert out['idle']['code'] == 'engine' and reads == [1]

@@ -23,6 +23,20 @@ def days_words(days: float) -> str:
     return "under a day" if days < 1 else "about a day" if days < 1.5 else "about %d days" % int(days + 0.5)
 
 
+def paper_record(trips: List[Dict]) -> Dict:
+    """Trades, separate events and first-to-last hours of a strategy's realistic paper round trips
+    (repo.paper_round_trips_by_strategy), counted as agent.paper_evidence counts them: the record Deploy's road line and
+    the autopilot panel estimate from, so both give the same days."""
+    from app.research import agent
+    span_h = 0.0
+    if trips:
+        start = trips[0].get("opened_at")
+        end = max((t.get("closed_at") for t in trips if t.get("closed_at")), default=None)
+        if start and end:
+            span_h = max(0.0, (end - start).total_seconds() / 3600.0)
+    return {"trades": len(trips), "events": len(agent._trip_events(trips)), "span_hours": round(span_h, 1)}
+
+
 def _oldest_running(deps: List[Dict], strategy_id: int) -> Optional[Dict]:
     running = [d for d in deps or [] if int(d["strategy_id"]) == int(strategy_id) and d.get("mode") == "paper"
                and d.get("status") == "running" and isinstance(d.get("created_at"), datetime)]
