@@ -63,6 +63,10 @@ CONFIRM_CELLS = [
 ]
 CONFIRM_ALPHA = 0.05
 
+# 2026-11-02 10:43Z validation: only weather-low passed (+3.96c, 89 dates, p 0.012 < 0.0167). Its one
+# holdout look, at alpha 0.05; refused if a holdout report already exists (one look, ever).
+HOLDOUT_CELLS = [CONFIRM_CELLS[0]]
+
 
 def _from_ts(v) -> datetime:
     return datetime.fromtimestamp(int(v), tz=timezone.utc).replace(tzinfo=None)
@@ -75,6 +79,15 @@ def research_window(cur, m: Market, now: datetime) -> Tuple[datetime, datetime]:
         return _from_ts(p["research_from_ts"]), _from_ts(p["research_to_ts"])
     start = now - timedelta(days=m.history_days)
     return start, start + (now - start) * RESEARCH_FRAC
+
+
+def holdout_window(cur, m: Market, now: datetime) -> Tuple[datetime, datetime]:
+    """The market's frozen holdout slice, else the newest share after research and validation."""
+    p = rr.get_active_partition(cur, m.key)
+    if p and p.get("holdout_from_ts") and p.get("holdout_to_ts"):
+        return _from_ts(p["holdout_from_ts"]), _from_ts(p["holdout_to_ts"])
+    start = now - timedelta(days=m.history_days)
+    return start + (now - start) * (RESEARCH_FRAC + VALIDATION_FRAC), now
 
 
 def validation_window(cur, m: Market, now: datetime) -> Tuple[datetime, datetime]:
@@ -135,20 +148,26 @@ def run(cur, markets: List[Market], log=print, deadline_s: float = DEADLINE_S, w
     return report
 
 
-def confirm(cur, log=print) -> Dict:
-    """Run the pre-registered CONFIRM_CELLS on each market's validation slice and judge each once:
-    confirmed when its mean is positive and its p (cluster t, tail test for lopsided payoffs) is
-    under CONFIRM_ALPHA / len(CONFIRM_CELLS)."""
-    fams = {c["family"] for c in CONFIRM_CELLS}
+def confirm(cur, log=print, cells: Optional[List[Dict]] = None, window=None, label: str = "validation",
+            alpha: Optional[float] = None) -> Dict:
+    """Run pre-registered cells (default CONFIRM_CELLS on each market's validation slice) and judge
+    each once: confirmed when its mean is positive and its p (cluster t, tail test for lopsided
+    payoffs) is under alpha / number of cells."""
+    cells = cells or CONFIRM_CELLS
+    fams = {c["family"] for c in cells}
     markets = [m for m in scan_markets() if family_of(m)[0] in fams]
-    rep = run(cur, markets, log=log, window=validation_window)
-    rows = rep.pop("_scan").rows_for(CONFIRM_CELLS)
-    bar = CONFIRM_ALPHA / len(CONFIRM_CELLS)
+    rep = run(cur, markets, log=log, window=window or validation_window)
+    rows = rep.pop("_scan").rows_for(cells)
+    bar = (CONFIRM_ALPHA if alpha is None else alpha) / len(cells)
     for r in rows:
         r["confirmed"] = bool(r.get("contracts") and r.get("mean_c", 0) > 0 and r.get("p", 1.0) < bar)
-    return {"generated_at": rep["generated_at"], "window": "validation", "alpha_each": bar, "cells": rows,
+    return {"generated_at": rep["generated_at"], "window": label, "alpha_each": bar, "cells": rows,
             "confirmed": sum(r["confirmed"] for r in rows), "markets": rep["markets"],
             "skipped_for_time": rep["skipped_for_time"], "seconds": rep["seconds"]}
+
+
+def holdout_already_read(s3) -> bool:
+    return bool(s3.list_objects_v2(Bucket=BUCKET, Prefix=PREFIX + "/holdout/", MaxKeys=1).get("KeyCount"))
 
 
 def publish(report: Dict, s3=None, prefix: str = PREFIX) -> str:
@@ -170,8 +189,24 @@ def main() -> None:
     ap.add_argument("--no-s3", action="store_true")
     ap.add_argument("--confirm", action="store_true",
                     help="judge the pre-registered CONFIRM_CELLS once on the validation slice")
+    ap.add_argument("--holdout", action="store_true",
+                    help="the one holdout look at HOLDOUT_CELLS (refused if one was already published)")
     a = ap.parse_args()
     from data_pipeline.common import get_db_conn
+    if a.holdout:
+        import boto3
+        s3 = boto3.client("s3")
+        if holdout_already_read(s3):
+            print("[maker-scan] holdout already read once; refusing a second look", flush=True)
+            return
+        conn = get_db_conn()
+        try:
+            rep = confirm(conn.cursor(), cells=HOLDOUT_CELLS, window=holdout_window, label="holdout")
+        finally:
+            conn.close()
+        print(json.dumps(rep["cells"], default=str), flush=True)
+        print("[maker-scan] wrote s3://%s/%s" % (BUCKET, publish(rep, s3=s3, prefix=PREFIX + "/holdout")), flush=True)
+        return
     if a.confirm:
         conn = get_db_conn()
         try:
