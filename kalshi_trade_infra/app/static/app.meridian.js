@@ -3062,6 +3062,24 @@
     let passedN = null, askedPassed = false;
     let kept = null;  // the last full answer, whose version the 10s poll sends back (pollAnswer)
     const gen = S.gen;
+    // The open positions sit under every deployment's row, below a phone's first screen (~19,000px down on a heavy
+    // board), yet their ~2,000 elements were built, styled and laid out before the board's first frame showed its
+    // figures: ~0.3s of a mid-range phone's first paint. A visit's first draw puts them in on the frame after the one
+    // that paints the figures and the rows, when their section starts under the screen's bottom edge. Every later draw
+    // (the 10s poll, the re-read after a demo cash read) writes them at once, and one in between wins; a hidden tab, a
+    // URL with a #fragment or a browser with no frame callbacks draws them at once too. Two frame callbacks, no timer,
+    // as Meridian's Home (dashBelow).
+    let openDraws = 0;
+    const openPaint = (host, html) => {
+      const draw = ++openDraws;
+      const later = draw === 1 && host && typeof requestAnimationFrame === 'function' && !document.hidden && !location.hash
+        && typeof host.getBoundingClientRect === 'function' && host.getBoundingClientRect().top >= window.innerHeight;
+      if (!later) return paintKeep(host, html());
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (draw !== openDraws || gen !== S.gen || !host.isConnected) return;  // drawn since, or the page has gone
+        try { paintKeep(host, html()); } catch (e) { reportBroken('view', e); }  // outside the view's own try: reported as a page bug
+      }));
+    };
     // `afterDemo`: this read follows the demo cash read a pending demo check asked for, so a check still
     // pending then waits for the poll (one re-read, never a loop).
     const loadBoard = async (cfg, afterDemo) => {
@@ -3172,10 +3190,12 @@
       // is dimmed and its time says how old (markFig, markedAt).
       const posUnreal = (p) => `<div class="pos-unreal">${markFig(p.mark_ts, money(p.unrealized))}${posMarked(p)}</div>`;
       // Five open positions in one 15-minute market read five alike names: each says its settle time (and side) in its name.
-      const posApart = apartWords(d.open_positions, d.open_positions.map((p) => contractName(p.ticker, depMarket(p))));
-      paintKeep(root.querySelector('#openpos'), d.open_positions.length ? `<table class="table stack"><thead><tr><th>Strategy</th><th>Market</th><th>Position</th><th class="num">Cost + fee</th><th class="num">Unrealized</th><th class="num">Settles</th></tr></thead><tbody>
+      openPaint(root.querySelector('#openpos'), () => {
+        const posApart = apartWords(d.open_positions, d.open_positions.map((p) => contractName(p.ticker, depMarket(p))));
+        return d.open_positions.length ? `<table class="table stack"><thead><tr><th>Strategy</th><th>Market</th><th>Position</th><th class="num">Cost + fee</th><th class="num">Unrealized</th><th class="num">Settles</th></tr></thead><tbody>
         ${d.open_positions.map((p, i) => `<tr><td class="name" data-lab="Strategy">${esc(p.title)} ${posBook(p)}${posWhose(p)}</td><td class="pos-name" data-lab="Market">${contractLink(p.ticker, depMarket(p), posApart[i])}${p.why ? `<div class="sub-fig pos-why">${sepLine(p.why)}</div>` : ''}</td><td data-lab="Position">${esc(p.side.toUpperCase())} ×${num(p.qty)} @ ${cents(+p.entry_price)}</td><td class="num" data-lab="Cost + fee">${usd(p.cost != null ? p.cost : p.qty * p.entry_price + +p.entry_fee)}</td><td class="num" data-lab="Unrealized">${p.unrealized == null ? NO_MARK : posUnreal(p)}</td><td class="num"${closeData(p.market_close_time, 'settleTime')} data-lab="Settles">${esc(closeWords(p.market_close_time, 'settleTime'))}</td></tr>`).join('')}</tbody></table>`
-        : '<p class="hint">No open positions.</p>');
+        : '<p class="hint">No open positions.</p>';
+      });
     };
     await loadBoard();
     closeClock();  // each open position's Settles flips to "Closed, result pending" at its close, between polls

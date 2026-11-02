@@ -34,6 +34,8 @@
   } catch (e) { /* unreadable: the page asks for it itself */ }
   // A carried read can name the reads its page asks next ("then": Funds' Kalshi cash, which waits on Kalshi).
   // They start now, beside the bundle, so that wait runs while it downloads; api() takes each answer once.
+  // On a device's first load an entry with no URL names the page's reads that count the reader's day, which the
+  // shell couldn't (shell_reads.zone_reads): they start here too, after the zone cookies above, with the zone.
   try {
     var reads = window.__TAU_FIRST__;
     for (var i = 0; reads && i < reads.length; i++) {

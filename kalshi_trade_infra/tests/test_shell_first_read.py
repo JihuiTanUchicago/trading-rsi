@@ -5,6 +5,7 @@ request, the same JSON; nothing for a URL the shell can't name exactly, or for a
 import http.client
 import json
 import re
+import time
 from datetime import datetime
 from decimal import Decimal
 from http.server import ThreadingHTTPServer
@@ -20,7 +21,7 @@ from tests.combined_reads import compose_combined_reads
 
 USER = {"id": 7, "email": "trader@example.invalid", "name": "Sample", "picture_url": None, "autopilot": 0, "ui_theme": "tau"}
 ACCOUNT = {"user": {"id": 7, "ui_theme": "tau"}}
-ROUTES = ("dashboard", "autopilot_status", "list_runs", "get_run", "list_strategies", "list_deployments", "billing_state",
+ROUTES = ("dashboard", "autopilot_status", "list_runs", "get_run", "list_strategies", "get_strategy", "list_deployments", "billing_state",
           "research_scoreboard", "funds", "notifications")
 # The bell's list (/api/notifications), which every signed-in shell carries after its page's own reads.
 BELL = {"unread": 1, "items": [{"id": 9, "kind": "paused", "body": "</script>Edge was paused.", "link": "/strategies/4",
@@ -100,6 +101,8 @@ def _record(monkeypatch, name, answer):
     ("/research", "list_runs", "/api/runs", (), {}),
     ("/research/943", "get_run", "/api/runs/943?after=0", ("943",), {"after": "0"}),
     ("/strategies", "list_strategies", "/api/strategies?page=0", (), {"page": "0"}),
+    # A strategy's page asked its one read only once its bundle and page file had run: a round trip after them.
+    ("/strategies/28", "get_strategy", "/api/strategies/28", ("28",), {}),
     ("/", "dashboard", "/api/dashboard", (), {}),
     ("/dashboard", "dashboard", "/api/dashboard", (), {}),
 ])
@@ -138,12 +141,7 @@ def test_an_app_page_shell_carries_its_first_read_under_the_url_the_page_asks(we
     ("/explore", "rsid=abc"),
     ("/community", "rsid=abc"),
     ("/settings", "rsid=abc"),
-    # A device's first load (no tau_tz yet: a sign-in link opened in a new browser): the dashboard and the autopilot
-    # status count the reader's day, which the shell can't know, so the page asks them once boot.js has set the cookie.
-    ("/", "rsid=abc"),
-    ("/dashboard", "rsid=abc"),
-    ("/", "rsid=abc; tau_tz=abc"),
-    ("/", "rsid=abc; tau_tz=99999"),
+    ("/?x=1", "rsid=abc"),  # a query: the page's URL says more, so nothing of its own is carried or named
 ])
 def test_shells_with_no_read_they_can_name_carry_only_the_bell(web, monkeypatch, path, cookie):
     # The masthead's bell is on every signed-in page, whatever its query: its list is carried all the same.
@@ -152,6 +150,41 @@ def test_shells_with_no_read_they_can_name_carry_only_the_bell(web, monkeypatch,
     bell = _record(monkeypatch, "notifications", BELL)
     r, html = _shell(web, path, cookie)
     assert r.status == 200 and _first(html) == [] and bell == [((), {}, 7)]
+
+
+@pytest.mark.parametrize("path,cookie,named", [
+    # A device's first load (no tau_tz yet: a sign-in link opened in a new browser): the dashboard and the autopilot
+    # status count the reader's day, which the shell can't know. It never reads them; it names them first, with no
+    # URL of their own, and boot.js asks them right after it has written the zone cookies, beside the bundle's
+    # download (they went out only once the bundle had run: ~0.5s later on a phone's slow network).
+    ("/", "rsid=abc", ["/api/dashboard", "/api/autopilot/status"]),
+    ("/dashboard", "rsid=abc", ["/api/dashboard", "/api/autopilot/status"]),
+    ("/", "rsid=abc; tau_tz=abc", ["/api/dashboard", "/api/autopilot/status"]),
+    ("/", "rsid=abc; tau_tz=99999", ["/api/dashboard", "/api/autopilot/status"]),
+    # Under the URL the page asks: its ?since= from the visit cookie, as with the zone.
+    ("/", "rsid=abc; tau_visit=%d.%d" % (int(time.time()) - 4000, int(time.time()) - 60),
+     ["/api/dashboard?since=%d" % (int(time.time()) - 4000), "/api/autopilot/status"]),
+# Fixed ids: the visit cookie's times differ between pytest-xdist workers, and each worker must collect the same names.
+], ids=["home", "dashboard", "zone-not-a-number", "zone-out-of-range", "visit-cookie"])
+def test_a_first_load_shell_names_the_reads_that_count_the_readers_day_and_never_reads_them(web, monkeypatch, path, cookie, named):
+    for name in ROUTES:
+        _record(monkeypatch, name, AssertionError("not asked"))
+    bell = _record(monkeypatch, "notifications", BELL)
+    r, html = _shell(web, path, cookie)
+    assert r.status == 200 and _first(html) == [{"then": named}] and bell == [((), {}, 7)]
+    # After the scripts, as every carried read: boot.js (deferred) reads it once the page has been parsed.
+    assert html.index('id="tau-first"') > html.index('src="/static/boot.js')
+
+
+def test_a_first_load_research_shell_carries_its_list_and_names_its_loop_board(web, monkeypatch):
+    # The loop card's per-day bars count the reader's day: named for boot.js, never read (nor kept) without the zone.
+    runs = {"runs": [], "v": "r1"}
+    _record(monkeypatch, "list_runs", runs)
+    board = _record(monkeypatch, "research_scoreboard", AssertionError("not asked"))
+    monkeypatch.setattr(shell_reads, "scoreboard_kept", lambda uid, days: (_ for _ in ()).throw(AssertionError("not asked")))
+    r, html = _shell(web, "/research", "rsid=abc")
+    assert r.status == 200 and board == []
+    assert _first(html) == [{"then": ["/api/research/scoreboard?days=14"]}, {"url": "/api/runs", "body": _wire(runs)}]
 
 
 @pytest.mark.parametrize("path,cookie", [
@@ -449,6 +482,10 @@ def test_a_demo_check_reads_the_memo_alone_and_keeps_a_line_from_a_figure_under_
 def test_then_reads_names_the_deploy_boards_pending_demo_cash():
     assert shell_reads.then_reads("/api/deployments", {"demo_health": None, "demo_health_pending": True}) == ["/api/funds/cash?book=demo"]
     assert shell_reads.then_reads("/api/deployments", {"demo_health": None}) == []
+    # A strategy page's ladder waits on the same demo cash for its demo rung (demoCashRead in its page file).
+    assert shell_reads.then_reads("/api/strategies/28", {"demo_health": None, "demo_health_pending": True}) == ["/api/funds/cash?book=demo"]
+    assert shell_reads.then_reads("/api/strategies/28", {"demo_health": None}) == []
+    assert shell_reads.then_reads("/api/strategies/28/live-readiness", {"demo_health_pending": True}) == []
 
 
 def test_then_reads_names_the_dashboards_and_the_autopilots_pending_cash_once():
@@ -719,6 +756,9 @@ def test_a_failed_first_read_leaves_the_page_to_ask_and_the_account_carried(web,
     _record(monkeypatch, "get_run", ApiError(404, "No such research session."))
     r, html = _shell(web, "/research/5")
     assert r.status == 200 and _first(html) == [] and 'id="tau-me"' in html
+    _record(monkeypatch, "get_strategy", ApiError(404, "No such strategy."))  # another's, or deleted: the page says so itself
+    r, html = _shell(web, "/strategies/5")
+    assert r.status == 200 and _first(html) == [] and 'id="tau-me"' in html
     _record(monkeypatch, "list_deployments", RuntimeError("db down"))
     r, html = _shell(web, "/deploy")
     assert r.status == 200 and _first(html) == [] and 'id="tau-me"' in html
@@ -765,6 +805,14 @@ def test_only_the_named_pages_have_first_requests():
     # Without the zone (a device's first load) the reads that count the reader's day are the page's own to ask.
     assert shell_reads.first_requests("/", "", {}) == shell_reads.first_requests("/dashboard", "", {"tau_tz": ""}) == []
     assert [r[0] for r in shell_reads.first_requests("/research", "", {})] == ["/api/runs"]
+    # Those are the ones the shell names for boot.js to ask once it has written the zone; none once the zone is known.
+    assert shell_reads.zone_reads("/", "", {}) == shell_reads.zone_reads("/dashboard", "", {"tau_tz": ""}) == ["/api/dashboard", "/api/autopilot/status"]
+    assert shell_reads.zone_reads("/research", "", {}) == ["/api/research/scoreboard?days=14"]
+    for page in ("/", "/dashboard", "/research", "/funds", "/deploy", "/strategies", "/research/12", "/billing"):
+        assert shell_reads.zone_reads(page, "", {"tau_tz": "300"}) == [], page
+    for page in ("/funds", "/deploy", "/strategies", "/research/12", "/explore"):
+        assert shell_reads.zone_reads(page, "", {}) == [], page
+    assert shell_reads.zone_reads("/", "x=1", {}) == shell_reads.zone_reads("/research", "new=1", {}) == []
     assert [r[0] for r in shell_reads.first_requests("/funds", "", {})] == ["/api/funds"]
     assert [r[0] for r in shell_reads.first_requests("/settings/account", "", {})] == ["/api/funds"]
 
@@ -806,8 +854,8 @@ def test_no_page_read_has_a_path_that_waits_on_kalshi():
     # The shell carries those same handlers, with nothing between: the pages that show Kalshi cash name exactly
     # the reads checked above, and no first read the shell names on any page reaches a Kalshi wait either.
     carried = {}
-    for page in ("/", "/dashboard", "/funds", "/settings/account", "/research", "/research/12", "/strategies", "/deploy",
-                 "/billing", "/settings/billing"):
+    for page in ("/", "/dashboard", "/funds", "/settings/account", "/research", "/research/12", "/strategies", "/strategies/12",
+                 "/deploy", "/billing", "/settings/billing"):
         for url, fn, _, _ in shell_reads.first_requests(page, "", {"tau_tz": "-60"}):
             carried[(page, url.split("?", 1)[0])] = fn
     for page in ("/", "/dashboard"):

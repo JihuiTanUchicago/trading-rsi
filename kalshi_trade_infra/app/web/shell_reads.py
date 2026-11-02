@@ -17,7 +17,7 @@ change, a trip) names a URL the page doesn't ask, and the page asks as before. I
 account Stripe has no cards to list for: the saved-card list waits on Stripe, and a slow Stripe must
 never hold the whole shell blank (the page's own read keeps it behind a skeleton instead). The same cookie
 gates the reads that count the reader's own day (the dashboard, the autopilot status, the research card's
-board): without it the page asks them itself, once boot.js has set it (first_requests).
+board): without it the shell only names them, and boot.js asks them once it has set it (zone_reads).
 
 Funds is carried by the same rule, always: its read never asks Kalshi (nor do the dashboard's and the
 autopilot's, whether the shell, an in-app visit or a poll asks them; only /api/funds/cash does).
@@ -33,7 +33,9 @@ Kalshi: the cash pending (with the last figure read and its age, if any) and the
 named in "then" like Funds'. A demo-funds check that would read the demo cash (the dashboard's demo
 health, the autopilot's idle line, the Deploy board's demo line) is marked pending too, its read named in
 "then", and the page reads it again once the demo cash is back. The Deploy board is carried as before; its
-read never asks Kalshi either.
+read never asks Kalshi either. So is a strategy's page (/strategies/<id>: /api/strategies/<id>, ~13ms from our own
+database, its demo rung from the demo cash memo, the demo cash named in "then" when pending): it asked its one read
+only once its bundle and page file had run, a round trip after them, ~0.2s on a phone's slow network.
 
 The dashboard also carries the autopilot status: its autopilot card sits above the figures, and drawn
 a round trip after them it pushed them down the screen. Research carries its loop card's board for the
@@ -66,7 +68,7 @@ from app.web.routes.dashboard import dashboard
 from app.web.routes.deployments import list_deployments
 from app.web.routes.funds import funds
 from app.web.routes.research import get_run, list_runs, research_scoreboard, scoreboard_kept
-from app.web.routes.strategies import list_strategies
+from app.web.routes.strategies import get_strategy, list_strategies
 
 # The dashboard asks with ?since= from the tau_visit cookie ("<since>.<last seen>", epoch seconds), as
 # visitStart() in app.js and app.meridian.js works it out: after a gap this long the last visit ended
@@ -74,6 +76,8 @@ from app.web.routes.strategies import list_strategies
 VISIT_GAP = 1800
 _VISIT = re.compile(r"(\d+)\.(\d+)")
 _RUN_PAGE = re.compile(r"^/research/(\d+)$")
+_STRATEGY_PAGE = re.compile(r"^/strategies/(\d+)$")
+_STRATEGY_READ = re.compile(r"^/api/strategies/\d+$")
 _TZ = re.compile(r"^-?\d{1,4}$")  # tau_tz: getTimezoneOffset() in minutes, as boot.js writes it
 LOOP_DAYS = 14  # Research's loop card asks /api/research/scoreboard?days=14 (rsiLoopRead in both bundles)
 
@@ -113,7 +117,8 @@ def then_reads(url: str, body: Dict[str, Any]) -> List[str]:
     """The reads a page asks right after its carried one, which boot.js starts beside the bundle: the Kalshi
     cash a carried read marked pending, one ask per book (the page asks them so too). Funds' live and demo
     cash; the dashboard's live cash and the demo cash its demo-funds check waits on; the autopilot's demo
-    cash for its idle line; the Deploy board's demo cash for its demo-funds check. [] for every other read."""
+    cash for its idle line; the Deploy board's demo cash for its demo-funds check, and a strategy page's for its
+    ladder's demo rung. [] for every other read."""
     if not isinstance(body, dict):
         return []
     path = url.split("?", 1)[0]
@@ -123,7 +128,7 @@ def then_reads(url: str, body: Dict[str, Any]) -> List[str]:
         books = [("live", _pending(body, "live")), ("demo", _pending(body, "demo", "health_pending"))]
     elif path == "/api/autopilot/status":
         books = [("demo", bool(body.get("idle_pending")))]
-    elif path == "/api/deployments":
+    elif path == "/api/deployments" or _STRATEGY_READ.match(path):
         books = [("demo", bool(body.get("demo_health_pending")))]
     else:
         return []
@@ -145,6 +150,40 @@ def billing_tz(cookie: Optional[str]) -> Optional[int]:
     return int(cookie) if cookie and _TZ.match(cookie) else None
 
 
+def _page_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Tuple[Request, bool]]:
+    """Each read an app page asks for first, as the page will ask it, and whether it counts the reader's own day
+    (the dashboard's and the autopilot's "today", the research card's per-day bars: app.services.reader_day)."""
+    if query:
+        return []
+    if path in ("/", "/dashboard"):
+        at = dashboard_since(cookies.get("tau_visit"))
+        return [((("/api/dashboard?since=%d" % at if at else "/api/dashboard"), dashboard, (), ({"since": str(at)} if at else {})), True),
+                (("/api/autopilot/status", autopilot_status, (), {}), True)]
+    if path == "/research":
+        return [(("/api/runs", list_runs, (), {}), False),
+                (("/api/research/scoreboard?days=%d" % LOOP_DAYS, kept_loop_board, (), {"days": str(LOOP_DAYS)}), True)]
+    if path == "/strategies":
+        return [(("/api/strategies?page=0", list_strategies, (), {"page": "0"}), False)]
+    if path == "/deploy":
+        return [(("/api/deployments", list_deployments, (), {}), False)]
+    if path in ("/funds", "/settings/account"):
+        return [(("/api/funds", funds, (), {}), False)]
+    if path in ("/billing", "/settings/billing"):
+        tz = billing_tz(cookies.get("tau_tz"))
+        return [] if tz is None else [(("/api/billing?tz=%d" % tz, billing_without_stripe, (), {"tz": str(tz)}), False)]
+    m = _RUN_PAGE.match(path)
+    if m:
+        return [(("/api/runs/%s?after=0" % m.group(1), get_run, (m.group(1),), {"after": "0"}), False)]
+    m = _STRATEGY_PAGE.match(path)
+    if m:
+        return [(("/api/strategies/%s" % m.group(1), get_strategy, (m.group(1),), {}), False)]
+    return []
+
+
+def _zoned(cookies: Dict[str, str]) -> bool:
+    return reader_day.offset_minutes(cookies.get(reader_day.TZ_COOKIE)) is not None
+
+
 def first_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Request]:
     """The reads an app page asks for first, as the page will ask them; [] when the shell can't name them.
 
@@ -152,32 +191,21 @@ def first_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Reque
     per-day bars: app.services.reader_day) is carried only once the browser has told us its zone (tau_tz, which
     boot.js writes as it starts). Without it (a device's first load: a sign-in link opened in a new browser)
     the shell's read counted the UTC day, and the first paint said "Today (UTC)" until the next poll. Left
-    out, the page asks for it itself, after boot.js has set the cookie, and its first paint is the reader's day."""
-    if query:
+    out, boot.js asks for it right after it has set the cookie (zone_reads), and the first paint is the reader's day."""
+    zoned = _zoned(cookies)
+    return [read for read, counts_day in _page_requests(path, query, cookies) if zoned or not counts_day]
+
+
+def zone_reads(path: str, query: str, cookies: Dict[str, str]) -> List[str]:
+    """The URLs of the page's first reads the shell left out for want of the reader's zone (a device's first load);
+    [] once tau_tz is set. Never read here: the shell has no zone to count the day by. The shell names them
+    (first_reads) and boot.js starts them as it starts, right after it has written the zone cookies, so each goes
+    out with the zone and beside the bundle's download. The page asked them only once its bundle had arrived and
+    run: on a phone's slow network, its first figure came ~0.5s after a later load's (whose shell carries them).
+    The page takes each answer once, as it takes a carried read's "then" (api())."""
+    if _zoned(cookies):
         return []
-    zoned = reader_day.offset_minutes(cookies.get(reader_day.TZ_COOKIE)) is not None
-    if path in ("/", "/dashboard"):
-        if not zoned:
-            return []
-        at = dashboard_since(cookies.get("tau_visit"))
-        return [(("/api/dashboard?since=%d" % at if at else "/api/dashboard"), dashboard, (), ({"since": str(at)} if at else {})),
-                ("/api/autopilot/status", autopilot_status, (), {})]
-    if path == "/research":
-        return [("/api/runs", list_runs, (), {})] + (
-            [("/api/research/scoreboard?days=%d" % LOOP_DAYS, kept_loop_board, (), {"days": str(LOOP_DAYS)})] if zoned else [])
-    if path == "/strategies":
-        return [("/api/strategies?page=0", list_strategies, (), {"page": "0"})]
-    if path == "/deploy":
-        return [("/api/deployments", list_deployments, (), {})]
-    if path in ("/funds", "/settings/account"):
-        return [("/api/funds", funds, (), {})]
-    if path in ("/billing", "/settings/billing"):
-        tz = billing_tz(cookies.get("tau_tz"))
-        return [] if tz is None else [("/api/billing?tz=%d" % tz, billing_without_stripe, (), {"tz": str(tz)})]
-    m = _RUN_PAGE.match(path)
-    if m:
-        return [("/api/runs/%s?after=0" % m.group(1), get_run, (m.group(1),), {"after": "0"})]
-    return []
+    return [read[0] for read, counts_day in _page_requests(path, query, cookies) if counts_day]
 
 
 def shell_requests(path: str) -> List[Request]:
@@ -189,10 +217,15 @@ def shell_requests(path: str) -> List[Request]:
 def first_reads(path: str, query: str, cookies: Dict[str, str], make_ctx: MakeCtx) -> Tuple[List[Dict[str, Any]], List[str]]:
     """([{url, body}] for each first read that answered, with "then": the reads its page asks next, when
     there are any, each named once; the cookies they set). A read that fails is left out: the page asks for
-    it itself and shows what it gets."""
+    it itself and shows what it gets. On a load with no zone yet, first: {"then": [...]} with no URL of its own,
+    the reads that count the reader's day (zone_reads), which boot.js starts once it has written the zone."""
     reads: List[Dict[str, Any]] = []
     set_cookies: List[str] = []
     named: set = set()
+    zone_first = zone_reads(path, query, cookies)
+    if zone_first:
+        reads.append({"then": zone_first})
+        named.update(zone_first)
     for url, fn, params, q in first_requests(path, query, cookies) + shell_requests(path):
         try:
             ctx = make_ctx(params, q)

@@ -113,6 +113,25 @@ export function kalshiWaitCases({name, frontend, detailStrategy}) {
     f.clearTimers && f.clearTimers();
   });
 
+  // The shell carries a strategy page's read (shell_reads: /api/strategies/<id>) and names its pending demo cash, which
+  // boot.js starts early: the page draws from both and asks only the one re-read once the demo cash is in.
+  test(`${name}: the strategy page takes the read its shell carries and the demo cash boot.js started`, async () => {
+    const paper = {id: 1, mode: 'paper', status: 'running', closed_trades: 4, realized_pnl: 1.9, open_positions: 0, stake: 5, created_at: '2026-10-20T08:00:00Z'};
+    const f = frontend({fetchImpl: (path) => {
+      if (path === '/api/strategies/42') return response(detailStrategy({deployments: [paper], demo_health: demoFunds}));
+      if (path === '/api/strategies/42/dev-curve') return response({dev_curve: []});
+      return response({error: 'down'}, 503);
+    }});
+    f.window.__TAU_FIRST__ = [{url: '/api/strategies/42', body: detailStrategy({deployments: [paper], demo_health: null, demo_health_pending: true}),
+      then: ['/api/funds/cash?book=demo']}];
+    f.window.__TAU_EARLY__ = {'/api/funds/cash?book=demo': Promise.resolve(response({book: 'demo', connected: true, balance: 0}))};
+    await f.viewStrategy('42'); await settle();
+    assert.equal(asked(f, '/api/funds/cash'), 0, 'the demo cash read boot.js started');
+    assert.equal(f.requests.filter(({path}) => path === '/api/strategies/42').length, 1, 'only the re-read once the demo cash was in: the first came in the shell');
+    assert.match(f.root.querySelector('#ladder-body').innerHTML, /Next rung, demo: needs demo funds: your Kalshi demo account has \$0\.00\./);
+    f.clearTimers && f.clearTimers();
+  });
+
   test(`${name}: a strategy page whose demo rung isn't pending, or stays unknown, never loops`, async () => {
     const paper = {id: 1, mode: 'paper', status: 'running', closed_trades: 4, realized_pnl: 1.9, open_positions: 0, stake: 5, created_at: '2026-10-20T08:00:00Z'};
     for (const [over, demoReads, pageReads] of [[{demo_health: null}, 0, 1], [{demo_health: null, demo_health_pending: true}, 1, 2]]) {

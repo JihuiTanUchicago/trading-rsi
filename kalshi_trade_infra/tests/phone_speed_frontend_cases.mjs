@@ -370,6 +370,86 @@ export function phoneSpeedCases({name, frontend, storageFor, railOpenWide, sourc
     f.clearTimers();
   });
 
+  // A device's first load: the shell can't count the reader's day (no zone cookie yet), so it names Home's two reads
+  // with no URL of their own and boot.js asks them as it starts, with the zone, beside the bundle's download
+  // (shell_reads.zone_reads). Home takes both answers, once, and asks neither itself.
+  test(`${name}: a first load's Home takes the day-counting reads boot.js started with the zone, once each`, async () => {
+    const f = dashFrontend(() => response({}));
+    f.window.__TAU_FIRST__ = [{then: ['/api/dashboard', '/api/autopilot/status']}];
+    f.window.__TAU_EARLY__ = {
+      '/api/dashboard': Promise.resolve(response({...keyedDash({pending: undefined, balance: 1234.56, balance_at: new Date().toISOString()}), v: 'early1'})),
+      '/api/autopilot/status': Promise.resolve(response({autopilot: false, mode: 'off'})),
+    };
+    await f.viewDashboard(); await settle();
+    assert.equal(asked(f, '/api/dashboard'), 0, 'the figures came from the read boot.js started');
+    assert.equal(asked(f, '/api/autopilot/status'), 0, 'and so did the autopilot card');
+    assert.deepEqual(Object.keys(f.window.__TAU_EARLY__), [], 'each taken once');
+    assert.match(dashPage(f), /\$1,001\.60/);
+    assert.match(dashCash(f), /Kalshi cash ?\$1,234\.56/);
+    // The entry with no URL of its own never stands in for a read.
+    assert.equal(f.window.__TAU_FIRST__.length, 1);
+    f.clearTimers();
+  });
+
+  // The Deploy board's open positions sit under every deployment's row (~19,000px down on a heavy board): built, styled
+  // and laid out before its first frame, they held its figures back ~0.3s on a phone. A visit's first draw puts them in
+  // on the frame after the one that paints the figures and rows, when their section starts under the screen.
+  const depRow = {id: 2, strategy_id: 2, title: 'Dep 2', market: 'btc15m', mode: 'paper', status: 'running', status_reason: null,
+    realized_pnl: 1.5, closed_trades: 3, open_positions: 1, unrealized_pnl: null, created_at: '2026-10-24T08:00:00Z', curve: [],
+    stake: 5, max_positions: 1, backtest: {}};
+  const openRow = (i) => ({id: 10 + i, deployment_id: 2, title: 'Dep 2', ticker: 'KXBTC15M-26NOV020915-15', side: 'yes', qty: 3,
+    entry_price: 0.42, entry_fee: 0.02, cost: 1.28, mode: 'paper', unrealized: null, mark_ts: null, market_close_time: null});
+  const boardOf = (v, n) => ({deployments: [depRow], open_positions: Array.from({length: n}, (_, i) => openRow(i)), demo_health: null, v});
+  const deployFrontend = (frames, answers, top) => {
+    let n = 0;
+    const f = frontend({fetchImpl: (path) => path.startsWith('/api/deployments') ? response(answers[Math.min(n++, answers.length - 1)]) : response({}),
+      globals: {requestAnimationFrame: (cb) => frames.push(cb)}, win: {innerHeight: 844}});
+    f.location.pathname = '/deploy';
+    const page = f.viewDeploy();
+    const host = f.root.querySelector('#openpos');
+    host.getBoundingClientRect = () => ({top, bottom: top + 400, height: 400});  // an own property: no shared prototype patched
+    return {f, page, host};
+  };
+  const openRows = (host) => (host.innerHTML.match(/data-lab="Position"/g) || []).length;
+  const frame = (frames) => frames.splice(0).forEach((cb) => cb());  // one frame: the callbacks queued before it
+
+  test(`${name}: Deploy's first draw paints its figures and rows, and its open positions on the frame after`, async () => {
+    const frames = [];
+    const {f, page, host} = deployFrontend(frames, [boardOf('b1', 2)], 19000);
+    await page; await settle();
+    assert.match(f.root.querySelector('#dfigs').textContent, /Open positions\s*2 paper/, 'the figures are drawn at once');
+    assert.match(f.root.querySelector('#deps').innerHTML, /Dep 2/, 'and the rows');
+    assert.equal(host.innerHTML, '', 'the positions wait for the frame after');
+    frame(frames);
+    assert.equal(host.innerHTML, '', 'not in the frame that paints the figures');
+    frame(frames);
+    assert.equal(openRows(host), 2);
+    // The poll's draw (the same answer) leaves them as they are, with no frame wait.
+    for (const tick of [...f.intervals.values()]) tick();
+    await settle();
+    assert.equal(openRows(host), 2);
+    f.clearTimers();
+  });
+
+  test(`${name}: Deploy draws its open positions at once when they start on screen, and a draw before the frames wins`, async () => {
+    let frames = [];
+    let {f, page, host} = deployFrontend(frames, [boardOf('b1', 1)], 600);
+    await page; await settle();
+    assert.equal(openRows(host), 1, 'no frame waited on');
+    f.clearTimers();
+    // A newer answer lands first (the poll): it draws them whole, and the waiting frames add nothing over it.
+    frames = [];
+    ({f, page, host} = deployFrontend(frames, [boardOf('b1', 1), boardOf('b2', 3)], 19000));
+    await page; await settle();
+    assert.equal(host.innerHTML, '');
+    for (const tick of [...f.intervals.values()]) tick();
+    await settle();
+    assert.equal(openRows(host), 3);
+    frame(frames); frame(frames);
+    assert.equal(openRows(host), 3, 'the older first draw never paints over the poll');
+    f.clearTimers();
+  });
+
   test(`${name}: a newer dashboard poll is never painted over by the cash follow-up`, async () => {
     let answerLive;
     const liveHeld = new Promise((resolve) => { answerLive = resolve; });

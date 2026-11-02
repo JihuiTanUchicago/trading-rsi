@@ -3978,6 +3978,21 @@ test("boot.js writes the zone cookies before the first read it starts", () => {
   assert.deepEqual(events, ['cookie tau_tz', 'cookie tau_tzn', 'fetch /api/funds/cash?book=live']);
 });
 
+// A first-load shell names Home's day-counting reads with no URL of their own (shell_reads.zone_reads): boot.js asks
+// them as it starts, once the zone cookies are written, so they go out with the zone beside the bundle's download.
+test("boot.js asks the reads a first-load shell names with no URL of their own, after the zone cookies, once each", () => {
+  const events = [], dataset = {ui: 'meridian', tauJs: '/static/app.js?v=t', tauVer: 't', merJs: '/static/app.meridian.js?v=m', merVer: 'm', merCss: '/static/app.meridian.css?v=m'};
+  const node = {textContent: JSON.stringify([{then: ['/api/dashboard', '/api/autopilot/status']}, {url: '/api/notifications', body: {items: []}}]), remove() {}};
+  const document = {getElementById: id => id === 'tau-first' ? node : id === 'tau-boot' ? {dataset} : null, createElement: () => ({}), body: {appendChild() {}}};
+  Object.defineProperty(document, 'cookie', {set: (v) => events.push('cookie ' + v.split('=')[0])});
+  const context = {window: {}, location: {pathname: '/', protocol: 'https:'}, localStorage: {getItem: () => null, setItem() {}}, document,
+    fetch: (url, opts) => { events.push('fetch ' + url + ' ' + opts.credentials); return Promise.resolve({url}); }};
+  vm.runInNewContext(readFileSync(new URL('../app/static/boot.js', import.meta.url), 'utf8'), context);
+  assert.deepEqual(events, ['cookie tau_tz', 'cookie tau_tzn', 'fetch /api/dashboard same-origin', 'fetch /api/autopilot/status same-origin']);
+  assert.deepEqual(Object.keys(context.window.__TAU_EARLY__), ['/api/dashboard', '/api/autopilot/status']);
+  assert.equal(context.window.__TAU_FIRST__.length, 2, 'the carried bell is left for the app');
+});
+
 test('a research session that does not exist links to the list instead of offering Try again', async () => {
   const f = frontend({fetchImpl: path => (path.startsWith('/api/runs/9') ? {ok: false, status: 404, json: async () => ({error: 'No such research session.'})} : {ok: true, status: 200, json: async () => ({})})});
   f.location.pathname = '/research/9';
