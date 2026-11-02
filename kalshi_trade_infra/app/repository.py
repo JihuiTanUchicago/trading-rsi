@@ -104,7 +104,7 @@ from app.adapters.db.community_repository import (  # noqa: F401
 )
 from app.adapters.db.spot_repository import latest_spot, market_strike, market_strikes  # noqa: F401
 from app.adapters.db.candle_range_repository import (  # noqa: F401
-    _candle_num, _candle_range, candle_ranges, settled_contracts)
+    _candle_num, _candle_range, candle_ranges, event_sizes, settled_contracts)
 
 
 # -- users & sessions ----------------------------------------------------------
