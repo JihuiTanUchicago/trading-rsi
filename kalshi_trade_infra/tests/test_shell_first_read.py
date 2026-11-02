@@ -164,7 +164,8 @@ def test_shells_with_no_read_they_can_name_carry_only_the_bell(web, monkeypatch,
     # Under the URL the page asks: its ?since= from the visit cookie, as with the zone.
     ("/", "rsid=abc; tau_visit=%d.%d" % (int(time.time()) - 4000, int(time.time()) - 60),
      ["/api/dashboard?since=%d" % (int(time.time()) - 4000), "/api/autopilot/status"]),
-])
+# Fixed ids: the visit cookie's times differ between pytest-xdist workers, and each worker must collect the same names.
+], ids=["home", "dashboard", "zone-not-a-number", "zone-out-of-range", "visit-cookie"])
 def test_a_first_load_shell_names_the_reads_that_count_the_readers_day_and_never_reads_them(web, monkeypatch, path, cookie, named):
     for name in ROUTES:
         _record(monkeypatch, name, AssertionError("not asked"))
