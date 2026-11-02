@@ -231,7 +231,7 @@ def test_unsubscribe_page_says_what_stopped_and_points_to_settings(monkeypatch, 
     ready = ("notices that a paper strategy is ready for live trading" if live_open
              else "notices that a paper strategy cleared every paper-to-live check")
     for said in ("new community posts", "replies", "mentions", ready,
-                 "Safety alerts about a Bitcoin perps account", "href='/settings'"):
+                 "Safety alerts about a Bitcoin perps account", "href='/settings#email'"):
         assert said in page
     if not live_open:
         assert "ready for live" not in page
@@ -249,4 +249,4 @@ def test_reply_email_points_at_the_settings_switch(monkeypatch):
     sent = []
     monkeypatch.setattr(notify, "_send", lambda to, subject, body, reply_to=None: sent.append(body) or True)
     assert notify.comment_notice("a@x.invalid", "Ann", "bob", "My post", "nice")
-    assert "Email in Settings: %s/settings" % notify.PUBLIC_URL in sent[0] and "let us know" not in sent[0]
+    assert "Email in Settings: %s/settings#email" % notify.PUBLIC_URL in sent[0] and "let us know" not in sent[0]

@@ -131,7 +131,8 @@ def set_email_preferences(ctx: Ctx):
 
 def unsubscribe(ctx: Ctx):
     """Public one-click unsubscribe from optional email (HMAC-signed link, no login needed). It sets
-    the same switch as Settings, so the page says what stopped and where to turn it back on."""
+    the same switch as Settings, so the page says what stopped and where to turn it back on. Its Settings link opens
+    at the Email section (#email), where the switch is: /settings alone opened at the theme, a screen above on a phone."""
     try:
         uid = int(ctx.query.get("u") or 0)
     except ValueError:
@@ -145,11 +146,11 @@ def unsubscribe(ctx: Ctx):
            "notices that a paper strategy %s. Safety alerts about a Bitcoin perps "
            "account you trade through Tau still come, because they protect real money, and so does an email "
            "when an auto-reload of your credits fails, since research pauses when they run out. You can turn "
-           "optional email back on in <a href='/settings' style='color:#1a66c9'>Settings</a>." % ready if ok
+           "optional email back on in <a href='/settings#email' style='color:#1a66c9'>Settings</a>." % ready if ok
            # Settings has the same switch, so a broken link still points at a way out that works.
            else "This unsubscribe link isn't valid, so nothing changed. To stop optional email, sign in and turn "
                 "off Updates and community email under Email in "
-                "<a href='/settings' style='color:#1a66c9'>Settings</a>.")
+                "<a href='/settings#email' style='color:#1a66c9'>Settings</a>.")
     page = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             "<title>Tau</title><body style='font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:12vh auto;padding:0 20px;color:#191B16'>"
             "<h1 style='font-size:20px;letter-spacing:.02em'>Tau</h1><p style='font-size:15px;line-height:1.55'>%s</p>"

@@ -153,11 +153,14 @@ def test_unsubscribe_page_names_every_email_that_still_comes(monkeypatch):
     _, page = account_routes.unsubscribe(ok)
     assert "Safety alerts about a Bitcoin perps account" in page
     assert "an email when an auto-reload of your credits fails" in page  # as Settings' "Always sent" line says
+    # Walk 2026-11-02: "turn optional email back on in Settings" opened Settings at the theme, the switch a screen below on
+    # a phone: it opens at the Email section (#email), where the switch is.
+    assert "href='/settings#email'" in page and "href='/settings'" not in page
 
 
 def test_a_bad_unsubscribe_link_points_at_the_settings_switch():
     _, page = account_routes.unsubscribe(SimpleNamespace(cur=None, query={"u": "7", "t": "forged"}))
-    assert "isn't valid, so nothing changed" in page and "href='/settings'" in page
+    assert "isn't valid, so nothing changed" in page and "href='/settings#email'" in page
     assert "reply to one" not in page
 
 

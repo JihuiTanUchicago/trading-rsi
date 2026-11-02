@@ -802,7 +802,9 @@
     const data = Object.keys(el.dataset || {}).map((k) => `[data-${k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}="${String(el.dataset[k]).replace(/["\\\]]/g, '')}"]`).join('');
     return data ? el.tagName.toLowerCase() + data : null;
   }
-  const ARRIVE_AT = new Set(['since-deploying', 'autorel-fail']);
+  // Settings' Email section (#email) too: the unsubscribe page and the community emails' footers send the reader to the
+  // switch they name, which sat a screen below the theme on a phone (walk 2026-11-02).
+  const ARRIVE_AT = new Set(['since-deploying', 'autorel-fail', 'email']);
   function pageArrived(path, was) {
     const h = root.querySelector('h1'), tab = root.querySelector('.services [aria-current="page"]');
     // The signed-out landing keeps the plain product name; its headline is not a page name. The Terms and Privacy
@@ -1473,7 +1475,7 @@
   function emailSettings() {
     const u = (S.me && S.me.user) || {};
     const off = !!u.email_opt_out;
-    return `<section class="sect email-settings"><div class="section-head"><h2>Email</h2><p>${u.email ? 'Sent to ' + esc(u.email) : 'Sent to your sign-in address'}</p></div>
+    return `<section class="sect email-settings" id="email"><div class="section-head"><h2>Email</h2><p>${u.email ? 'Sent to ' + esc(u.email) : 'Sent to your sign-in address'}</p></div>
         <div class="email-pref">
           <label class="switch"><input type="checkbox" id="email-optional" role="switch" aria-describedby="email-state"${off ? '' : ' checked'}><span>Updates and community email</span></label>
           <div id="email-flash"></div>
@@ -1487,7 +1489,9 @@
   // are changed on Funds and Billing, which Settings named nowhere (walk 2026-10-30: "where do I manage my key?").
   function accountSettings() {
     const me = S.me || {}, u = me.user || {};
-    const keys = `${me.kalshi_connected ? 'Live key connected' : 'No live key'}${SEP}${me.kalshi_dev_connected ? 'demo key connected' : 'no demo key'}`;
+    // "Saved", not "connected": Settings never asks Kalshi, and a key Kalshi has stopped answering for read "Live key
+    // connected" here while Funds said "Key saved (Kalshi didn’t send a balance for it just now)" (walk 2026-11-02).
+    const keys = `${me.kalshi_connected ? 'Live key saved' : 'No live key'}${SEP}${me.kalshi_dev_connected ? 'demo key saved' : 'no demo key'}`;
     const row = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
     // What other people see in its place, when that isn't the Google name: none is set, or it is an email address
     // (never shown to anyone else). The row said "Not set" or the address alone, and nothing said that the feed,
@@ -1514,6 +1518,10 @@
       // goes back to the switch once Tau answers, as Billing's auto-reload switch does.
       const had = document.activeElement === sw;
       sw.disabled = true;
+      // The last answer's line goes while this one is out: a failure's "Optional email is still on" stood beside the
+      // switch showing Off for as long as the next save took (walk 2026-11-02).
+      const fl = root.querySelector('#email-flash');
+      if (fl) fl.innerHTML = '';
       try {
         const r = await api('/api/email-preferences', { email_opt_out: off });
         if (S.me && S.me.user) S.me.user.email_opt_out = !!r.email_opt_out;
@@ -1554,6 +1562,9 @@
       // The theme the account has saved does nothing; this page's own, when another tab saved the other one, is saved.
       if (key === savedTheme()) return;
       busy(b, async () => {
+        // A failed try's "Your theme is still …" goes while the next one is out (walk 2026-11-02).
+        const note = root.querySelector('#theme-flash');
+        if (note) note.innerHTML = '';
         // The account's theme is saved first: a signed-in page is served in the account's theme, so a
         // switch whose save failed reloaded straight back into this one, with no word why.
         try { await api('/api/ui-theme', { theme: key }); } catch (e) {

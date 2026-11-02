@@ -43,7 +43,8 @@ def test_each_community_email_says_how_to_stop_it_with_a_link_that_works(mails):
     for kind, uid in (("reply", 7), ("mention", 8), ("post", 9)):
         body = bodies[kind]
         assert "Unsubscribe: " + notify.unsubscribe_url(uid) in body, kind
-        assert "Email in Settings: %s/settings" % notify.PUBLIC_URL in body, kind
+        # The Settings address opens at the Email section (#email), the switch the line names, and ends its line.
+        assert "Email in Settings: %s/settings#email\n" % notify.PUBLIC_URL in body + "\n", kind
         token = re.search(r"/unsubscribe\?u=%d&t=(\w+)" % uid, body).group(1)
         assert notify.unsubscribe_token_valid(uid, token)
 
@@ -64,7 +65,7 @@ def test_an_email_with_no_link_given_still_opens_the_feed_and_says_how_to_stop(m
     notify.mention_notice("e@x.invalid", "E", "Bob", "hi")
     body = mails[-1][2]
     assert notify.PUBLIC_URL + "/community" in body
-    assert body.endswith("\n\nTurn these off anytime under Email in Settings: %s/settings" % notify.PUBLIC_URL)
+    assert body.endswith("\n\nTurn these off anytime under Email in Settings: %s/settings#email" % notify.PUBLIC_URL)
 
 
 # -- the routes hand each email its post and its reader's unsubscribe link -----------------------------
