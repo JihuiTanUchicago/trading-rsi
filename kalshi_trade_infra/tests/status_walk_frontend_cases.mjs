@@ -11,7 +11,9 @@ const SEP = ' · ';
 const fmt = (o) => new Intl.DateTimeFormat(undefined, o);
 const CLOCK_ZONE = fmt({hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'});
 const LOG_STAMP = fmt({month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'});
-const at = (ms) => { const d = new Date(ms); return (d.toDateString() === new Date().toDateString() ? CLOCK_ZONE : LOG_STAMP).format(d); };
+// `now` is the page's clock: a test that moves the harness's clock (shiftClock) passes where it moved it to, so a shift
+// across midnight expects the date as the page then says it.
+const at = (ms, now = Date.now()) => { const d = new Date(ms); return (d.toDateString() === new Date(now).toDateString() ? CLOCK_ZONE : LOG_STAMP).format(d); };
 
 export function statusWalkCases({name, frontend}) {
   const EXT = {kalshi: {kind: 'ext', series: 1, markets: 1}, coinbase: {kind: 'ext'}, bedrock: {kind: 'ext'}, stripe: {kind: 'ext'}};
@@ -80,12 +82,12 @@ export function statusWalkCases({name, frontend}) {
     ageTick(); await settle();
     assert.equal(metric(f, 'cb_coll'), '2m ago'); assert.equal(st(f, 'cb_coll'), 'warn');
     assert.equal(metric(f, 'sim_engine'), `1 paper running${SEP}2m ago`);
-    assert.equal(f.root.querySelector('#sys-ds').textContent, `Running late: last heard from at ${at(nowMs - 6e3)}, 2 minutes ago.`,
+    assert.equal(f.root.querySelector('#sys-ds').textContent, `Running late: last heard from at ${at(nowMs - 6e3, nowMs + 120e3)}, 2 minutes ago.`,
       'the time it was last heard from stays put as its age grows');
     f.shiftClock(600e3);
     ageTick(); await settle();
     assert.equal(metric(f, 'cb_coll'), '12m ago'); assert.equal(st(f, 'cb_coll'), 'down');
-    assert.equal(f.root.querySelector('#sys-ds').textContent, `Stale since ${at(nowMs - 6e3)} (12 minutes ago).`);
+    assert.equal(f.root.querySelector('#sys-ds').textContent, `Stale since ${at(nowMs - 6e3, nowMs + 720e3)} (12 minutes ago).`);
     f.clearTimers();
   });
 
