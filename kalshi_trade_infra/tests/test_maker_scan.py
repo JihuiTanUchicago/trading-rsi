@@ -208,3 +208,42 @@ def test_a_lead_carries_tickers_to_audit():
         s.add("fam", "c%d" % i, i % 2, {("yes", "maker", 3, -1): (0.05 + 0.01 * (i % 3), 1)}, "T-%d" % i)
     lead = s.finish()["leads"][0]
     assert lead["ttc"] == "any time" and [t for t, _ in lead["examples"]] == ["T-0", "T-1", "T-2", "T-3"]
+
+
+def test_picking_up_nickels_without_a_loss_is_not_a_lead():
+    """The 2026-11-02 scan's 95-100c sports "leads": +3c on every fill and no loss among ~60 events
+    gave t > 20, but at a 3% break-even loss rate 60 lossless events happen 16% of the time."""
+    s = ms.Scan()
+    for i in range(60):
+        s.add("nhl_game", "e%d" % i, i % 2, {("no", "maker", 6, -1): (0.03, 1)})
+    rep = s.finish()
+    row = rep["best"][0]
+    assert row["t"] > 20 or row["t"] == 0.0
+    assert rep["lead_count"] == 0 and row["losing_clusters"] == 0 and abs(row["break_even_loss"] - 0.03) < 1e-9
+    assert row["p"] > 0.1
+
+
+def test_a_nickel_cell_with_far_fewer_losses_than_break_even_is_still_a_lead():
+    s = ms.Scan()
+    for i in range(400):
+        s.add("nhl_game", "e%d" % i, i % 2, {("no", "maker", 6, -1): (-0.97 if i == 7 else 0.03, 1)})
+    rep = s.finish()
+    assert rep["lead_count"] == 1 and rep["leads"][0]["losing_clusters"] == 1
+
+
+def test_pooled_base_rates_cover_every_family_of_a_group():
+    s = ms.Scan()
+    for i in range(10):
+        s.add("nhl_game", "a%d" % i, 0, {("yes", "maker", 6, -1): (0.03, 1)})
+        s.add("kxnbatotal", "b%d" % i, 0, {("yes", "maker", 6, -1): (-0.97 if i == 0 else 0.03, 1)})
+        s.add("weather-high", "c%d" % i, 0, {("yes", "maker", 6, 2): (0.03, 1)})
+    pooled = {(r["group"], r["side"], r["mode"], r["price"]): r for r in s.finish()["pooled"]}
+    sp = pooled[("sports", "yes", "maker", ms.price_label(6))]
+    assert sp["contracts"] == 20 and sp["events"] == 20 and sp["loss_rate"] == 0.05
+    assert abs(sp["mean_c"] - 100 * (19 * 0.03 - 0.97) / 20) < 0.01 and abs(sp["break_even_loss"] - 0.03) < 1e-4
+    assert pooled[("weather-high", "yes", "maker", ms.price_label(6))]["contracts"] == 10
+
+
+def test_binomial_cdf():
+    assert abs(ms._binom_cdf(0, 60, 0.03) - 0.97 ** 60) < 1e-12
+    assert abs(ms._binom_cdf(1, 3, 0.5) - 0.5) < 1e-12 and ms._binom_cdf(3, 3, 0.2) == 1.0

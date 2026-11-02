@@ -1,0 +1,7 @@
+[Unit]
+Description=One extra maker scan soon after a deploy installs this (2026-11-02: re-judge the 95-100c sports "leads" with the tail-risk test and pooled base rates)
+[Timer]
+OnActiveSec=5min
+Unit=tau-maker-scan.service
+[Install]
+WantedBy=timers.target

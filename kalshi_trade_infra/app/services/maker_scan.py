@@ -164,6 +164,8 @@ class _Cell:
     posted: int = 0          # contracts the order was posted on (maker)
     examples: List[Tuple[str, float]] = field(default_factory=list)   # (ticker, P&L) to audit a lead
     halves: List[List[float]] = field(default_factory=lambda: [[0.0, 0], [0.0, 0]])
+    wins: List[float] = field(default_factory=lambda: [0.0, 0])     # [P&L, fills] of fills that made money
+    losses: List[float] = field(default_factory=lambda: [0.0, 0])   # [P&L, fills] of fills that lost
 
 
 class Scan:
@@ -190,6 +192,9 @@ class Scan:
             row[2] += pnl * pnl
             c.halves[half][0] += pnl
             c.halves[half][1] += 1
+            wl = c.wins if pnl > 0 else c.losses
+            wl[0] += pnl
+            wl[1] += 1
 
     def finish(self) -> Dict:
         rows = []
@@ -207,6 +212,13 @@ class Scan:
                 se = float("inf")
             t = mean / se if se and not math.isinf(se) else 0.0
             p = _p_one_sided(t, k - 1)
+            q_even = _break_even_loss_rate(c)
+            lost = sum(1 for x in xs if x[0] < 0)
+            if q_even is not None and q_even < TAIL_Q:
+                # Picking up nickels: a few cents won almost always against a rare loss of the whole stake.
+                # A cell that never saw a loss has a near-zero SE, so its t is meaningless. Ask instead how
+                # likely so few losing events were if the true loss rate were the break-even one.
+                p = max(p, _binom_cdf(lost, k, q_even))
             halves = [round(100 * h[0] / h[1], 2) if h[1] else None for h in c.halves]
             rows.append({
                 "family": fam, "side": side, "mode": mode,
@@ -215,6 +227,8 @@ class Scan:
                 "fill_rate": round(n / c.posted, 3) if mode == "maker" and c.posted else None,
                 "mean_c": round(100 * mean, 2), "t": round(t, 2), "p": p,
                 "halves_c": halves, "testable": k >= MIN_CLUSTERS, "examples": c.examples,
+                "losing_clusters": lost,
+                "break_even_loss": round(q_even, 4) if q_even is not None else None,
             })
         tested = [r for r in rows if r["testable"]]
         keep = _bh([r["p"] for r in tested], FDR)
@@ -229,7 +243,62 @@ class Scan:
             "lead_count": len(leads),
             "by_mode": _by_mode(tested),
             "best": sorted(tested, key=lambda r: -r["t"])[:SHOW],
+            "pooled": self._pooled(),
         }
+
+    def _pooled(self) -> List[Dict]:
+        """Every family of a group (sports, weather-high, weather-low) pooled per side, mode and price
+        band, over all time bands: the honest base rate, since per-cell leads are picked from
+        thousands of cells. A favourite-longshot bias, if any, shows here without selection."""
+        acc: Dict[Tuple, List[float]] = defaultdict(lambda: [0.0, 0, 0.0, 0, 0.0, 0, set()])
+        for (fam, side, mode, pb, _tb), c in self.cells.items():
+            a = acc[(_group(fam), side, mode, pb)]
+            a[0] += c.wins[0] + c.losses[0]
+            a[1] += int(c.wins[1] + c.losses[1])
+            a[2] += c.wins[0]
+            a[3] += int(c.wins[1])
+            a[4] += c.losses[0]
+            a[5] += int(c.losses[1])
+            a[6].update(c.clusters)
+        out = []
+        for (grp, side, mode, pb), (pnl, n, wsum, wn, lsum, ln, clusters) in sorted(acc.items()):
+            if not n:
+                continue
+            w = wsum / wn if wn else None
+            l = -lsum / ln if ln else (1.0 - w if w is not None else None)
+            q = w / (w + l) if w is not None and l and (w + l) > 0 else None
+            out.append({"group": grp, "side": side, "mode": mode, "price": price_label(pb), "contracts": n,
+                        "events": len(clusters), "mean_c": round(100 * pnl / n, 2),
+                        "loss_rate": round(ln / n, 4), "break_even_loss": round(q, 4) if q is not None else None})
+        return out
+
+
+TAIL_Q = 0.20      # break-even loss rate below which a cell is judged by its losing events, not its t
+
+
+def _group(family: str) -> str:
+    return family if family.startswith("weather") else "sports"
+
+
+def _break_even_loss_rate(c: "_Cell") -> Optional[float]:
+    """The loss rate at which this cell's average win and average loss net to zero. With no loss
+    seen, a binary loss costs what the win didn't pay: 1 - average win."""
+    if not c.wins[1]:
+        return None
+    w = c.wins[0] / c.wins[1]
+    l = -c.losses[0] / c.losses[1] if c.losses[1] else 1.0 - w
+    return w / (w + l) if (w + l) > 0 else None
+
+
+def _binom_cdf(k: int, n: int, q: float) -> float:
+    """P(X <= k), X ~ Binomial(n, q)."""
+    q = min(max(q, 0.0), 1.0)
+    total, term = 0.0, (1.0 - q) ** n
+    for i in range(0, k + 1):
+        if i:
+            term *= (n - i + 1) / i * (q / (1.0 - q)) if q < 1.0 else 0.0
+        total += term
+    return min(total, 1.0)
 
 
 def _p_one_sided(t: float, df: int) -> float:
