@@ -448,7 +448,8 @@ window.TauPage('strategy', (T) => {
     if (c.realistic_trades === false && !(f && +f.forward_sample >= +p.trades_needed)) left.push(more(+p.trades, +p.trades_needed, 'paper trades'));
     if (c.legacy_pnl === false) left.push(`paper P&amp;L with every fill at $0 or above (now ${roadAmt(p.legacy_pnl)})`);
     if (c.events === false && !(f && +f.forward_events_needed >= +p.events_needed)) left.push(more(+p.events, +p.events_needed, 'events'));
-    if (c.net_pnl === false) left.push(`net P&amp;L above $0 (now ${roadAmt(p.net_pnl)})`);
+    // Before its first closed paper trade it says so, as the demo book does: it read "(now $0.00)" (Todd, 2026-11-02).
+    if (c.net_pnl === false) left.push(`net P&amp;L above $0 (${+p.trades ? `now ${roadAmt(p.net_pnl)}` : 'no closed trades yet'})`);
     if (c.span === false) left.push(`${num(Math.ceil(p.span_needed_hours - p.span_hours))}h more of record (${num(Math.floor(p.span_hours))}h of ${num(p.span_needed_hours)}h)`);
     if (c.edge === false) left.push(p.p_value == null ? 'the edge test, run once the trades and events are in' : `a clearer edge (p ${roadP(p.p_value)}, needs ${p.p_value_needed.toFixed(2)} or lower)`);
     // With no newer trade closed yet it says so, as the check's own row does ("—"): it read "(now $0.00)" beside that "—".
