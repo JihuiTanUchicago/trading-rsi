@@ -25,6 +25,17 @@ def settled_contracts(cur, series: str, since: datetime, until: datetime) -> Lis
     return list(cur.fetchall())
 
 
+def event_sizes(cur, series: str, since: datetime, until: datetime) -> Dict[str, int]:
+    """{event_ticker: contracts listed} for the series' events closing in [since, until), whether or
+    not their candles were fetched: a set missing a leg is not a set."""
+    cur.execute(
+        """SELECT event_ticker, COUNT(*) AS n FROM hist_markets
+           WHERE series_ticker=%s AND close_time >= %s AND close_time < %s GROUP BY event_ticker""",
+        (series, since, until),
+    )
+    return {r["event_ticker"]: int(r["n"]) for r in cur.fetchall() if r.get("event_ticker")}
+
+
 def _candle_num(v) -> Optional[float]:
     try:
         return float(v) if v is not None else None

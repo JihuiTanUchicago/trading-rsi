@@ -1,0 +1,10 @@
+[Unit]
+Description=Riskless-set scan (app.arb_scan_run): do weather and sports events' own quotes ever sum below $1 (buy all) or above $1 (sell all) after taker fees; no model, no orders; S3 research-watch/arb-scan/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=1500M
+TimeoutStartSec=2h
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.arb_scan_run >> /opt/kalshi/logs/arb_scan.log 2>&1'
