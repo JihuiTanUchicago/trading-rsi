@@ -10,7 +10,7 @@ window.TauPage('research', (T) => {
     markQuietRows, mdLite, marketFull, marketKnown, num, paint, paintRows, paperSince, pastWords, realWords, demoWords, pct, phone, poll, recoverFails, retried, root, runKind, runTag,
     runWaitLine, S, SEP, sessionEstimate, sessionNo, sessionTitle, shell, strategySlip, strategyTable, theme, tzName, usd, usdShare, waitSpan, ageAt,
     dateFmt, LOG_STAMP, settleAt, dayAt, dayWatch, localDay, dayZone,
-    whyFailedHtml, wireMarketPicker
+    whyFailedHtml, wireMarketPicker, verdictOf, valMissWhy
   } = T;
   // Each theme lays the pages out its own way. Tau's list is cards under the form, a line of words and figures over
   // them; its session page lists the ideas tested above the log, which ends on a live foot. Meridian's list leads
@@ -1703,6 +1703,11 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
   const laterLines = (s) => (Array.isArray(s.later_missed) ? s.later_missed : []);
   const laterMissed = (s) => s.verdict === 'missed_final' && laterLines(s).length > 0;
   const heldBack = (s) => s.verdict === 'held_back';
+  // A strategy stored "passed" whose own validation didn't pass (`verdict` inconclusive or missed_validation, its
+  // stamp's words from verdictOf): its row said "Passed · Open it to deploy on paper" under a page saying it didn't
+  // pass validation.
+  const valMiss = (s) => !!valMissWhy(s.verdict);
+  const valMissSaid = (s) => `Its first test on unseen data ${valMissWhy(s.verdict)}, so it isn’t cleared to trade`;
   const cleared = (s) => s.status === 'passed' && !s.verdict;
   const lcFirst = (t) => String(t).charAt(0).toLowerCase() + String(t).slice(1);
   const heldWhy = (s) => (laterLines(s).length ? esc(lcFirst(laterLines(s)[0].label)) : 'too similar to a strategy you already run');
@@ -1724,10 +1729,11 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     if (r.example) return `<p class="run-next">That’s what a session looks like. <a class="btn primary" href="/research?new=1">Describe your own idea</a></p>`;
     const passed = (strategies || []).filter(cleared);
     const goneLine = gonePassed.length ? `${gonePassed.slice(0, 3).map((g) => `<b>${esc(g.title)}</b>`).join(', ')}${gonePassed.length > 3 ? ` and ${num(gonePassed.length - 3)} more` : ''} passed, but you deleted ${gonePassed.length === 1 ? 'it' : 'them'} since.` : '';
-    const fell = (strategies || []).filter(laterMissed), held = (strategies || []).filter(heldBack);
+    const fell = (strategies || []).filter(laterMissed), held = (strategies || []).filter(heldBack), vm = (strategies || []).filter(valMiss);
     const named = (xs) => xs.slice(0, 3).map((s) => `<a href="/strategies/${s.id}">${esc(s.title)}</a>`).join(', ');
     const fellLine = [fell.length ? `${named(fell)} passed ${fell.length === 1 ? 'its' : 'their'} first test on unseen data, then missed the one-time final test (${esc(lcFirst(fell[0].later_missed[0].label))}).` : '',
-      held.length ? `${named(held)} ${held.length === 1 ? 'was' : 'were'} held back after passing ${held.length === 1 ? 'its' : 'their'} tests: ${heldWhy(held[0])}, so ${held.length === 1 ? 'it isn’t' : 'they aren’t'} cleared to trade.` : ''].filter(Boolean).join(' ');
+      held.length ? `${named(held)} ${held.length === 1 ? 'was' : 'were'} held back after passing ${held.length === 1 ? 'its' : 'their'} tests: ${heldWhy(held[0])}, so ${held.length === 1 ? 'it isn’t' : 'they aren’t'} cleared to trade.` : '',
+      vm.length ? `${named(vm)} didn’t pass ${vm.length === 1 ? 'its' : 'their'} first test on unseen data, so ${vm.length === 1 ? 'it isn’t' : 'they aren’t'} cleared to trade.` : ''].filter(Boolean).join(' ');
     const nothing = fellLine ? 'Nothing cleared every check' : 'Nothing passed';
     const credits = r.out_of_credits ? 'It stopped when your credits ran out. <a href="/billing">Add credits</a>, then start a new session to keep researching. ' : '';
     if (passed.length) {
@@ -1778,8 +1784,12 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
   // check its status leaves out (`verdict`) stamps it instead, as its strategy page does.
   const GONE_SAID = 'You deleted this strategy since, so it has no page now.';
   const STRATS_READ = 500;  // the most strategies the session page's read lists (strategy_repository.list_strategies' limit)
-  const IDEA_STAMP = { passed: ['pass', 'Passed'], failed: ['void', 'Void'], rejected: ['rej', 'Rejected'], 'backtest-only': ['rej', 'Backtest only'],
-    missed_final: ['rej', 'Missed final test'], held_back: ['rej', 'Held back'] };
+  // Its stamp is its strategy's one verdict (verdictOf: the words and tone its list row and page stamp), on this list's
+  // palette: a pass green, a Void-toned verdict red, a quiet one grey. It kept a table of its own, so an unjudged idea
+  // read "Testing" here and "Not judged" on its row, a missed final test was grey here beside a Void-toned stamp there,
+  // and a pass whose validation didn't pass read "Passed". One with no stamp of its own is still being tested.
+  const IDEA_TONE = { 'mk on': 'pass', mk: 'void', 'mk quiet': 'rej', 'mk armed': 'rej' };
+  const ideaStamp = (s) => { const v = verdictOf(s); return v.known ? [IDEA_TONE[v.cls] || '', v.word] : ['', 'Testing']; };
   // An idea the agent dropped while building it never becomes a strategy, and one still being tested has
   // none yet: the Tested figure counted them and this list didn't ("Tested 5" over "4"), so the gap is said.
   // A running session's gap is not all in testing: an idea it already dropped (its log's DROPPED verdict) said
@@ -1810,10 +1820,11 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
     const list = (strategies || []).slice().sort((a, b) => cleared(b) - cleared(a));
     if (!list.length) return '';
     const row = (s) => {
-      const [cls, label] = IDEA_STAMP[laterMissed(s) || heldBack(s) ? s.verdict : s.status] || ['', 'Testing'];
+      const [cls, label] = ideaStamp(s);
       const why = whyBySid.get(s.id) || [];
       const said = laterMissed(s) ? `Passed validation, then missed the final test: ${esc(lcFirst(s.later_missed[0].label))}`
         : heldBack(s) ? `Held back after passing its tests: ${heldWhy(s)}`
+        : valMiss(s) ? valMissSaid(s)
         : s.status === 'passed' ? (s.deployed ? deployedNext(s)
         : s.autopilot_next ? `The autopilot puts it on paper at its next check-in${apWhenSpan()}`
         : `<a href="/strategies/${s.id}">Open it to deploy on paper</a>`)
@@ -2000,13 +2011,13 @@ ${tau ? `        <h2>${ICON.spark2}New research session</h2>` : ''}
         // A deployed one adds its paper record since deploying when the session's data carries one (a card's `real` in
         // paper mode, as the Strategies list has it). Paper money only, never added to a demo or live book. Display only.
         // Its Status cell then leaves that paper figure out (paperNext), keeping the demo line beside it.
-        const paperNext = (s) => s.status === 'passed' && !!s.deployed && !!s.real && s.real.mode === 'paper' && !laterMissed(s) && !heldBack(s);
+        const paperNext = (s) => s.status === 'passed' && !!s.deployed && !!s.real && s.real.mode === 'paper' && !laterMissed(s) && !heldBack(s) && !valMiss(s);
         const passedNext = (s) => s.status !== 'passed' ? '' : s.deployed ? `<a href="/deploy">Already deployed: see it on Deploy</a>${s.real && s.real.mode === 'paper' ? `<span class="ri-paper">${SEP}${paperSince(s.real)}</span>` : ''}`
           : s.autopilot_next ? `The autopilot puts it on paper at its next check-in${apWhenSpan()}` : 'Open it to deploy on paper';  // its title above is the link
         const artifacts = root.querySelector('#run-artifacts'), strategies = (d.strategies || []).slice().sort((a, b) => cleared(b) - cleared(a));
         const focusedArtifact = artifacts.querySelector('a:focus')?.getAttribute('href');
         artifacts.hidden = !strategies.length;
-        const artifactHtml = strategies.length ? `<div class="sect-head"><h2>Strategies <span class="section-count">${num(strategies.length)}</span></h2>${gap ? `<p class="hint">${gap}</p>` : ''}</div>${strategyTable(strategies.slice(0, showAllStrats ? undefined : STRAT_SHOW).map(s => strategySlip(s, undefined, { inRun: true, missed: laterMissed(s) || heldBack(s) ? laterLines(s) : s.status === 'passed' ? null : whyBySid.get(s.id), next: laterMissed(s) || heldBack(s) ? '' : passedNext(s), paperNext: paperNext(s) })).join(''), false, true)}${!showAllStrats && strategies.length > STRAT_SHOW ? `<button type="button" class="btn small" data-allstrats style="margin-top:12px">Show all ${num(strategies.length)}</button>` : ''}` : '';
+        const artifactHtml = strategies.length ? `<div class="sect-head"><h2>Strategies <span class="section-count">${num(strategies.length)}</span></h2>${gap ? `<p class="hint">${gap}</p>` : ''}</div>${strategyTable(strategies.slice(0, showAllStrats ? undefined : STRAT_SHOW).map(s => strategySlip(s, undefined, { inRun: true, missed: laterMissed(s) || heldBack(s) ? laterLines(s) : s.status === 'passed' ? null : whyBySid.get(s.id), next: laterMissed(s) || heldBack(s) ? '' : valMiss(s) ? esc(valMissSaid(s)) : passedNext(s), paperNext: paperNext(s) })).join(''), false, true)}${!showAllStrats && strategies.length > STRAT_SHOW ? `<button type="button" class="btn small" data-allstrats style="margin-top:12px">Show all ${num(strategies.length)}</button>` : ''}` : '';
         // Compared with what was last written, not with innerHTML: the browser's serialization never matched
         // the template (&nbsp;, quoting), so the table was rebuilt every 2s.
         paint(artifacts, artifactHtml);

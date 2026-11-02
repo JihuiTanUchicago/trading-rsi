@@ -11,7 +11,7 @@ window.TauPage('strategy', (T) => {
     gl, glo, gloSep, go, ICON, isPerpetual, keepFocus, liveOpen, liveWaitMark, loading, LOG_STAMP, mark, marketKalshiUrl, marketFull, mdLite,
     money, notice, num, overDays, paintKeep, paperSince, paperAgain, PAPER_NET, NOT_MARKED, markedOf, pct, PERPS_SCENARIO, poll, refreshed, render, researchBadge,
     researchOnly, retried, roadDays, root, rpUnderwater, curveWords, S, SEP, sepLine, settleAt, markedAt, markFig, markOld, shell, slipEst, statusMark, sum4, usdShare,
-    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt, neverCleared, FORWARD_HEAD, forwardBody
+    tone, tradePrice, usd, whyFailedHtml, errText, ageAt, ageOnly, localDay, stampAt, neverCleared, FORWARD_HEAD, forwardBody, verdictOf, valMissWhy
   } = T;
 
   // ---------- strategy research paper (RESEARCH_PIPELINE_DESIGN.md §D) ----------
@@ -549,8 +549,11 @@ window.TauPage('strategy', (T) => {
     else if (next[0] === 'paper') {
       // One the autopilot puts on paper itself says so while the switch is on (syncApCopy follows a flip).
       // A void or rejected one isn't "nothing needed": the Deploy panel under it warns that deploying it is the
-      // reader's call and risk (walk 2026-10-30: the two sat side by side on a rejected strategy).
-      const on = !!(S.me && S.me.user && S.me.user.autopilot), hand = s.status === 'passed' ? 'nothing needed. Deploy it on paper below.'
+      // reader's call and risk (walk 2026-10-30: the two sat side by side on a rejected strategy). Nor is a pass its stamp
+      // says wasn't cleared (verdictOf): "nothing needed" sat under Missed final test, Held back and Validation
+      // inconclusive (walk 2026-11-02).
+      const vd = verdictOf(s), on = !!(S.me && S.me.user && S.me.user.autopilot), hand = vd.cleared ? 'nothing needed. Deploy it on paper below.'
+        : ['missed_final', 'held_back'].includes(vd.key) ? 'it wasn\u2019t cleared to trade, so putting it there is your call. Deploy it on paper below.'
         : 'it didn\u2019t pass its tests, so putting it there is your call. Deploy it on paper below.';
       need = 'Next rung, paper: ' + (apPaper ? `<span data-ap-next${on ? '' : ' hidden'}>the autopilot puts it there at its next check-in${apWhenSpan()}.</span><span data-ap-off${on ? ' hidden' : ''}>${hand}</span>` : hand);
     }
@@ -591,9 +594,10 @@ window.TauPage('strategy', (T) => {
   };
   // A Void or Rejected strategy on paper as a forward test whose one judgment is still to come: its glance spoke of the
   // validation miss alone ("Verdict, below, has … what to try next"), never that its paper trades can still clear it.
+  const forwardNow = (need) => ` It’s in its paper forward test now: one judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.`;
   const paperPending = (s) => {
     const need = ['failed', 'rejected'].includes(s.status) ? forwardPending(s) : 0;
-    return need ? ` It’s in its paper forward test now: one judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.` : '';
+    return need ? forwardNow(need) : '';
   };
   function verdictGlance(s, missed) {
     const exp = s.experiment, h = exp && exp.holdout, v = exp && exp.validation, p = exp && exp.paper;
@@ -617,17 +621,16 @@ window.TauPage('strategy', (T) => {
     } else if (s.status === 'passed' && !h && p && p.n_trades != null && exp.classification === 'deployment_candidate') {
       lead = 'Passed on paper.';
       words = `It fell short on its first test on unseen data, then passed its one judgment on its own paper trades (${num(p.n_trades)}) and every check after it.`;
-    } else if (s.status === 'passed' && v && v.n_trades != null && !h && v.classification && v.classification !== 'statistically_supported'
-      && !['deployment_candidate', 'forward_validated'].includes(exp.classification)) {
+    } else if (valMissWhy(verdictOf(s).key)) {
       // Its gatekeeper record says its validation didn't pass (exp.validation's classification) though its status reads
       // passed: the glance said "Passed validation. It cleared the checks on 48 trades" over Verdict's "Inconclusive" and a
-      // ladder whose next rung was its paper forward test (walk 2026-11-01). It says what the record holds; the status, the
-      // gates and their decisions are unchanged.
-      const need = forwardPending(s), weak = v.classification === 'inconclusive';
-      lead = need ? 'In its paper forward test.' : weak ? 'Validation inconclusive.' : 'Missed validation.';
-      words = `Its first test on unseen data (${num(v.n_trades)} trades) ${weak ? 'was too weak to show an edge that isn’t luck' : 'didn’t show an edge that holds up'}, so it didn’t pass validation${need
-        ? `. One judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.`
-        : ', and the gatekeeper hasn’t cleared it to trade.'}`;
+      // ladder whose next rung was its paper forward test (walk 2026-11-01), then "In its paper forward test" under a
+      // PASSED stamp. Its lead is its stamp (verdictOf, the server's `verdict`), and its paper forward test is said as a
+      // Void one's is. The status, the gates and their decisions are unchanged.
+      const vd = verdictOf(s), need = forwardPending(s);
+      lead = vd.word + '.';
+      words = `Its first test on unseen data${v && v.n_trades != null ? ` (${num(v.n_trades)} trades)` : ''} ${valMissWhy(vd.key)}, so it didn’t pass validation.${need
+        ? forwardNow(need) : ' The gatekeeper hasn’t cleared it to trade.'}`;
     } else if (s.status === 'passed' && v && v.n_trades != null && !h) {
       lead = 'Passed validation.';
       words = `It cleared the checks on ${num(v.n_trades)} trades it had never seen; the one-time locked holdout hasn’t run yet.`;
@@ -677,7 +680,7 @@ window.TauPage('strategy', (T) => {
       ? gl('Later-period P&L (not\u00a0held\u00a0out)', 'latervoid') : gl('Later-period P&L (not\u00a0held\u00a0out)', 'laterperiod');
     // A Void, Rejected or missed-final strategy's P&L is muted, as its Strategies row (pnl-nopass) and Community card
     // mute it: a green "+$42.17" up top read as a result beside its Void stamp. Display only.
-    const noPass = s.status === 'failed' || s.status === 'rejected' || s.verdict === 'missed_final';
+    const noPass = verdictOf(s).noPass;
     const toneV = (v) => (noPass ? undefined : v);
     const mute = (html) => (noPass ? `<span class="pnl-nopass">${html}</span>` : html);
     const splitFig = (r) => r.out_of_sample ? fig(topLabel, mute(usd(r.out_of_sample.pnl, true)), { v: toneV(r.out_of_sample.pnl),
@@ -698,7 +701,7 @@ window.TauPage('strategy', (T) => {
       // "After the split date over 9 days", in neither's words. The qualifier keeps together, as the label's does.
       (r.out_of_sample ? fig('Return on capital', pct(r.out_of_sample.roi), { small: [`Later period${overDays(r.out_of_sample.days)}`, laterQual, r.capital ? `$${fmt0.format(r.capital)} at risk at most` : ''].filter(Boolean).join(SEP) }) : '') +
       // Its session's count, as the Strategies list reads it: 1 or more when known; null or a 0 not saved yet reads "—".
-      fig('Ideas tested', +s.hypotheses_tried > 0 ? num(s.hypotheses_tried) : '—', { small: !(+s.hypotheses_tried > 0) ? 'Count unavailable.' : `in the session that found it${passedAll ? '; this is the one that passed' : ''}. More ideas tried, more chance one passes by luck (multiple testing).` });
+      fig('Ideas tested', +s.hypotheses_tried > 0 ? num(s.hypotheses_tried) : '—', { small: !(+s.hypotheses_tried > 0) ? 'Count unavailable.' : `in the session that found it${passedAll && verdictOf(s).cleared ? '; this is the one that passed' : ''}. More ideas tried, more chance one passes by luck (multiple testing).` });
     // How many figures the row holds (fig() opens each with <div class="m">): a research session's strategy has no
     // Return on capital, and its three figures sat in a four-column grid with an empty slot at the end. The grid
     // takes the count (.detail #figs[data-cols]), on first paint and after a what-if redraw.
@@ -774,7 +777,7 @@ window.TauPage('strategy', (T) => {
       ? `After the backtest’s split date it ${+oos.pnl >= 0 ? 'returned ' + usd(oos.pnl) : 'lost ' + usd(Math.abs(oos.pnl))} over ${num(oos.trades)} trade${oos.trades === 1 ? '' : 's'}. ${noPass ? 'There’s no record it was held out, so it isn’t held-out evidence.' : 'That later slice is what picked it, so it isn’t held-out evidence.'}`
       : 'It has no held-out result: its only figures are from the history it searched.')
       : oos
-      ? `On unseen data the agent never touched while iterating, it ${+oos.pnl >= 0 ? 'returned ' + usd(oos.pnl) : 'lost ' + usd(Math.abs(oos.pnl))} over ${num(oos.trades)} trade${oos.trades === 1 ? '' : 's'}${s.hypotheses_tried ? (passedAll ? `, and cleared the gate as ${ofIdeas(s.hypotheses_tried)}` : `, ${ofIdeas(s.hypotheses_tried)}`) : ''}.`
+      ? `On unseen data the agent never touched while iterating, it ${+oos.pnl >= 0 ? 'returned ' + usd(oos.pnl) : 'lost ' + usd(Math.abs(oos.pnl))} over ${num(oos.trades)} trade${oos.trades === 1 ? '' : 's'}${s.hypotheses_tried ? (passedAll && verdictOf(s).cleared ? `, and cleared the gate as ${ofIdeas(s.hypotheses_tried)}` : `, ${ofIdeas(s.hypotheses_tried)}`) : ''}.`
       : held ? heldWords(held)
       : `It was ${s.status === 'rejected' ? 'rejected before reaching' : 'not advanced to'} the unseen-data test${s.hypotheses_tried ? ` — ${ofIdeas(s.hypotheses_tried, 'tried')}` : ''}.`;
     const dataBlock = s.dataset ? `<div class="paper-sub"><h4 class="paper-h">Data &amp; partitioning</h4>

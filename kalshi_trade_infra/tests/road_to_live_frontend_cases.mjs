@@ -141,11 +141,12 @@ export function roadToLiveCases({name, frontend, detailStrategy, strategyFronten
     f.clearTimers && f.clearTimers();
     assert.equal(deployLine, 'Toward live, first ' + said);
     // Its glance says what its gatekeeper record holds: it read "Passed validation. It cleared the checks on 26 trades it
-    // had never seen" over an inconclusive validation and this forward test (walk 2026-11-01).
-    assert.equal(p.glance, 'In its paper forward test. Its first test on unseen data (26 trades) was too weak to show an edge that isn’t luck, so it didn’t pass validation. One judgment on its own paper trades, made once its record holds 40 of them from 20+ separate events, can still clear it to trade.');
+    // had never seen" over an inconclusive validation and this forward test (walk 2026-11-01). Its lead is its stamp
+    // ("In its paper forward test." sat under a PASSED stamp), and its forward test is said as a Void one's is.
+    assert.equal(p.glance, 'Validation inconclusive. Its first test on unseen data (26 trades) was too weak to show an edge that isn’t luck, so it didn’t pass validation. It’s in its paper forward test now: one judgment on its own paper trades, made once its record holds 40 of them from 20+ separate events, can still clear it to trade.');
     // Off paper, no forward test runs: it says the validation was inconclusive and it isn't cleared.
     const off = await page({status: 'passed', why_failed: [], experiment: probation, deployments: []}, null);
-    assert.equal(off.glance, 'Validation inconclusive. Its first test on unseen data (26 trades) was too weak to show an edge that isn’t luck, so it didn’t pass validation, and the gatekeeper hasn’t cleared it to trade.');
+    assert.equal(off.glance, 'Validation inconclusive. Its first test on unseen data (26 trades) was too weak to show an edge that isn’t luck, so it didn’t pass validation. The gatekeeper hasn’t cleared it to trade.');
     const rejected = await page({status: 'passed', why_failed: [], experiment: {...probation, validation: {classification: 'rejected', n_trades: 26}}, deployments: []}, null);
     assert.match(rejected.glance, /^Missed validation\. Its first test on unseen data \(26 trades\) didn’t show an edge that holds up/);
     // A validation that passed still reads as before.

@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Callable, Dict, Iterable, List, Optional
 
 from app import repository as repo
-from app.services import road_ahead, trade_why
+from app.services import road_ahead, trade_why, verdicts
 from trading_core.domain.credits import credit_exact, credit_split, credit_usd, research_week_usd
 from trading_core.domain.money import cents, exact
 
@@ -228,6 +228,22 @@ def live_check_why(ev: Dict, forward: Optional[Dict] = None) -> str:
             return "it's still down $%.2f on paper" % -float(ev.get("legacy_pnl") or 0)
         return "it needs %d+ closed paper trades on realistic fills first (has %d)" % (int(ev["trades_needed"]), int(ev["trades"]))
     return ev.get("why") or ""
+
+
+def page_stamps(cur, uid: int, strategies: List[Dict]) -> Dict[int, str]:
+    """{strategy id: the stamp its page and the Strategies list show} for the strategies the context lists
+    (services.verdicts.later_verdicts: two reads at most for all of them, none for an empty list). The context listed
+    a strategy under "Passed strategies" whose page stamps it "Validation inconclusive", "Missed final test" or "Held
+    back", and a dead end by its raw key ("failed") where its page says Void or Held back, so a reply could call it
+    passed (walk 2026-11-02). A read it can't make leaves the stored status's word."""
+    strategies = [s for s in strategies if s.get("id") is not None]
+    if not strategies:
+        return {}
+    try:
+        got = verdicts.later_verdicts(cur, uid, [s for s in strategies if s.get("direction") != repo.DEMO_DIRECTION])
+    except Exception:  # noqa: BLE001  (best-effort, like the context's other blocks: a stub cursor in tests)
+        got = {}
+    return {s["id"]: verdicts.word(s.get("status"), (got.get(s["id"]) or (None,))[0]) for s in strategies}
 
 
 def live_cash_line(connected: bool, memo: Optional[tuple] = None) -> str:

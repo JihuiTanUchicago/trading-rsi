@@ -7,7 +7,7 @@ window.TauPage('community', (T) => {
   const {
     alert0, api, armed, attachMention, authorLine, BEHIND, bellTime, dayAt, boardTitle, busy, deploymentMode, esc, FEES_NET, flash, halfUp, ICON, keepZone,
     liveWaitMark, loading, marketFull, mdLite, notice, num, overDays, pageLede, PAPER_NET, pct, poll, realTrades, refreshed, researchBadge, root, S, SEP,
-    settleAt, shell, statusMark, theme, tone, trDay, usd, ageOnly
+    settleAt, shell, statusMark, theme, tone, trDay, usd, ageOnly, verdictOf
   } = T;
   // Each theme lays the page and its cards out its own way: Tau's cards print a figure in a line of words and its
   // composer sits under the feed; Meridian's set figures out as labelled terms, under a New post that opens.
@@ -81,8 +81,8 @@ window.TauPage('community', (T) => {
         return `<a class="snap" href="/strategies/${snap.id}">${head}${why ? `<div class="snap-note">${why}</div>` : ''}</a>`;
       }
       // A Void, Rejected or missed-final idea's figure is muted in Meridian, as its row on Strategies is: a green
-      // "+$42.17" under a Void stamp read as a result. Tau's card prints it untoned.
-      const noPass = snap.status === 'failed' || snap.status === 'rejected' || snap.verdict === 'missed_final';
+      // "+$42.17" under a Void stamp read as a result. Tau's card prints it untoned. verdictOf says which (its stamp's).
+      const noPass = verdictOf(snap).noPass;
       const note = [why, owner ? `Only ${esc(owner)} can open this strategy; ask them to share a copy from its page.` : gone].filter(Boolean).join(' ');
       const body = `<div class="snap-head"><span class="snap-title"><b>${esc(snap.title)}</b>${statusMark(snap)}${researchBadge(snap)}</span><div class="snap-meta-line"><span class="snap-kind">Strategy</span><span class="snap-meta">${esc(marketFull(snap.market))}</span></div></div><dl class="snap-metrics snap-evidence-metrics"><div class="snap-result"><dt>Later-period P&amp;L</dt><dd class="${noPass ? 'pnl-nopass' : toneShown(snap.pnl)}">${snap.pnl == null ? '—' : usd(snap.pnl, true)}</dd></div>${snap.trades != null ? `<div class="snap-secondary"><dt>Trades</dt><dd>${num(snap.trades)}</dd></div>` : ''}${snap.win_rate != null ? `<div class="snap-secondary"><dt>Win rate</dt><dd>${pct(snap.win_rate, false)}</dd></div>` : ''}</dl>${note ? `<p class="snap-note">${note}</p>` : ''}`;
       return owner || gone ? `<div class="snap snap-strategy">${body}</div>` : `<a class="snap snap-strategy" href="/strategies/${snap.id}">${body}</a>`;
@@ -307,7 +307,7 @@ window.TauPage('community', (T) => {
     api('/api/strategies').then((d) => {
       const sel = root.querySelector('#post-strat');
       d.strategies.filter((s) => s.status !== 'rejected' || s.title).slice(0, 50).forEach((s) => {
-        const o = document.createElement('option'); o.value = s.id; o.textContent = `${s.title} (${STATUS_WORD[s.verdict] || STATUS_WORD[s.status] || s.status})`; sel.appendChild(o);
+        const o = document.createElement('option'); o.value = s.id; o.textContent = `${s.title} (${verdictOf(s).phrase})`; sel.appendChild(o);
       });
     }).catch(() => {
       // A list that didn't load says so in the picker: it read "Attach a strategy… (optional)" over no strategies
@@ -605,9 +605,8 @@ window.TauPage('community', (T) => {
       if ((art.querySelector('.comments') || {}).hidden) art.querySelector('[data-act="comments"]').click();
     }
   }
-  // The picker names a strategy as its row on Strategies stamps it: a pass a later check left uncleared
-  // (`verdict`) read "(passed)" here and Missed final test there.
-  const STATUS_WORD = { passed: 'passed', failed: 'void', rejected: 'rejected', missed_final: 'missed the final test', held_back: 'held back' };
+  // The picker names a strategy as its row on Strategies stamps it (verdictOf's phrase): a pass a later check left
+  // uncleared (`verdict`) read "(passed)" here and Missed final test there.
 
   return {viewCommunity};
 });

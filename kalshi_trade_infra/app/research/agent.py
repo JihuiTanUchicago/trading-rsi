@@ -5073,6 +5073,17 @@ def _copilot_context(cur, user: Dict) -> str:
     lines += ["", "Passed strategies not deployed:"]
     spare = [s for s in passed if s["id"] not in deployed_ids][:10]
     any_candidate = False
+    dead: List[Dict] = []
+    for st in ("failed", "rejected"):
+        try:
+            dead += repo.list_strategies(cur, user["id"], status=st, limit=10)
+        except Exception:
+            pass
+    # The example session every account is seeded with isn't the user's research: the Strategies page counts it
+    # apart, and listed here a reply called "Todd's random walk" one of the user's own dead ends.
+    dead = [s for s in dead if s.get("direction") != repo.DEMO_DIRECTION]
+    # Each as its page and the Strategies list stamp it (chat_facts.page_stamps), one read for these and the dead ends.
+    stamps = chat_facts.page_stamps(cur, user["id"], spare + dead[:12])
     for s in spare:
         oos = ((s.get("result") or {}).get("out_of_sample") or {})
         # Honest, per-strategy deploy-readiness: the `deploy` action only clears a strategy the
@@ -5083,10 +5094,13 @@ def _copilot_context(cur, user: Dict) -> str:
         except Exception:
             cand = False
         any_candidate = any_candidate or cand
-        lines.append("- strategy_id=%s \"%s\" market=%s (%s) unseen-data pnl %s over %s trades — %s"
+        stamp = stamps.get(s["id"], "Passed")
+        lines.append("- strategy_id=%s \"%s\" market=%s (%s) unseen-data pnl %s over %s trades — %s%s"
                      % (s["id"], s["title"], s["market"], _market_words(s["market"]), _usd(oos.get("pnl")), oos.get("trades"),
                         "DEPLOYMENT-CANDIDATE: ready to promote to PAPER now" if cand else
-                        "not yet a deployment candidate (dig deeper before it can deploy)"))
+                        "not yet a deployment candidate (dig deeper before it can deploy)",
+                        "" if stamp == "Passed" else "; its page and the Strategies list stamp it \"%s\", not Passed: "
+                        "never call it passed" % stamp))
     if not spare:
         lines.append("- none")
     if any_candidate:
@@ -5123,20 +5137,11 @@ def _copilot_context(cur, user: Dict) -> str:
         if busy:
             lines.append("OFF-LIMITS this review (a line is already running on them — pick a DIFFERENT market): "
                          + ", ".join(busy))
-    dead: List[Dict] = []
-    for st in ("failed", "rejected"):
-        try:
-            dead += repo.list_strategies(cur, user["id"], status=st, limit=10)
-        except Exception:
-            pass
-    # The example session every account is seeded with isn't the user's research: the Strategies page counts it
-    # apart, and listed here a reply called "Todd's random walk" one of the user's own dead ends.
-    dead = [s for s in dead if s.get("direction") != repo.DEMO_DIRECTION]
     if dead:
         lines += ["", "Dead ends already tested and killed for this user — do NOT re-propose the same idea; "
-                      "refine the mechanism or hunt elsewhere:"]
+                      "refine the mechanism or hunt elsewhere (each with the stamp its page shows):"]
         for s in dead[:12]:
-            lines.append('- "%s" (%s) — %s' % (s["title"], s["market"], s["status"]))
+            lines.append('- "%s" (%s) — %s' % (s["title"], s["market"], stamps.get(s.get("id")) or s["status"]))
     try:
         paper = repo.paper_balance(cur, user["id"])
         credits = repo.credit_balance(cur, user["id"])
