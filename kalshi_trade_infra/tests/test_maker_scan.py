@@ -247,3 +247,46 @@ def test_pooled_base_rates_cover_every_family_of_a_group():
 def test_binomial_cdf():
     assert abs(ms._binom_cdf(0, 60, 0.03) - 0.97 ** 60) < 1e-12
     assert abs(ms._binom_cdf(1, 3, 0.5) - 0.5) < 1e-12 and ms._binom_cdf(3, 3, 0.2) == 1.0
+
+
+def test_a_voided_loss_does_not_shrink_the_stake_at_risk():
+    # kxuslgame NO at 95c+: one void settled at a fair price lost ~7c, which made the break-even loss
+    # rate look like 27% and let a lossless nickel cell through. A loss costs at least 1 - average win.
+    s = ms.Scan()
+    for i in range(37):
+        s.add("kxuslgame", "e%d" % i, i % 2, {("no", "maker", 6, -1): (-0.07 if i == 3 else 0.03, 1)})
+    row = s.finish()["best"][0]
+    assert abs(row["break_even_loss"] - 0.03) < 1e-9 and row["p"] > 0.5
+
+
+def test_validation_window_is_the_frozen_slice_or_the_quarter_after_research():
+    from app.trading.markets import Market
+    m = Market(key="kxlowtchi", series="KXLOWTCHI", label="x", candle_minutes=60, history_days=100,
+               underlying=None, category="Climate and Weather")
+    now = datetime(2026, 11, 2)
+    f, t = run_mod.validation_window(_Cur({"validation_from_ts": 2000, "validation_to_ts": 3000}), m, now)
+    assert (f, t) == (datetime(1970, 1, 1, 0, 33, 20), datetime(1970, 1, 1, 0, 50))
+    f, t = run_mod.validation_window(_Cur(None), m, now)
+    start = now - timedelta(days=100)
+    assert f == start + timedelta(days=60) and t == start + timedelta(days=85)
+
+
+def test_confirm_judges_only_the_preregistered_cells_on_the_validation_slice(monkeypatch):
+    from app.trading.markets import Market
+    m = Market(key="kxhighchi", series="KXHIGHCHI", label="x", candle_minutes=60, history_days=10,
+               underlying=None, category="Climate and Weather")
+    start = datetime(2026, 1, 1)
+    seen = []
+    monkeypatch.setattr(run_mod, "scan_markets", lambda keys=None: [m])
+    monkeypatch.setattr(run_mod, "validation_window",
+                        lambda cur, mk, now: seen.append(mk.key) or (start, start + timedelta(days=60)))
+    monkeypatch.setattr(run_mod, "research_window", lambda *a: (_ for _ in ()).throw(AssertionError("research")))
+    cell = {"family": "weather-high", "side": "yes", "mode": "maker", "price": ms.price_label(ms.band(0.40, ms.PRICE_BANDS)),
+            "ttc": ms.ttc_label(ms.band(12, ms.TTC_BANDS_H))}
+    monkeypatch.setattr(run_mod, "CONFIRM_CELLS", [cell, dict(cell, family="nope")])
+    rep = run_mod.confirm(_DataCur(start), log=lambda *_: None)
+    assert seen == ["kxhighchi"] and rep["window"] == "validation" and abs(rep["alpha_each"] - 0.025) < 1e-12
+    a, b = rep["cells"]
+    assert a["clusters"] == 40 and a["confirmed"] == (a["mean_c"] > 0 and a["p"] < 0.025)
+    assert b["contracts"] == 0 and b["confirmed"] is False
+    assert "_scan" not in rep

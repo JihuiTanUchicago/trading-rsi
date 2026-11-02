@@ -1,0 +1,10 @@
+[Unit]
+Description=One-off pre-registered confirmation of the 3 maker-scan leads (app.maker_scan_run --confirm) on each market's validation slice; never the holdout; results to S3 research-watch/maker-scan/confirm/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=1500M
+TimeoutStartSec=2h
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.maker_scan_run --confirm >> /opt/kalshi/logs/maker_confirm.log 2>&1'
