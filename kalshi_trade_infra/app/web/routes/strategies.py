@@ -13,6 +13,17 @@ from app.adapters.kalshi import kalshi_dev
 from app.research import agent, gatekeeper
 from app.research import research_repository as research_repo
 from app.services import backtest_check, book_memo, customer_text, forward_gate, gate_explain, trade_why
+from app.services import verdicts
+# The verdict a strategy's stored status leaves out, and the experiment block's phase shapes: app.services.verdicts,
+# re-imported under the names these routes, research, dashboard and community have always used.
+from app.services.verdicts import HELD_BACK, INCONCLUSIVE, MISSED_FINAL, MISSED_VALIDATION  # noqa: F401
+from app.services.verdicts import exp_bool as _exp_bool  # noqa: F401
+from app.services.verdicts import exp_int as _exp_int
+from app.services.verdicts import exp_num as _exp_num  # noqa: F401
+from app.services.verdicts import later_fields as _later_fields
+from app.services.verdicts import later_verdict as _later_verdict
+from app.services.verdicts import later_verdicts as _later_verdicts
+from app.services.verdicts import phase_block as _phase_block
 from app.trading import backtest, track_record
 from app.trading import spec as specmod
 from app.trading.markets import MARKETS
@@ -173,9 +184,10 @@ def list_strategies(ctx: Ctx):
 
 
 def _attach_verdicts(cards: List[Dict], got: Dict[int, Tuple[str, Dict]]) -> None:
-    """Stamp each card whose stored status leaves out a later check with `verdict` (MISSED_FINAL or
-    HELD_BACK), the stamp its own page shows, from _later_verdicts' reads for the whole list. A list
-    stamped "Passed" for a strategy whose page said "Missed final test" or "Held back"."""
+    """Stamp each card whose stored status leaves out what its record says with `verdict` (MISSED_FINAL, HELD_BACK,
+    INCONCLUSIVE or MISSED_VALIDATION: services.verdicts), the stamp its own page shows, from _later_verdicts' reads
+    for the whole list. A list stamped "Passed" for a strategy whose page said "Missed final test", "Held back" or
+    that its validation didn't pass."""
     for c in cards:
         if c["id"] in got:
             c["verdict"] = got[c["id"]][0]
@@ -437,48 +449,6 @@ def share_strategy(ctx: Ctx):
     return {"ok": True}
 
 
-def _exp_num(row: Dict, key: str) -> Optional[float]:
-    v = row.get(key)
-    return None if v is None else float(v)
-
-
-def _exp_bool(row: Dict, key: str) -> Optional[bool]:
-    v = row.get(key)
-    return None if v is None else bool(v)
-
-
-def _exp_int(row: Dict, key: str) -> Optional[int]:
-    v = row.get(key)
-    return None if v is None else int(v)
-
-
-def _phase_block(row: Optional[Dict], holdout: bool = False) -> Optional[Dict]:
-    """Shape one app_experiment_results row (validation or holdout) into the §D block."""
-    if not row:
-        return None
-    out = {
-        "classification": row.get("classification"),
-        "n_trades": _exp_int(row, "n_trades"),
-        "mean_net_return": _exp_num(row, "mean_net_return"),
-        "ci_lo": _exp_num(row, "ci_lo"),
-        "ci_hi": _exp_num(row, "ci_hi"),
-        "p_value": _exp_num(row, "p_value"),
-        "psr": _exp_num(row, "psr"),
-        "dsr": _exp_num(row, "dsr"),
-        "sharpe": _exp_num(row, "sharpe"),
-        "net_pnl": _exp_num(row, "net_pnl"),
-        "fdr_alpha_i": _exp_num(row, "fdr_alpha_i"),
-        "fdr_reject": _exp_bool(row, "fdr_reject"),
-        "bh_reject": _exp_bool(row, "bh_reject"),
-        "placebo_p": _exp_num(row, "placebo_p"),
-        "n_trials_audited": _exp_int(row, "n_trials_audited"),
-        "equity_curve": row.get("equity_curve"),
-    }
-    if holdout:
-        out["consumed"] = bool(row.get("holdout_consumed"))
-    return out
-
-
 def _rationale(raw) -> Dict:
     """economic_rationale is a TEXT column the gatekeeper stores as structured JSON (§D:
     mechanism / negative_control / competing_explanations / folds). Fall back to treating
@@ -495,22 +465,6 @@ def _rationale(raw) -> Dict:
         "negative_control": d.get("negative_control"),
         "competing_explanations": d.get("competing_explanations") or d.get("challenger"),
         "folds": d.get("folds") or [],
-    }
-
-
-def _later_fields(results: List[Dict]) -> Dict:
-    """The experiment block's verdicts after validation, from its result rows (oldest first): the one-time
-    holdout, a probation strategy's one paper judgment (with when it was judged), and whether it was promoted
-    all the way to a deployment candidate (agent._is_deployment_candidate's own test). A strategy page reads
-    them from all its rows, a list from research_repo.later_results' rows, so both judge alike."""
-    latest = lambda phase: next((r for r in reversed(results) if r.get("phase") == phase), None)
-    paper = latest("paper")
-    return {
-        "holdout": _phase_block(latest("holdout"), holdout=True),
-        "paper": dict(_phase_block(paper), verdict_at=paper.get("verdict_at")) if paper else None,
-        # A holdout (or paper) pass that isn't was held back by the diversification check after it.
-        "promoted": any(r.get("classification") == gatekeeper.Classification.DEPLOYMENT_CANDIDATE.value
-                        for r in results),
     }
 
 
@@ -580,64 +534,6 @@ def _autopilot_puts_on_paper(cur, user: Optional[Dict], strategies: List[Dict]) 
     return out
 
 
-# What a strategy's stored status leaves out (its card's `verdict`). The status is written once, at
-# validation (or, for a probation strategy, at its validation miss), and a later check doesn't change it:
-# a validation pass whose one-time locked holdout then failed still reads "passed", and so does one the
-# diversification check after the holdout held back; a probation strategy that passed its one paper
-# judgment and was then held back by that check keeps its Void or Rejected.
-MISSED_FINAL, HELD_BACK = "missed_final", "held_back"
-
-
-def _later_verdict(s: Dict, exp: Optional[Dict]) -> Optional[str]:
-    """MISSED_FINAL, HELD_BACK or None for one strategy, from its experiment block (a page's
-    _experiment_block, or _later_verdicts' slim one built from the same rows by _later_fields). Display
-    only: it reads the gatekeeper's record and judges nothing again."""
-    if not exp:
-        return None
-    if s.get("status") == "passed" and _gate_lines(gate_explain.for_strategy, "passed", None, exp):
-        return MISSED_FINAL  # for_strategy reads a failed holdout first, as the page's why_failed does
-    if exp.get("promoted") or specmod.has_perpetual_market(s["spec"], s.get("market")):  # research only: never promoted
-        return None
-    fv = gatekeeper.Classification.FORWARD_VALIDATED.value
-    if s.get("status") == "passed" and (exp.get("holdout") or {}).get("classification") == fv:
-        return HELD_BACK
-    if s.get("status") in ("failed", "rejected") and (exp.get("paper") or {}).get("classification") == fv:
-        return HELD_BACK
-    return None
-
-
-def _later_verdicts(cur, uid: int, strategies: List[Dict],
-                    recorded: Optional[set] = None) -> Dict[int, Tuple[str, Dict]]:
-    """{strategy id: (its _later_verdict, the slim experiment block it was judged on)} for the strategies a
-    list shows, those with one only. At most two reads for the whole list, never one per row: only for a
-    passed strategy stored before app_strategies.experiment_id existed, the experiment experiments_for_strategy
-    falls back to (by idx_exp_user_market's user_id), then their experiments' holdout, paper and forward rows
-    (research_repo.later_results, by primary key and idx_res_exp).
-    `recorded`, when given, is filled with the ids of the strategies whose experiment those same reads found:
-    the gatekeeper record a strategy page resolves (_experiment_block). A passed strategy left out of it has
-    none, so its list row says its backtest figure is later-period, as its page does. Display only."""
-    eids = {s["id"]: int(s["experiment_id"]) for s in strategies if s.get("experiment_id")}
-    legacy = [s["id"] for s in strategies if s.get("status") == "passed" and s["id"] not in eids]
-    if legacy:
-        eids.update(research_repo.newest_experiment_ids(cur, uid, legacy))
-    later = research_repo.later_results(cur, list(eids.values()))
-    out: Dict[int, Tuple[str, Dict]] = {}
-    for s in strategies:
-        rec = later.get(eids.get(s["id"]))
-        if rec is None:
-            continue
-        if recorded is not None:
-            recorded.add(s["id"])
-        try:
-            exp = dict(_later_fields(rec["results"]), min_sample=_exp_int(rec, "min_sample"))
-        except (TypeError, ValueError):  # a record it can't read never fails the list
-            continue
-        v = _later_verdict(s, exp)
-        if v:
-            out[s["id"]] = (v, exp)
-    return out
-
-
 def _research_pass_verdicts(cur, uid: int, since) -> Tuple[List[Dict], Dict[int, Tuple[str, Dict]]]:
     """(the passes from research sessions started since `since`, _later_verdicts for them): what the
     research headlines ("kept N that beat every gate", the autopilot's "N passed this week") count, and
@@ -691,8 +587,10 @@ def get_strategy(ctx: Ctx):
     exp = _experiment_block(ctx.cur, s["id"], s.get("experiment_id"))
     if exp:
         # Which research-paper figures their gate passed or missed, by the same checks as
-        # why_failed, so a figure is red exactly when its line says it missed (display only).
-        exp = dict(exp, gate_tints=_gate_tints(s.get("status"), exp))
+        # why_failed, so a figure is red exactly when its line says it missed (display only). A "passed" strategy
+        # whose own validation didn't pass has its validation figures judged on that classification
+        # (verdicts.tint_status): every one read as passed under a glance saying it didn't pass validation.
+        exp = dict(exp, gate_tints=_gate_tints(verdicts.tint_status(s.get("status"), exp), exp))
     verdict = _later_verdict(s, exp)
     held_back = _gate_lines(_held_back_lines, ctx.cur, ctx.uid, [(s, exp)]) if verdict == HELD_BACK else {}
     if verdict:

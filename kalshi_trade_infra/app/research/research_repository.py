@@ -545,9 +545,10 @@ def experiments_for_strategy(cur, strategy_id: int, experiment_id: Optional[int]
     return {"experiment": exp, "results": results_for_experiment(cur, int(exp["id"]))}
 
 
-# The verdicts after validation: the one-time holdout, the one paper judgment, and the diversification
+# The verdicts the lists stamp a strategy by (services.verdicts): its validation (a "passed" strategy whose own
+# validation didn't pass is stamped so), the one-time holdout, the one paper judgment, and the diversification
 # promotion (phase 'forward', the only phase a deployment candidate is written under).
-LATER_PHASES = ("holdout", "paper", "forward")
+LATER_PHASES = ("validation", "holdout", "paper", "forward")
 
 
 def later_results(cur, experiment_ids: List[int]) -> Dict[int, Dict]:

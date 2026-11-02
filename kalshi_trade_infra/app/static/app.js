@@ -14,7 +14,7 @@
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, gameNamed, gameYes, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
-    stratTitle, filedDay, statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
+    stratTitle, filedDay, statusMark, verdictOf, verdictPhrase, valMissWhy, VERDICTS, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared, FORWARD_HEAD, forwardBody,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
@@ -2063,8 +2063,9 @@
     const m = oos || ins;
     // A void or rejected idea's backtest P&L read as a green "+$2.10" beside its Void stamp: it is muted
     // and says the idea did not pass, so a gain on the data it was built on never reads as a result. So is
-    // one that passed validation and then missed its final test.
-    const missedFinal = s.verdict === 'missed_final', noPass = s.status === 'failed' || s.status === 'rejected' || missedFinal;
+    // one that passed validation and then missed its final test, and one stored "passed" whose own validation
+    // didn't pass (verdictOf: the one verdict its stamp says).
+    const vd = verdictOf(s), noPass = vd.noPass;
     // Which history the figure covers, on every row: the column read "Unseen P&L" ("the P&L that counts")
     // over figures from the history the agent searched, marked only "tested only". A strategy researched
     // since the locked holdout keeps its unseen numbers with the gatekeeper, so most rows are that kind.
@@ -2083,7 +2084,7 @@
     // out"); the full sentence is its hover and what a screen reader says (bt-long, hidden on a phone only visually).
     // Its qualifier holds together as the short form's does: a desktop row broke "· not / held out" (walked 2026-10-28).
     const later = oos && (s.status === 'backtest-only' || s.no_gatekeeper_record);
-    const verdictWord = missedFinal ? 'missed the final test' : noPass ? 'did not pass' : '';
+    const verdictWord = noPass && vd.key !== 'held_back' && VERDICTS[vd.key] ? vd.phrase : noPass ? 'did not pass' : '';
     // The count and its unit hold together ("30 / days" broke across a phone's lines).
     const spanDays = (d) => !(+d > 0) ? '' : +d < 1 ? 'under a day' : `${num(Math.round(+d))}\u00a0day${Math.round(+d) === 1 ? '' : 's'}`;
     const longSub = [...(m.pnl == null ? [] : later ? [`later-period P&amp;L${overDays(m.days)} after the split date${noPass ? '' : ', which picked it'}`, 'not\u00a0held\u00a0out']
@@ -3244,8 +3245,9 @@
     // strip counted it among "2 strategies passed".
     // Past the passes the server judges (`more`), each count is at least that many: "500+", never a wrong exact one.
     const atLeast = pass.more ? '+' : '';
-    const fell = pass.not_cleared || [], NOT_CLEARED = { missed_final: 'missed the final test', held_back: 'held back' };
-    const fellText = fell.length ? ` Not cleared to trade: ${fell.map((x) => `<a href="/strategies/${encodeURIComponent(x.id)}">${esc(x.title)}</a> (${NOT_CLEARED[x.verdict] || 'held back'})`).join(', ')}${pass.not_cleared_n > fell.length ? `, ${num(pass.not_cleared_n - fell.length)}${atLeast} more` : ''}.` : '';
+    // Each in its stamp's words (verdictPhrase): "validation inconclusive" read "held back" here.
+    const fell = pass.not_cleared || [];
+    const fellText = fell.length ? ` Not cleared to trade: ${fell.map((x) => `<a href="/strategies/${encodeURIComponent(x.id)}">${esc(x.title)}</a> (${verdictPhrase(x.verdict)})`).join(', ')}${pass.not_cleared_n > fell.length ? `, ${num(pass.not_cleared_n - fell.length)}${atLeast} more` : ''}.` : '';
     // A brand-new account has nothing of its own to report yet: point at the finished example, up top.
     const found = s.own_sessions === false && !pass.n && !fwd.length ? `No sessions of your own yet. <a href="/example" data-example>See an example session first</a>` : ((pass.n
       ? `${num(pass.n)}${atLeast} ${pass.n === 1 && !atLeast ? 'strategy' : 'strategies'} passed: ${sinceLinks([...pass.items.map((x) => `<a href="/strategies/${encodeURIComponent(x.id)}">${esc(x.title)}</a>`), ...(pass.n > pass.items.length || atLeast ? [`<a href="/strategies">${num(pass.n - pass.items.length)}${atLeast} more</a>`] : [])])}`
@@ -4376,7 +4378,7 @@
     notice, num, olderRows, overDays, paced, paceDay, paceTooSoon, paceWords, pageAssets, paint, paintDashAp, painted, paintKeep, paintRows,
     paperAgain, PAPER_NET, NOT_MARKED, markedOf, paperCount, paperShown, paperSince, pastWords, realWords, demoWords, slipEst, slipEstGl, slipTip, PAPER_COUNT_WHY, PNL_WINDOW, pnlWin, repaintKeep, retried, pausesIn, pct, PERPS_SCENARIO, phone, poll, realTrades, refreshAutopilot,
     recoverFails, refreshed, registry, render, researchBadge, researchOnly, roadDays, root, rpUnderwater, curveWords, finitePts, thinCurve, runKind,
-    runTag, runWaitLine, runwayLabel, S, sessionEstimate, sessionNo, sessionTitle, settleAt, stampAt, dayAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark,
+    runTag, runWaitLine, runwayLabel, S, sessionEstimate, sessionNo, sessionTitle, settleAt, stampAt, dayAt, keepZone, markedAt, markFig, markOld, shell, sinceMin, smooth, statusMark, verdictOf, verdictPhrase, valMissWhy,
     strategySlip, strategyTable, stripeFail, syncMeBilling, theme: 'tau', tone, topupCharge, tradePrice, trDay, tzName, dayZone, neverCleared, FORWARD_HEAD, forwardBody,
     usd, waitNote, waitSpan, wakers, dayWatch, dayRoll, dayWord, localDay, WEEKDAY_DAY, when, whyFailedHtml, wireMarketPicker, ageAt, ageKey, ageTick, ageOnly
   }, { get: (all, k) => { if (!(k in all)) { newBuild(); throw new Error('A page file asks for ' + String(k) + ', which this build does not share.'); } return all[k]; } }));

@@ -879,12 +879,42 @@
     const [cls, label] = MARK[key] || ['', key];
     return `<span class="mk ${cls}">${esc(label)}</span>`;
   };
-  // A strategy's stamp: its status, unless a later check its status leaves out says otherwise (the server's
-  // `verdict`, as its page shows it). A validation pass whose one-time locked holdout failed, or that the
-  // diversification check after it held back, kept "Passed" on the lists; a probation strategy held back
-  // after passing on paper kept its "Void".
-  const VERDICT = { missed_final: ['mk', 'Missed final test'], held_back: ['mk quiet', 'Held back'] };
-  const statusMark = (s) => VERDICT[s.verdict] ? `<span class="${VERDICT[s.verdict][0]}">${VERDICT[s.verdict][1]}</span>` : mark(s.status);
+  // A strategy's one verdict: its status, unless what its record says since, or what its status leaves out, says
+  // otherwise (the server's `verdict`, services.verdicts, which words each key the same way for the chat). A
+  // validation pass whose one-time locked holdout failed, or that the diversification check after it held back, kept
+  // "Passed" on the lists; a probation strategy held back after passing on paper kept its "Void"; and a strategy stored
+  // "passed" whose own validation was inconclusive (or rejected) was stamped PASSED over a glance saying it didn't pass
+  // validation (walk 2026-11-01). Each key: [its stamp's classes, its stamp, the phrase a sentence says it in]. One
+  // with the evidence of a Void or Rejected strategy is toned as one.
+  const VERDICTS = {
+    missed_final: ['mk', 'Missed final test', 'missed the final test'], held_back: ['mk quiet', 'Held back', 'held back'],
+    inconclusive: ['mk', 'Validation inconclusive', 'validation inconclusive'], missed_validation: ['mk quiet', 'Missed validation', 'missed validation'],
+  };
+  // The page's own reading of the same rule from its experiment block, for an answer without `verdict` (services.verdicts.
+  // validation_miss): stored "passed", its validation not stat. supported or better, and no holdout, paper pass or
+  // promotion since.
+  const VAL_PASSED = ['statistically_supported', 'forward_validated', 'deployment_candidate'];
+  const validationMiss = (s) => {
+    const exp = s && s.experiment, cls = exp && exp.validation && exp.validation.classification;
+    if (!s || s.status !== 'passed' || !cls || VAL_PASSED.includes(cls) || exp.holdout || exp.promoted) return '';
+    if (exp.paper && VAL_PASSED.includes(exp.paper.classification)) return '';
+    return cls === 'inconclusive' ? 'inconclusive' : 'missed_validation';
+  };
+  // {key, word, cls, phrase, cleared, noPass} for one strategy (a card, a page, a share card's snapshot): its stamp's
+  // word and tone, the phrase a sentence says it in, whether it is a pass the gatekeeper cleared, and whether its
+  // P&L reads as no result (muted, as a Void one's is). Every place that shows a verdict reads it from here.
+  const verdictOf = (s) => {
+    const v = VERDICTS[s.verdict] ? s.verdict : validationMiss(s);
+    const [cls, word, phrase] = v ? VERDICTS[v] : MARK[s.status] ? ['mk ' + MARK[s.status][0], MARK[s.status][1], MARK[s.status][1].toLowerCase()] : ['mk', s.status, s.status];
+    return { key: v || s.status, word, cls: cls.trim(), known: !!(v || MARK[s.status]), phrase: s.status === 'failed' && !v ? 'void' : phrase, cleared: s.status === 'passed' && !v,
+      noPass: s.status === 'failed' || s.status === 'rejected' || ['missed_final', 'inconclusive', 'missed_validation'].includes(v) };
+  };
+  // Why a strategy with that verdict didn't pass validation, as its glance and its session row say it: "Its first test
+  // on unseen data (48 trades) <this>, so it didn’t pass validation".
+  const VAL_MISS_WHY = { inconclusive: 'was too weak to show an edge that isn’t luck', missed_validation: 'didn’t show an edge that holds up' };
+  const valMissWhy = (key) => VAL_MISS_WHY[key] || '';
+  const verdictPhrase = (key) => (VERDICTS[key] || [, , 'held back'])[2];
+  const statusMark = (s) => { const v = verdictOf(s); return VERDICTS[v.key] ? `<span class="${v.cls}">${v.word}</span>` : mark(s.status); };
   // The Paper P&L column (paperCell, below), only on a list with a row that has a paper book now or had one.
   const PAPER_TIP = 'What it has made on paper (pretend money) since you deployed it, after Kalshi fees and the spread. Never added to its demo or live money.';
   // What a deployed strategy has actually done, beside its backtest columns.
@@ -1862,7 +1892,7 @@
     LIVE_CLOSED, LIVE_WAITING, LIVE_NO_ORDERS, liveIdleCount, liveIdleShort, tradePrice, markedAt,
     catOrder, mktCat, mktLong, mktShort, mktKnown, contractHour, hourET, strikeIn, contractWords, gameNamed, gameYes, SERIES_SHORT, apartWords, boardTitle, emailState, fig,
     fundsLinked, notice, loadFail, loading, bootSplash, BEHIND, finitePts, thinCurve, curveWords, traceScale, registry, curveRegs, spark, rpUnderwater, mark,
-    statusMark, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
+    statusMark, verdictOf, verdictPhrase, valMissWhy, VERDICTS, PAPER_TIP, realTrades, overDays, bookName, EXAMPLE_NOTE, EXAMPLE_TAG, AP_STRAT_TAG, runTag, bookLive,
     paperShown, paperSince, realWords, demoWords, paperCell, statusReal, statusPast, pastWords, pausedFirst, withTwins, posDep, POS_REMOVED, posRemovedWhy, stratCount, btCheckLine, roadDays, roadLine, neverCleared, FORWARD_HEAD, forwardBody,
     depInstant, demoRowLine, btPace, btPerTrade, paceHeld, kalshiConnect, TR_MODES, trBook, trFix, trDay, trMonth, trCi, TR_STATUS, TR_EDGE, trCurve, trCurveCap,
     trLeftGap, trRowLeft, trOver, midOf, comboTitle, subSaid, kalshiUrl, marketHref, rulesText, MKT_STATUS, BTC_CONTRACT,
