@@ -290,3 +290,24 @@ def test_confirm_judges_only_the_preregistered_cells_on_the_validation_slice(mon
     assert a["clusters"] == 40 and a["confirmed"] == (a["mean_c"] > 0 and a["p"] < 0.025)
     assert b["contracts"] == 0 and b["confirmed"] is False
     assert "_scan" not in rep
+
+
+def test_holdout_window_and_the_one_look_guard(monkeypatch):
+    from app.trading.markets import Market
+    m = Market(key="kxlowtchi", series="KXLOWTCHI", label="x", candle_minutes=60, history_days=100,
+               underlying=None, category="Climate and Weather")
+    now = datetime(2026, 11, 2)
+    f, t = run_mod.holdout_window(_Cur({"holdout_from_ts": 3000, "holdout_to_ts": 4000}), m, now)
+    assert (f, t) == (datetime(1970, 1, 1, 0, 50), datetime(1970, 1, 1, 1, 6, 40))
+    f, t = run_mod.holdout_window(_Cur(None), m, now)
+    assert f == now - timedelta(days=15) and t == now
+    assert run_mod.HOLDOUT_CELLS == [run_mod.CONFIRM_CELLS[0]] and run_mod.HOLDOUT_CELLS[0]["family"] == "weather-low"
+
+    class S3:
+        def __init__(self, n):
+            self.n = n
+
+        def list_objects_v2(self, **kw):
+            assert kw["Prefix"].endswith("/holdout/")
+            return {"KeyCount": self.n}
+    assert run_mod.holdout_already_read(S3(1)) and not run_mod.holdout_already_read(S3(0))
