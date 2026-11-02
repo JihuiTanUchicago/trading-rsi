@@ -261,3 +261,23 @@ def test_generated_categories_stay_inside_the_traded_set():
     assert mk.ALLOWED_CATEGORIES <= TRADED_CATEGORIES
     assert {"Sports", "Climate and Weather"} <= mk.ALLOWED_CATEGORIES
     assert {m.category for m in mk.CURATED.values()} <= {"Crypto", "Crypto perpetuals", "Sports", "Weather", "Bittensor"}
+
+
+def test_an_early_closing_contract_is_timed_against_its_events_end_not_its_own_close():
+    """Sports totals close the moment a strike is crossed. Timed against its own settled close, the
+    Over 200.5 contract was '20 minutes to close' only because it was about to resolve YES: a spec
+    filtering on tte_min selected the winners (the look-ahead the maker scan exposed 2026-11-02).
+    Every strike of the game is now timed against the game's last close."""
+    m = market_from_series(_row(series_ticker="KXNBATOTAL", title="NBA total points", category="Sports",
+                                frequency="daily"))
+    game_end = datetime.fromtimestamp(T0 + 3 * 3600, tz=timezone.utc)
+    early = datetime.fromtimestamp(T0 + 3600, tz=timezone.utc)
+    markets = [{"ticker": "KXNBATOTAL-26NOV01AB-200", "strike": 0.0, "close_time": early, "result": "yes"},
+               {"ticker": "KXNBATOTAL-26NOV01AB-230", "strike": 0.0, "close_time": game_end, "result": "no"}]
+    ts = T0 + 3600 - 20 * 60
+    candles = [{"ticker": t["ticker"], "end_period_ts": ts, "yes_bid_close": 0.60, "yes_ask_close": 0.62}
+               for t in markets]
+    ds = backtest.build_dataset(m, markets, candles, btc=[])
+    ttes = {s.contract.ticker: s.features["tte_min"] for s in ds.frames[0][1]}
+    assert ttes["KXNBATOTAL-26NOV01AB-200"] == ttes["KXNBATOTAL-26NOV01AB-230"] == 140.0
+    assert backtest.outcome_event_closes(markets)["KXNBATOTAL-26NOV01AB"] == game_end
