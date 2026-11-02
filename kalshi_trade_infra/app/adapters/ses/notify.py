@@ -65,8 +65,9 @@ def _hi(name: Optional[str]) -> str:
 
 def _optional_footer(unsub_url: Optional[str]) -> str:
     """How to stop an optional email: the one-click link when the sender has one, and Settings' switch. Each
-    address ends its line: a mail app that links "…/settings)" took the bracket into the link, a page not found."""
-    settings = "%s/settings" % PUBLIC_URL
+    address ends its line: a mail app that links "…/settings)" took the bracket into the link, a page not found.
+    The Settings address opens at its Email section (#email), the switch this line names."""
+    settings = "%s/settings#email" % PUBLIC_URL
     if unsub_url:
         return "Don't want these? Unsubscribe: %s\nOr turn them off anytime under Email in Settings: %s" % (unsub_url, settings)
     return "Turn these off anytime under Email in Settings: %s" % settings

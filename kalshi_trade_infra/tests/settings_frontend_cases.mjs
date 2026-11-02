@@ -11,6 +11,8 @@
 //   and the card are managed;
 // - a confirmed sign-out forgets the unsent research, community and autopilot drafts on the device; one Tau didn’t confirm
 //   keeps them;
+// - walk 2026-11-02: the unsubscribe page and the community emails' footers link /settings#email, which opens at the Email
+//   section; a failed save's line goes while the next save of the same setting is out; a saved key reads "saved";
 // - the card wall's Save tapped before the card form is up says the form is still loading, and never
 //   submits the bare form (which reloaded the page to "/?" and started the form over).
 import assert from './assert_text.mjs';
@@ -214,7 +216,7 @@ export function settingsCases({name, frontend, current, storageFor, cardWallOpts
     assert.match(acct, /<dt>Name<\/dt><dd>Ada &lt;b&gt;Lovelace&lt;\/b&gt;<\/dd>/);
     assert.match(acct, /<dt>Email<\/dt><dd>ada@example\.invalid<\/dd>/);
     assert.match(acct, /<dt>Community name<\/dt><dd>@ada<\/dd>/);
-    assert.match(acct, /<dt>Kalshi keys<\/dt><dd><span>No live key · demo key connected<\/span><a href="\/funds#connect-kalshi">Manage keys on Funds<\/a><\/dd>/);
+    assert.match(acct, /<dt>Kalshi keys<\/dt><dd><span>No live key · demo key saved<\/span><a href="\/funds#connect-kalshi">Manage keys on Funds<\/a><\/dd>/);
     assert.match(acct, /<dt>Credits and card<\/dt><dd><a href="\/billing">Billing<\/a><\/dd>/);
     assert.match(acct, /Your name and email come from your Google account\. Change them there, and Tau shows the new ones the next time you sign in\./);
     // The theme stays the page's first section (its hint is what a switch writes beside).
@@ -224,8 +226,9 @@ export function settingsCases({name, frontend, current, storageFor, cardWallOpts
     Object.assign(g.S.me, {kalshi_connected: true, kalshi_dev_connected: false});
     await g.viewSettings();
     const second = g.root.querySelector('.account-settings').innerHTML;
-    assert.match(second, /Live key connected · no demo key/);
+    assert.match(second, /Live key saved · no demo key/);
     assert.doesNotMatch(second, /Community name/);
+    assert.doesNotMatch(second, /connected/, 'Settings never asks Kalshi, so it says a key is saved, not that it works');
   });
 
   // Walk 2026-10-31: an account with no Google name, or one whose name is its email address, read "Not set" or the
@@ -275,4 +278,42 @@ export function settingsCases({name, frontend, current, storageFor, cardWallOpts
       assert.ok(session.map.has('tau_post_draft'));
     });
   }
+
+  // Walk 2026-11-02: the unsubscribe page and the community emails' footers send the reader to /settings#email; it opened at
+  // the theme, the email switch a screen below on a phone.
+  test(`${name}: /settings#email opens at the Email section, where the switch the links name is`, async () => {
+    const f = frontend({fetchImpl: path => { throw new Error('Settings reads nothing on open: ' + path); }});
+    f.location.pathname = '/settings'; f.location.hash = '#email';
+    await f.render(); await settle();
+    const sect = f.root.querySelector('#email');
+    assert.ok(sect && sect.querySelector('#email-optional'), 'the section with the switch carries the id the links name');
+    assert.equal(sect.focusOptions && sect.focusOptions.preventScroll, true, 'the page lands on it');
+    if (f.clearTimers) f.clearTimers();
+  });
+
+  // Walk 2026-11-02: a failed save's "Optional email is still on" stood beside the switch showing Off, disabled, for as long
+  // as the next save took; and the theme's "Your theme is still …" stayed up while the next try was out.
+  test(`${name}: a failed save's line goes while the next save of the same setting is out`, async () => {
+    let emailCalls = 0, themeCalls = 0;
+    const f = frontend({fetchImpl: path => {
+      if (path === '/api/email-preferences') return ++emailCalls === 1 ? response({error: 'Something went wrong on our side.'}, 500) : new Promise(() => {});
+      if (path === '/api/ui-theme') return ++themeCalls === 1 ? response({error: 'Synthetic preference outage'}, 503) : new Promise(() => {});
+      throw new Error('Unexpected offline request: ' + path);
+    }});
+    f.S.me.user = {...f.S.me.user, email_opt_out: false};
+    await f.viewSettings();
+    const sw = f.root.querySelector('#email-optional');
+    sw.checked = false; sw.onchange(); await settle();
+    assert.match(f.root.querySelector('#email-flash').innerHTML, /Optional email is still on\./);
+    sw.checked = false; sw.onchange(); await settle();
+    assert.equal(sw.disabled, true, 'the second save is still out');
+    assert.equal(f.root.querySelector('#email-flash').innerHTML, '');
+    const opt = f.root.querySelector(`[data-theme="${other}"]`);
+    opt.onclick(); await settle();
+    assert.match(f.root.querySelector('#theme-flash').innerHTML, /Your theme is still/);
+    opt.onclick(); await settle();
+    assert.equal(themeCalls, 2);
+    assert.equal(f.root.querySelector('#theme-flash').innerHTML, '');
+    if (f.clearTimers) f.clearTimers();
+  });
 }
