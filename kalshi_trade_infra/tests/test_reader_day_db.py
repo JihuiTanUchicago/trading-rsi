@@ -229,7 +229,9 @@ def test_researchs_per_day_bars_are_the_readers_own_days_on_one_kept_board(conn,
         assert {d["day"]: d["explored"] for d in board["days"]} == want, zone
         assert board.get("days_local", False) is (zone is not None) and "day_cards" not in json.dumps(board, default=str)
     assert len(built) == 1  # one board for every zone
-    assert len({tuple(d["day"] for d in b["days"]) for b in boards.values()}) > 1  # and the zones' days differ
+    # and the zones' days differ: compare which sessions each day holds, not just the day names (between about
+    # 04:00 and 11:00 UTC every zone's sessions fall on the same two dates, split differently)
+    assert len({tuple((d["day"], d["explored"]) for d in b["days"]) for b in boards.values()}) == len(boards)
     for b in boards.values():
         assert {k: v for k, v in b.items() if k not in ("days", "days_local")} == \
             {k: v for k, v in boards[None].items() if k not in ("days", "days_local")}
