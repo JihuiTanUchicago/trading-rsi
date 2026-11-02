@@ -1,0 +1,10 @@
+[Unit]
+Description=Maker vs taker base-rate scan (app.maker_scan_run): weather and sports candle history, research windows only, no model and no orders; results to S3 research-watch/maker-scan/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=1500M
+TimeoutStartSec=2h
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.maker_scan_run >> /opt/kalshi/logs/maker_scan.log 2>&1'

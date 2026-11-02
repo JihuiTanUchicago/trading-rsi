@@ -1,0 +1,8 @@
+[Unit]
+Description=Maker vs taker base-rate scan once a day (and soon after a deploy installs it)
+[Timer]
+OnCalendar=*-*-* 07:10:00
+OnActiveSec=10min
+Persistent=true
+[Install]
+WantedBy=timers.target

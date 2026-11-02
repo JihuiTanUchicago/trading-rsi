@@ -40,7 +40,8 @@ def _dry_run(tmp_path: Path, *, missing: str = "", large: bool = False):
     shutil.copyfile(SCRIPT, script)
     (package / "scripts" / "systemd").mkdir()
     for unit in ("tau-lip-maker-paper.service", "tau-lip-maker-paper.timer",
-                 "tau-code-paper.service", "tau-code-paper.timer", "tau-maker-lab.service", "tau-maker-lab.timer"):
+                 "tau-code-paper.service", "tau-code-paper.timer", "tau-maker-lab.service", "tau-maker-lab.timer",
+                 "tau-maker-scan.service", "tau-maker-scan.timer"):
         (package / "scripts" / "systemd" / unit).write_text("[Unit]\n")
     git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
            "-c", "user.name=Tau Test", "-c", "user.email=tau-test@example.invalid"]
