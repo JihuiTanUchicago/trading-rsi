@@ -33,7 +33,9 @@ Kalshi: the cash pending (with the last figure read and its age, if any) and the
 named in "then" like Funds'. A demo-funds check that would read the demo cash (the dashboard's demo
 health, the autopilot's idle line, the Deploy board's demo line) is marked pending too, its read named in
 "then", and the page reads it again once the demo cash is back. The Deploy board is carried as before; its
-read never asks Kalshi either.
+read never asks Kalshi either. So is a strategy's page (/strategies/<id>: /api/strategies/<id>, ~13ms from our own
+database, its demo rung from the demo cash memo, the demo cash named in "then" when pending): it asked its one read
+only once its bundle and page file had run, a round trip after them, ~0.2s on a phone's slow network.
 
 The dashboard also carries the autopilot status: its autopilot card sits above the figures, and drawn
 a round trip after them it pushed them down the screen. Research carries its loop card's board for the
@@ -66,7 +68,7 @@ from app.web.routes.dashboard import dashboard
 from app.web.routes.deployments import list_deployments
 from app.web.routes.funds import funds
 from app.web.routes.research import get_run, list_runs, research_scoreboard, scoreboard_kept
-from app.web.routes.strategies import list_strategies
+from app.web.routes.strategies import get_strategy, list_strategies
 
 # The dashboard asks with ?since= from the tau_visit cookie ("<since>.<last seen>", epoch seconds), as
 # visitStart() in app.js and app.meridian.js works it out: after a gap this long the last visit ended
@@ -74,6 +76,8 @@ from app.web.routes.strategies import list_strategies
 VISIT_GAP = 1800
 _VISIT = re.compile(r"(\d+)\.(\d+)")
 _RUN_PAGE = re.compile(r"^/research/(\d+)$")
+_STRATEGY_PAGE = re.compile(r"^/strategies/(\d+)$")
+_STRATEGY_READ = re.compile(r"^/api/strategies/\d+$")
 _TZ = re.compile(r"^-?\d{1,4}$")  # tau_tz: getTimezoneOffset() in minutes, as boot.js writes it
 LOOP_DAYS = 14  # Research's loop card asks /api/research/scoreboard?days=14 (rsiLoopRead in both bundles)
 
@@ -113,7 +117,8 @@ def then_reads(url: str, body: Dict[str, Any]) -> List[str]:
     """The reads a page asks right after its carried one, which boot.js starts beside the bundle: the Kalshi
     cash a carried read marked pending, one ask per book (the page asks them so too). Funds' live and demo
     cash; the dashboard's live cash and the demo cash its demo-funds check waits on; the autopilot's demo
-    cash for its idle line; the Deploy board's demo cash for its demo-funds check. [] for every other read."""
+    cash for its idle line; the Deploy board's demo cash for its demo-funds check, and a strategy page's for its
+    ladder's demo rung. [] for every other read."""
     if not isinstance(body, dict):
         return []
     path = url.split("?", 1)[0]
@@ -123,7 +128,7 @@ def then_reads(url: str, body: Dict[str, Any]) -> List[str]:
         books = [("live", _pending(body, "live")), ("demo", _pending(body, "demo", "health_pending"))]
     elif path == "/api/autopilot/status":
         books = [("demo", bool(body.get("idle_pending")))]
-    elif path == "/api/deployments":
+    elif path == "/api/deployments" or _STRATEGY_READ.match(path):
         books = [("demo", bool(body.get("demo_health_pending")))]
     else:
         return []
@@ -169,6 +174,9 @@ def _page_requests(path: str, query: str, cookies: Dict[str, str]) -> List[Tuple
     m = _RUN_PAGE.match(path)
     if m:
         return [(("/api/runs/%s?after=0" % m.group(1), get_run, (m.group(1),), {"after": "0"}), False)]
+    m = _STRATEGY_PAGE.match(path)
+    if m:
+        return [(("/api/strategies/%s" % m.group(1), get_strategy, (m.group(1),), {}), False)]
     return []
 
 

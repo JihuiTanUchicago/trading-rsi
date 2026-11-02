@@ -21,7 +21,7 @@ from tests.combined_reads import compose_combined_reads
 
 USER = {"id": 7, "email": "trader@example.invalid", "name": "Sample", "picture_url": None, "autopilot": 0, "ui_theme": "tau"}
 ACCOUNT = {"user": {"id": 7, "ui_theme": "tau"}}
-ROUTES = ("dashboard", "autopilot_status", "list_runs", "get_run", "list_strategies", "list_deployments", "billing_state",
+ROUTES = ("dashboard", "autopilot_status", "list_runs", "get_run", "list_strategies", "get_strategy", "list_deployments", "billing_state",
           "research_scoreboard", "funds", "notifications")
 # The bell's list (/api/notifications), which every signed-in shell carries after its page's own reads.
 BELL = {"unread": 1, "items": [{"id": 9, "kind": "paused", "body": "</script>Edge was paused.", "link": "/strategies/4",
@@ -101,6 +101,8 @@ def _record(monkeypatch, name, answer):
     ("/research", "list_runs", "/api/runs", (), {}),
     ("/research/943", "get_run", "/api/runs/943?after=0", ("943",), {"after": "0"}),
     ("/strategies", "list_strategies", "/api/strategies?page=0", (), {"page": "0"}),
+    # A strategy's page asked its one read only once its bundle and page file had run: a round trip after them.
+    ("/strategies/28", "get_strategy", "/api/strategies/28", ("28",), {}),
     ("/", "dashboard", "/api/dashboard", (), {}),
     ("/dashboard", "dashboard", "/api/dashboard", (), {}),
 ])
@@ -479,6 +481,10 @@ def test_a_demo_check_reads_the_memo_alone_and_keeps_a_line_from_a_figure_under_
 def test_then_reads_names_the_deploy_boards_pending_demo_cash():
     assert shell_reads.then_reads("/api/deployments", {"demo_health": None, "demo_health_pending": True}) == ["/api/funds/cash?book=demo"]
     assert shell_reads.then_reads("/api/deployments", {"demo_health": None}) == []
+    # A strategy page's ladder waits on the same demo cash for its demo rung (demoCashRead in its page file).
+    assert shell_reads.then_reads("/api/strategies/28", {"demo_health": None, "demo_health_pending": True}) == ["/api/funds/cash?book=demo"]
+    assert shell_reads.then_reads("/api/strategies/28", {"demo_health": None}) == []
+    assert shell_reads.then_reads("/api/strategies/28/live-readiness", {"demo_health_pending": True}) == []
 
 
 def test_then_reads_names_the_dashboards_and_the_autopilots_pending_cash_once():
@@ -749,6 +755,9 @@ def test_a_failed_first_read_leaves_the_page_to_ask_and_the_account_carried(web,
     _record(monkeypatch, "get_run", ApiError(404, "No such research session."))
     r, html = _shell(web, "/research/5")
     assert r.status == 200 and _first(html) == [] and 'id="tau-me"' in html
+    _record(monkeypatch, "get_strategy", ApiError(404, "No such strategy."))  # another's, or deleted: the page says so itself
+    r, html = _shell(web, "/strategies/5")
+    assert r.status == 200 and _first(html) == [] and 'id="tau-me"' in html
     _record(monkeypatch, "list_deployments", RuntimeError("db down"))
     r, html = _shell(web, "/deploy")
     assert r.status == 200 and _first(html) == [] and 'id="tau-me"' in html
@@ -844,8 +853,8 @@ def test_no_page_read_has_a_path_that_waits_on_kalshi():
     # The shell carries those same handlers, with nothing between: the pages that show Kalshi cash name exactly
     # the reads checked above, and no first read the shell names on any page reaches a Kalshi wait either.
     carried = {}
-    for page in ("/", "/dashboard", "/funds", "/settings/account", "/research", "/research/12", "/strategies", "/deploy",
-                 "/billing", "/settings/billing"):
+    for page in ("/", "/dashboard", "/funds", "/settings/account", "/research", "/research/12", "/strategies", "/strategies/12",
+                 "/deploy", "/billing", "/settings/billing"):
         for url, fn, _, _ in shell_reads.first_requests(page, "", {"tau_tz": "-60"}):
             carried[(page, url.split("?", 1)[0])] = fn
     for page in ("/", "/dashboard"):
