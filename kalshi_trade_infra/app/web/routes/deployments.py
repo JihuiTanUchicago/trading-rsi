@@ -174,18 +174,6 @@ def _paper_pace(deps: List[Dict], strategy_id: int, trades: int, events: int, sp
             "trades_per_day": round(rate["per_day"], 1) if rate else None, "rate_from": rate["source"] if rate else None}
 
 
-def _paper_record(trips: List[Dict]) -> Dict:
-    """Trades, separate events and first-to-last hours of a strategy's realistic paper round trips,
-    counted as agent.paper_evidence counts them, for the Deploy board's road-to-live line."""
-    span_h = 0.0
-    if trips:
-        start = trips[0].get("opened_at")
-        end = max((t.get("closed_at") for t in trips if t.get("closed_at")), default=None)
-        if start and end:
-            span_h = max(0.0, (end - start).total_seconds() / 3600.0)
-    return {"trades": len(trips), "events": len(agent._trip_events(trips)), "span_hours": round(span_h, 1)}
-
-
 ROAD_TTL = 30.0  # seconds; the Deploy board polls every 10s and a record moves only when a trade closes
 
 
@@ -222,7 +210,7 @@ def _deploy_roads(cur, uid: int, deps: List[Dict], memo: Optional[book_memo.Book
     never = {int(d["strategy_id"]): d["cleared_never"] for d in deps if d["mode"] == "paper" and d.get("cleared_never")}
     forward = {int(d["strategy_id"]): int(d["forward_sample"]) for d in deps if d["mode"] == "paper" and d.get("forward_sample")}
     for sid in sids:
-        rec = _paper_record(trips.get(sid, []))
+        rec = road_ahead.paper_record(trips.get(sid, []))
         road = {**rec, "trades_needed": agent.MIN_REALISTIC_PAPER_TRADES, "events_needed": agent.MIN_PAPER_EVENTS,
                 "span_needed_hours": agent.MIN_PAPER_SPAN_HOURS,
                 **_paper_pace(deps, sid, rec["trades"], rec["events"], rec["span_hours"])}

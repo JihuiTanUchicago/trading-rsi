@@ -401,6 +401,12 @@ def test_each_fact_the_chat_is_given_is_the_pages(conn, quiet, case):
     assert not re.search(r"KX[A-Z0-9]+-", brief), "a raw contract ticker"
     assert not re.search(r"claude|anthropic|sonnet|opus|haiku|Traceback", brief, re.I)
     assert "Bitcoin above $X" not in brief  # the research model's label, never the long name
+    # The live check's refusal is the count Deploy and Road to live give (chat_facts.live_check_why): "it needs 8+ closed
+    # paper trades first (has 4)" stood beside "4/30 realistic paper trades" (walk 2026-11-01), a count no page shows.
+    assert "%d+ closed paper trades" % agent.MIN_PAPER_TRADES_FOR_LIVE not in brief
+    if case == "paper_only":
+        assert "4/30 realistic paper trades" in brief
+        assert "not live-ready: it needs 30+ closed paper trades on realistic fills first (has 4)" in brief
 
 
 def test_the_contexts_reads_stay_bounded_as_the_account_grows(conn, quiet):
@@ -478,3 +484,7 @@ def test_a_paper_forward_test_is_one_figure_on_deploy_its_page_the_panel_and_the
     assert "first its paper forward test: " + said in brief
     # Its forward test comes first in the facts, its live counts after it, said so.
     assert brief.index("first its paper forward test: ") < brief.index("then the live check, paper evidence: 12/30")
+    # Its live counts give no reason of their own beside the forward test's figure (chat_facts.live_check_why).
+    live = brief.split("then the live check, paper evidence: ", 1)[1].split("\n", 1)[0]
+    assert live.endswith("not live-ready: the live check counts this record only after its paper forward test passes "
+                         "(its stage line says what that needs)") and "closed paper trades" not in live

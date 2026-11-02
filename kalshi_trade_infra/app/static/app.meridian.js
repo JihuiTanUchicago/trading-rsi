@@ -3343,7 +3343,12 @@
     });
   }
   // -- Explore + Hot Markets --------------------------------------------------
-  const mktLabel = (m) => { const t = comboTitle((m.ti || '').trim()), s = (m.su || '').trim(); return s && !subSaid(t, s) ? (t ? `${t}${SEP}${s}` : s) : (t || contractName(m.t)); };
+  // A game whose teams Tau names, in Tau's words (contractWords: "NFL: Chiefs vs Bills on Nov 1, Chiefs to win"), the
+  // ones its market page is headed in and its positions, Home and Deploy use; '' for any other contract. Explore's rows and
+  // the hot rail said Kalshi's "Kansas City at Buffalo Winner? · Kansas City" for the market that page heads in Tau's words
+  // (walk 2026-11-01). A league or team Tau doesn't name keeps Kalshi's title (gameNamed).
+  const gameTitle = (ticker) => { const k = gameNamed(ticker) && contractMkt(ticker); return k ? contractWords(ticker, marketFull(k.key)) : ''; };
+  const mktLabel = (m) => { const g = gameTitle(m.t); if (g) return g; const t = comboTitle((m.ti || '').trim()), s = (m.su || '').trim(); return s && !subSaid(t, s) ? (t ? `${t}${SEP}${s}` : s) : (t || contractName(m.t)); };
   // Explore, its list and one market's page, is in page-explore.js (one for both themes), fetched on first use (page
   // files, at the end of this file). The close clock below stays here: positions and the hot rail use it too.
   function viewExplore() { return pageView('explore', 'viewExplore', '/explore', []); }
@@ -4311,13 +4316,19 @@
   const condWide = (su) => TARGET_IN.test(su) || /\$\s*[\d,]+(?:\.\d+)?\s+to\s+\$?\s*[\d,]+/i.test(su);
   function hotRowHtml(m) {
     const compactName = contractShort(m.t) || comboTitle((m.ti || '').trim()) || contractName(m.t);
+    // Beside its market's short name ("NFL winner"), a game whose teams Tau names says them in Tau's words, as Explore and
+    // its market page do: gameTitle past its league ("NFL: "), "Chiefs vs Bills on Nov 1, Chiefs to win"; Kalshi's "Kansas
+    // City" read alone. Its words take a row of their own, as a wide condition does: cut to the column, two sides of one
+    // game read alike.
+    const gameName = gameTitle(m.t), game = !!gameName;
+    const cond = game ? gameName.slice(gameName.indexOf(': ') + 2) : m.su && m.su.trim() !== (m.ti || '').trim() ? compactCondition(m.su) : '';
     const when = (m.ct ? `${SEP}${esc(closeWords(m.ct, 'chip', 0, true))}` : '') + (rowVs(m) ? `${SEP}${vsLab(m)} ${vsText(rowVs(m), m)}` : '');
     const mid = midOf(m), h = m.h || [], delta = h.length >= 2 ? h[h.length - 1] - h[0] : 0;
     const dCents = Math.round(delta * 100), dir = dCents > 0 ? 'pos' : dCents < 0 ? 'neg' : '';
     // A row opens the market's own page in Tau, as Explore's rows do: it opened Kalshi in a new tab, away from the
     // countdown, the spot section and the reader's positions there.
     return `<a class="hot-row" href="${marketHref(m.t)}" aria-label="${esc([mktLabel(m), contractShort(m.t)].filter(Boolean).join(SEP))}${SEP}${mid == null ? 'Quote unavailable' : `${hotPriceWord(m)} ${cents(mid)}`}${dCents ? `${SEP}${dCents > 0 ? '+' : '−'}${Math.abs(dCents)}¢ across available history` : ''}${SEP}${kfmt(m.v24)} volume over 24 hours${plain(when)}">
-      <span class="hot-quote"><span class="hot-title" title="${esc(mktLabel(m))}"><strong>${esc(compactName)}</strong>${m.su && m.su.trim() !== (m.ti || '').trim() ? `<span${condWide(m.su) ? ' class="hot-cond-wide"' : ''}>${glueTarget(esc(compactCondition(m.su)))}</span>` : ''}</span><span class="hot-price" title="${hotPriceWord(m)}"><b class="fig">${mid == null ? '—' : cents(mid)}</b>${dCents ? `<span class="hot-delta ${dir}" title="Change across available price history">${dCents > 0 ? '+' : '−'}${Math.abs(dCents)}¢</span>` : ''}</span></span>
+      <span class="hot-quote"><span class="hot-title" title="${esc(mktLabel(m))}"><strong>${esc(compactName)}</strong>${cond ? `<span${game || condWide(m.su) ? ' class="hot-cond-wide"' : ''}>${glueTarget(esc(cond))}</span>` : ''}</span><span class="hot-price" title="${hotPriceWord(m)}"><b class="fig">${mid == null ? '—' : cents(mid)}</b>${dCents ? `<span class="hot-delta ${dir}" title="Change across available price history">${dCents > 0 ? '+' : '−'}${Math.abs(dCents)}¢</span>` : ''}</span></span>
       <span class="hot-foot"><span class="hot-meta"><span class="hot-vol" title="24-hour volume">${kfmt(m.v24)}${SEP}24h</span></span></span>${hotWhen(m)}</a>`;
   }
   function renderHotRail() {
@@ -4501,7 +4512,7 @@
   const shared = () => shareMap || (shareMap = new Proxy({
     BTC_CONTRACT, closeLeft, closeWords, comboTitle, compactCondition, contractMkt, contractShort, EXPLORE_NO_FEED, EXPLORE_WAIT,
     exploreEmpty, exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, hourET, kalshiUrl, keepFocus, marketSpot, midOf, MKT_GONE, pricesOld,
-    MKT_STATUS, mktLabel, gameNamed, gameYes, contractWords, NO_MARK, rulesText, spotListNote, spotSect, strikeIn, sum4, usdShare, vsHtml,
+    MKT_STATUS, mktLabel, gameTitle, gameNamed, gameYes, contractWords, NO_MARK, rulesText, spotListNote, spotSect, strikeIn, sum4, usdShare, vsHtml,
     actionLink, adminViewOn, alert0, announce, staleLine, SEP, sepLine, gloSep, WJ, plain, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apSaid, depSaid, depWrite,
     apExpanded, apFlash, apFloorText, apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, fundsLinked,
     apMarketNames, apQueued, apNudge, apReloadFailed, apShowFocus, apStale, apStillTrading, apStory, apSwitchOn, apEvery, apWhenSpan,

@@ -623,6 +623,17 @@ window.TauPage('strategy', (T) => {
     } else if (s.status === 'passed' && !h && p && p.n_trades != null && exp.classification === 'deployment_candidate') {
       lead = 'Passed on paper.';
       words = `It fell short on its first test on unseen data, then passed its one judgment on its own paper trades (${num(p.n_trades)}) and every check after it.`;
+    } else if (s.status === 'passed' && v && v.n_trades != null && !h && v.classification && v.classification !== 'statistically_supported'
+      && !['deployment_candidate', 'forward_validated'].includes(exp.classification)) {
+      // Its gatekeeper record says its validation didn't pass (exp.validation's classification) though its status reads
+      // passed: the glance said "Passed validation. It cleared the checks on 48 trades" over Verdict's "Inconclusive" and a
+      // ladder whose next rung was its paper forward test (walk 2026-11-01). It says what the record holds; the status, the
+      // gates and their decisions are unchanged.
+      const need = forwardPending(s), weak = v.classification === 'inconclusive';
+      lead = need ? 'In its paper forward test.' : weak ? 'Validation inconclusive.' : 'Missed validation.';
+      words = `Its first test on unseen data (${num(v.n_trades)} trades) ${weak ? 'was too weak to show an edge that isn’t luck' : 'didn’t show an edge that holds up'}, so it didn’t pass validation${need
+        ? `. One judgment on its own paper trades, made once its record holds ${num(need)} of them from 20+ separate events, can still clear it to trade.`
+        : ', and the gatekeeper hasn’t cleared it to trade.'}`;
     } else if (s.status === 'passed' && v && v.n_trades != null && !h) {
       lead = 'Passed validation.';
       words = `It cleared the checks on ${num(v.n_trades)} trades it had never seen; the one-time locked holdout hasn’t run yet.`;

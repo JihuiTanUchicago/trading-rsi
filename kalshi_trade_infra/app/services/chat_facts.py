@@ -208,6 +208,28 @@ def paper_stage_line(stage: str, forward: Optional[Dict] = None) -> str:
     return ""
 
 
+def live_check_why(ev: Dict, forward: Optional[Dict] = None) -> str:
+    """Why the live check refuses a paper record, for the chat's "paper evidence" line, said as Deploy's road and the
+    strategy page's Road to live say it. agent.paper_evidence's `why` names its first failing check, and the first is the
+    legacy count of closed paper trades of any kind: "it needs 8+ closed paper trades first (has 3)" stood in the facts
+    beside "3/30 realistic paper trades" and a forward test of "3 of 40 trades" (walk 2026-11-01), a count no page shows,
+    since the 30 realistic trades after it are always more. While the realistic count refuses too, that count's own reason
+    is said (or, when the record is also down, the check between them), as the gate's next check words it. One still in
+    its paper forward test (`forward`, road_ahead.forward_figure) says the live check comes only after that judgment, as
+    its stage line and Deploy do, and never a count of its own beside the forward test's. The gate and its order are
+    unchanged: this only reads `checks`, the counts and `why`."""
+    if ev.get("ready"):
+        return ""
+    if forward:
+        return "the live check counts this record only after its paper forward test passes (its stage line says what that needs)"
+    checks = ev.get("checks") or {}
+    if checks.get("legacy_trades") is False and checks.get("realistic_trades") is False:
+        if checks.get("legacy_pnl") is False:
+            return "it's still down $%.2f on paper" % -float(ev.get("legacy_pnl") or 0)
+        return "it needs %d+ closed paper trades on realistic fills first (has %d)" % (int(ev["trades_needed"]), int(ev["trades"]))
+    return ev.get("why") or ""
+
+
 def live_cash_line(connected: bool, memo: Optional[tuple] = None) -> str:
     """The live book's cash at Kalshi as Home and Funds show it (funds.kalshi_cash): the key's balance memo when it is
     kept (`memo`: (cash, read at) or None), never a read of Kalshi. Without a figure it says where the user sees it, so

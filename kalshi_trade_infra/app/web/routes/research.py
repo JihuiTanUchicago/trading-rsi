@@ -12,12 +12,11 @@ from app import repository as repo
 from app.adapters.llm import models_catalog as catalog
 from app.adapters.stripe import billing
 from app.research import agent, dreaming
-from app.services import customer_text, gate_explain, paper_checks, reader_day, research_list, run_stop
+from app.services import customer_text, gate_explain, paper_checks, reader_day, research_list, road_ahead, run_stop
 from app.services import markets as market_service
 from app.trading.markets import MARKETS
 from app.web.caches import _shared, _shared_kept
 from app.web.http import ApiError, Ctx, _int_param, _int_query
-from app.web.routes.deployments import _paper_record
 from app.web.routes.explore import _efloat, _explore_feed, _feed_mid, _ticker_close_at
 from app.web.routes.strategies import (HELD_BACK, _attach_no_record, _attach_past_records, _attach_session_real_records, _autopilot_puts_on_paper,
                                        _held_back_lines, _later_verdicts, _owned_strategy, _research_pass_verdicts, _strategy_card, warm_dev_curves)
@@ -750,7 +749,7 @@ def _kept_live_ready(cur, uid: int, trips_by: Dict[int, List[Dict]]):
     reads and its bootstrap per strategy were most of a cold board; the Deploy board, the startup warm-up
     (keep_scoreboard_checks) and the board's own earlier reads hold the same answers."""
     def ready(sid: int) -> bool:
-        rec = _paper_record(trips_by.get(sid, []))
+        rec = road_ahead.paper_record(trips_by.get(sid, []))
         return paper_checks.live_ready(cur, uid, sid, (rec["trades"], rec["events"], rec["span_hours"]))
     return ready
 

@@ -1003,8 +1003,8 @@ def _furthest(sids: List[int], prog: Dict[int, Tuple[int, float]], never: Dict[i
               forward: Optional[Dict[int, int]] = None) -> Tuple[int, List[int]]:
     """(the paper strategy furthest along, by realistic trades then net, among those whose paper record counts toward
     live, else among those still in their paper forward test, else among all; the ones whose record counts toward
-    live). `prog` is book_memo.paper_readouts' counts, `never` {strategy id: its deployment row's cleared_never} for
-    those the gatekeeper can no longer clear, `forward` {strategy id: its deployment row's forward_sample} for those
+    live). `prog` is the paper records' {strategy id: (trades, net)} (rsi.paper_progress_of), `never` {strategy id: its
+    deployment row's cleared_never} for those the gatekeeper can no longer clear, `forward` {strategy id: its deployment row's forward_sample} for those
     it will still judge once on their paper trades: until that judgment passes, their count is no step toward live.
     "Furthest on paper" named a probation strategy with 40 trades "(30 needed)" over one cleared to trade."""
     forward = forward or {}
@@ -1080,8 +1080,15 @@ def autopilot_status(ctx: Ctx):
     paper_progress = None
     if paper_run:
         sids = sorted({int(d["strategy_id"]) for d in paper_run})
-        # Both readouts are kept until the positions (or which deployments count toward them) change.
-        prog, events = book_memo.paper_readouts(memo, sids)
+        # Each one's realistic paper record from its round trips, the Deploy board's read (kept until the positions, or
+        # which deployments count toward them, change): its trades and net, its separate events and its first-to-last
+        # span, so the estimates below are Deploy's (road_ahead) to the day. They counted the hours from the deployment's
+        # age, where Deploy counts the record's own span, and read the events apart from it.
+        from app.research import rsi
+        trips_by = book_memo.paper_round_trips_by_strategy(memo, sids)
+        prog = rsi.paper_progress_of(trips_by)
+        recs = {s: road_ahead.paper_record(trips_by.get(s) or []) for s in sids}
+        events = {s: r["events"] for s, r in recs.items() if r["trades"]}
         titles = {int(d["strategy_id"]): d.get("title") or "" for d in paper_run}
         never = {int(d["strategy_id"]): d["cleared_never"] for d in paper_run if d.get("cleared_never")}
         forward = {int(d["strategy_id"]): int(d["forward_sample"]) for d in paper_run if d.get("forward_sample")}
@@ -1096,13 +1103,12 @@ def autopilot_status(ctx: Ctx):
         if paper_progress.get("forward_sample"):
             # Deploy's figure for it (road_ahead): the same N of M and the same estimate at its pace as its row and page.
             ev_n = events.get(best) or 0
-            paper_progress.update(road_ahead.forward_figure(paper_run, best, trades, ev_n, forward[best],
-                                                            road_ahead.live_eta(paper_run, best, trades, ev_n)))
+            paper_progress.update(road_ahead.forward_figure(paper_run, best, trades, ev_n, forward[best], road_ahead.live_eta(
+                paper_run, best, trades, ev_n, recs[best]["span_hours"])))
         # When the soonest one that can still be cleared could have a full record for the live check, at the pace
-        # each trades.
-        from app.research import rsi
-        dep_of = {int(d["strategy_id"]): d for d in reversed(paper_run)}  # oldest deployment per strategy
-        etas = {s: rsi.paper_eta_days(dep_of[s], prog.get(s, (0, 0.0))[0], events=events.get(s)) for s in open_sids}
+        # each trades: Deploy's road estimate for each (road_ahead.live_eta, from its oldest running paper deployment).
+        etas = {s: road_ahead.live_eta(paper_run, s, prog.get(s, (0, 0.0))[0], events.get(s), recs[s]["span_hours"])
+                for s in open_sids}
         etas = {s: v for s, v in etas.items() if v is not None}
         if etas:
             soon = min(etas, key=etas.get)

@@ -3041,7 +3041,12 @@
     });
   }
   // -- Explore + Hot Markets --------------------------------------------------
-  const mktLabel = (m) => { const t = comboTitle((m.ti || '').trim()), s = (m.su || '').trim(); return s && !subSaid(t, s) ? (t ? `${t}${SEP}${s}` : s) : (t || contractName(m.t)); };
+  // A game whose teams Tau names, in Tau's words (contractWords: "NFL: Chiefs vs Bills on Nov 1, Chiefs to win"), the
+  // ones its market page is headed in and its positions, Home and Deploy use; '' for any other contract. Explore's rows and
+  // the hot rail said Kalshi's "Kansas City at Buffalo Winner? · Kansas City" for the market that page heads in Tau's words
+  // (walk 2026-11-01). A league or team Tau doesn't name keeps Kalshi's title (gameNamed).
+  const gameTitle = (ticker) => { const k = gameNamed(ticker) && contractMkt(ticker); return k ? contractWords(ticker, marketFull(k.key)) : ''; };
+  const mktLabel = (m) => { const g = gameTitle(m.t); if (g) return g; const t = comboTitle((m.ti || '').trim()), s = (m.su || '').trim(); return s && !subSaid(t, s) ? (t ? `${t}${SEP}${s}` : s) : (t || contractName(m.t)); };
   // Explore, its list and one market's page, is in page-explore.js (one for both themes), fetched on first use (page
   // files, at the end of this file). The close clock below stays here: positions and the hot rail use it too.
   function viewExplore() { return pageView('explore', 'viewExplore', '/explore', []); }
@@ -4326,7 +4331,7 @@
   const shared = () => shareMap || (shareMap = new Proxy({
     BTC_CONTRACT, closeLeft, closeWords, comboTitle, compactCondition, contractMkt, contractShort, EXPLORE_NO_FEED, EXPLORE_WAIT,
     exploreEmpty, exploreNoShow, exploreShowOf, exploreShowFig, exploreNoFeed, exploreShowChips, exploreShowButtons, hourET, kalshiUrl, keepFocus, marketSpot, midOf, MKT_GONE, pricesOld,
-    MKT_STATUS, mktLabel, gameNamed, gameYes, contractWords, NO_MARK, rulesText, spotListNote, spotSect, strikeIn, sum4, usdShare, vsHtml,
+    MKT_STATUS, mktLabel, gameTitle, gameNamed, gameYes, contractWords, NO_MARK, rulesText, spotListNote, spotSect, strikeIn, sum4, usdShare, vsHtml,
     actionLink, adminViewOn, alert0, announce, staleLine, SEP, sepLine, gloSep, WJ, plain, AP_CARD_FIX, AP_FOCUS, AP_MODE, AP_PICKING, apAction, apSaid, depSaid, depWrite,
     apExpanded, apFlash, apFloorText, apFocusPaint, apFocusText, api, apIdleHtml, ApiError, apLastHtml, apLiveBlock, apLiveBlockHtml, fundsLinked,
     apMarketNames, apQueued, apNudge, apReloadFailed, apShowFocus, apStale, apStillTrading, apStory, apSwitchOn, apEvery, apWhenSpan,

@@ -5030,7 +5030,10 @@ def _copilot_context(cur, user: Dict) -> str:
                 said = chat_facts.paper_stage_line(stage, fwd)
                 if said and fwd:
                     lines.append("    " + said)
-                lines.append("    %s: %s" % ("then the live check, paper evidence" if fwd else "paper evidence", paper_evidence_line(ev)))
+                # Its refusal as Deploy and Road to live say it (chat_facts.live_check_why): never the legacy "8+ closed
+                # paper trades" beside the 30 realistic ones and the forward test's own count.
+                lines.append("    %s: %s" % ("then the live check, paper evidence" if fwd else "paper evidence",
+                                             paper_evidence_line(dict(ev, why=chat_facts.live_check_why(ev, fwd)))))
                 if said and not fwd:
                     lines.append("    " + said)
             except Exception:
