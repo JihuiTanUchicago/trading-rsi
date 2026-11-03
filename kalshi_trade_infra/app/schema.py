@@ -916,6 +916,7 @@ def main() -> None:
         for u in cur.fetchall():
             _repo.assign_username(cur, u["id"], u["email"], u["name"])
         apply_focus_decision(cur)
+        apply_btc_only_decision(cur)
         # One-time migration: seed spot_candles_1m with existing BTC history so the
         # generalized backtester has BTC's full price path. Idempotent (INSERT IGNORE on PK).
         cur.execute(
@@ -950,6 +951,37 @@ def apply_focus_decision(cur) -> bool:
     _repo.set_autopilot_focus(cur, FOCUS_DECISION_USER, new)
     _repo.add_chat(cur, FOCUS_DECISION_USER, "system", "Market focus set to %s. %s" % (
         agent.focus_words(new), FOCUS_DECISION_MARKER))
+    return True
+
+
+# Todd 2026-11-03 13:32Z tapped "No, go BTC-only" on the card "Restore a sharp sportsbook odds feed to test sports
+# against?" (consequence: stop weather and sports research spend, put the budget on Bitcoin). It undoes the Oct 31
+# widening above: weather and sports leave his focus, crypto stays (TAU_AUTOPILOT_CRYPTO_COINS keeps crypto to
+# Bitcoin). Same one-time chat marker, so a focus he sets later is never overwritten. Runs after the Oct 31 one, so
+# a fresh database ends at crypto too.
+BTC_ONLY_DECISION_MARKER = "(your decision on Nov 3: Bitcoin only, no sportsbook odds feed)"
+BTC_ONLY_KEEP = "crypto"
+
+
+def apply_btc_only_decision(cur) -> bool:
+    from app import repository as _repo
+    from app.research import agent, rsi
+    cur.execute("SELECT autopilot_focus FROM app_users WHERE id=%s", (FOCUS_DECISION_USER,))
+    row = cur.fetchone()
+    if not row or _repo.chat_contains(cur, FOCUS_DECISION_USER, "system", BTC_ONLY_DECISION_MARKER):
+        return False
+
+    def crypto(token: str) -> bool:  # a crypto family, a crypto market key or a coin ticker
+        fam = rsi.family(token) if token in agent.MARKETS else token
+        coin = token in agent.FOCUS_WORDS and not token.startswith("weather")
+        return coin or fam == BTC_ONLY_KEEP or fam.startswith(BTC_ONLY_KEEP + "-")
+
+    old = agent.focus_tokens(row)
+    new = [t for t in old if crypto(t)] or [BTC_ONLY_KEEP]
+    if new != old:
+        _repo.set_autopilot_focus(cur, FOCUS_DECISION_USER, new)
+    _repo.add_chat(cur, FOCUS_DECISION_USER, "system", "Market focus set to %s. %s" % (
+        agent.focus_words(new), BTC_ONLY_DECISION_MARKER))
     return True
 
 

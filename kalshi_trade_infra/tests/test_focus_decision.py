@@ -1,4 +1,4 @@
-"""Todd's 2026-10-31 card ("Yes, weather + sports, $240/day cap") widens his stored focus once."""
+"""Todd's cards on his stored focus: 2026-10-31 widens it to weather and sports, 2026-11-03 narrows it to Bitcoin."""
 import json
 
 from app import schema
@@ -35,3 +35,25 @@ def test_the_decision_adds_weather_and_sports_once_and_says_so_in_chat():
 def test_no_focus_means_everything_is_already_in_scope():
     cur = _Cur(None)
     assert not schema.apply_focus_decision(cur) and cur.focus is None and cur.chat == []
+
+
+def test_btc_only_decision_drops_weather_and_sports_once():
+    cur = _Cur(json.dumps(["crypto", "weather-high", "sports"]))
+    assert schema.apply_btc_only_decision(cur)
+    assert json.loads(cur.focus) == ["crypto"]
+    assert cur.chat[-1].startswith("Market focus set to crypto.")
+    cur.focus = json.dumps(["crypto", "sports"])             # he widens it again later: never overwritten
+    assert not schema.apply_btc_only_decision(cur) and json.loads(cur.focus) == ["crypto", "sports"]
+
+
+def test_btc_only_keeps_coins_and_falls_back_to_crypto():
+    cur = _Cur(json.dumps(["btc", "sports"]))
+    assert schema.apply_btc_only_decision(cur) and json.loads(cur.focus) == ["btc"]
+    cur = _Cur(None)                                         # no focus meant every market: now crypto only
+    assert schema.apply_btc_only_decision(cur) and json.loads(cur.focus) == ["crypto"]
+
+
+def test_fresh_database_ends_at_crypto_after_both_decisions():
+    cur = _Cur(json.dumps(["crypto"]))
+    assert schema.apply_focus_decision(cur) and schema.apply_btc_only_decision(cur)
+    assert json.loads(cur.focus) == ["crypto"]
