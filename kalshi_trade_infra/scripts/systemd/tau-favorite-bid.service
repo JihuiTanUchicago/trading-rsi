@@ -1,0 +1,12 @@
+[Unit]
+Description=Pre-registered forward test of the BTC favorite-bid lead (app.favorite_bid_run): replays a resting 99c bid on KXBTC15M against recorded books and prints, settles on the official BRTI average, no orders; results to S3 research-watch/favorite-bid/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=1500M
+TimeoutStartSec=2h
+Environment=TAU_TICK_CACHE=/opt/kalshi/cache/favorite_bid_ticks
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.favorite_bid_run >> /opt/kalshi/logs/favorite_bid.log 2>&1'
+ExecStartPost=/bin/bash -c 'rm -rf /opt/kalshi/cache/favorite_bid_ticks'
