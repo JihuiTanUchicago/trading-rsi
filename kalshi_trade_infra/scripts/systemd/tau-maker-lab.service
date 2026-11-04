@@ -8,4 +8,5 @@ Nice=15
 MemoryMax=4G
 TimeoutStartSec=4h
 Environment=TAU_TICK_CACHE=/opt/kalshi/ticks-cache
+ExecStartPre=/bin/bash -c 'find /opt/kalshi/ticks-cache -type f -mmin +360 -delete 2>/dev/null; true'
 ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.maker_lab_run --series auto >> /opt/kalshi/logs/maker_lab.log 2>&1'
