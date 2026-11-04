@@ -85,6 +85,10 @@ cat > "$SCRIPT" <<EOF
 set -uo pipefail
 cd ${BOX_DIR}
 T=\$(date +%s)
+# Replay jobs (maker lab, LIP paper) cache S3 tick hours in /opt/kalshi/ticks-cache: copies that
+# TickStore re-downloads on demand. Prune hours untouched for 6h so a full disk never blocks a deploy
+# (2026-11-04: the cache reached 27G, the root disk hit 100% and the deploy rolled back on ENOSPC).
+find /opt/kalshi/ticks-cache -type f -mmin +360 -delete 2>/dev/null; find /opt/kalshi/ticks-cache -mindepth 1 -type d -empty -delete 2>/dev/null
 aws s3 cp "s3://${BUCKET}/${BKEY}" /tmp/tau_bundle.tgz || { echo "S3 FETCH FAILED"; exit 1; }
 # trading_core/ (ARCHITECTURE.md) is new on the box at its first deploy: mkdir -p gives it an empty
 # backup, so a rollback then restores "no core" exactly.
