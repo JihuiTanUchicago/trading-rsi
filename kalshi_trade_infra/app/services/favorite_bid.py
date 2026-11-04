@@ -17,10 +17,12 @@ judged with a queue-aware replay, pessimistic on purpose:
   queue ahead;
 * a fill holds to settlement and pays Kalshi's maker fee, rounded up per order.
 
-Discovery result (KXBTC15M, 99c, last 420s, 100 lots): 782 fills, 3 losses (0.38%) against a 0.98%
-break-even loss rate, +0.60c a contract, one-sided binomial p 0.052, both halves positive. That is one
-of 32 grid cells, so it is a LEAD, not a pass. The forward test below is pre-registered and reads only
-days after the discovery window.
+Discovery result (KXBTC15M, 99c, last 420s, 100 lots, 10-25 to 11-03 at full 1s resolution): 885
+fills, 6 losses (0.68%) against a 0.98% break-even loss rate, +0.30c a contract, one-sided binomial
+p 0.23. All makers at 99c in the same window (any queue position) earned +0.66 to +0.84c, so the back
+of the queue gives up about half the edge to faster makers. One of 12 grid cells, not significant: a
+LEAD, not a pass. The forward test below is pre-registered and reads only days after the discovery
+window, with ONE judgment at MIN_FILLS.
 """
 from __future__ import annotations
 
@@ -36,7 +38,8 @@ QTY = 100                    # contracts per order (fee rounding; fills scale ~l
 DISCOVERY_FROM = "2026-10-24T19:00:00Z"
 DISCOVERY_TO = "2026-11-04T04:00:00Z"
 FORWARD_FROM = "2026-11-04T05:00:00Z"   # first close the forward test may count
-MIN_FILLS = 1300             # ~80% power to see 0.38% vs the 0.98% break-even loss rate at alpha 0.05
+MIN_FILLS = 2600             # ~30 days. Power at alpha 0.05: ~45% if the loss rate is 0.68% (discovery),
+                             # ~95% at 0.38% (the first, 10s-sampled pass); a null passes 5%
 ALPHA = 0.05
 
 # Descriptive grid, reported alongside, never judged.

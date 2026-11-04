@@ -52,9 +52,9 @@ def test_judge_breakeven_and_binomial():
     assert abs(j["p_binom"] - (1 - j["break_even_loss_rate"]) ** 500) < 1e-9
     assert fb.verdict(j) .startswith("accruing")
     big = wins * 3
-    assert fb.verdict(fb.judge(big, 0.99)) == "PASS"
+    assert fb.verdict(fb.judge(big, 0.99), min_fills=1000) == "PASS"
     losing = [fb.Fill("L%d" % i, 10_000 + i, "yes", 0.99, 100, 0.0, 0.02, 60, 0) for i in range(30)]
-    assert fb.verdict(fb.judge(big + losing, 0.99)) == "FAIL"
+    assert fb.verdict(fb.judge(big + losing, 0.99), min_fills=1000) == "FAIL"
 
 
 def test_binomial_cdf_matches_closed_form():
