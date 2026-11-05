@@ -880,6 +880,14 @@ EXHAUSTED_RUN_ERROR = ("Every kind of idea has been tried on the markets autopil
                        "re-testing ideas when the data they needed arrives.")
 
 
+# Todd 2026-11-05: "I don't get why you say you exhaust." The count proves the loop ran out of taker ideas,
+# not that a market has no edge, so reviews must not tell the user "exhausted" or "no strategy exists".
+_SEARCHED_NOTE = ("That counts proposals, not proof the market has no edge: tell the user \"searched out by the "
+                  "taker loop\", never \"exhausted\" or \"no strategy exists\". On Bitcoin, hand-built tests "
+                  "(2026-11-05) of stat arb, lead-lag, momentum and rotation found real lags worth 0.2-1.5c a "
+                  "contract against 2.25-4.5c of taker cost.")
+
+
 def _exhausted_line(cur, user_id: int) -> str:
     keys = _autopilot_research_keys(cur, user_id)
     closed = closed_markets(cur, user_id, keys)
@@ -887,14 +895,16 @@ def _exhausted_line(cur, user_id: int) -> str:
         return ""
     if set(keys) <= set(closed):
         probes = sum(len(v) for v in closed.values())
-        return ("Exhausted markets (the user's decision): long-term memory shows the mechanisms tested 10+ times "
-                "with nothing reaching the gate on every market you may research (%s). Autopilot does NOT start "
+        return ("Searched-out markets (the user's decision): long-term memory shows the LLM proposer's TAKER ideas "
+                "tested 10+ times per mechanism with nothing reaching the gate on every market you may research (%s). "
+                "%s Autopilot does NOT start "
                 "research on them; that spend moved to market making (its own paper lab) and to re-tests when "
                 "data collected for an idea arrives.%s Do not propose research now; that is expected, not a stall."
-                % (", ".join(sorted(closed)), (" It runs %d final probe(s) of the kinds tested too little "
+                % (", ".join(sorted(closed)), _SEARCHED_NOTE, (" It runs %d final probe(s) of the kinds tested too little "
                                                 "itself." % probes) if probes else ""))
-    return ("Exhausted markets (the user's decision), do NOT propose research on these: %s. Long-term memory "
-            "shows the mechanisms tested 10+ times there with nothing reaching the gate." % ", ".join(sorted(closed)))
+    return ("Searched-out markets (the user's decision), do NOT propose research on these: %s. Long-term memory "
+            "shows the LLM proposer's taker ideas tested 10+ times per mechanism there with nothing reaching the "
+            "gate. %s" % (", ".join(sorted(closed)), _SEARCHED_NOTE))
 
 
 def _coin_aliases() -> Dict[str, List[str]]:
@@ -1257,6 +1267,26 @@ Build only on features the coverage below shows are non-null for THIS market; `m
 logistic/calibration also work when their features are populated, but gbm does not."""
 
 
+# Hand-built study 2026-11-05 (Todd asked whether stat arb, momentum and rotation were ever tested properly;
+# the loop had only proposed them as hold-to-settle taker filters). 11.5 days of per-second books, every
+# strike of KXBTC15M / KXBTCD / KXBTC, 1,795 rule cells, clustered by event; scripts and CSVs in project
+# files research/btc-statarb-momentum/. These are measured facts the proposer should build on, not re-derive.
+BTC_MEASURED = """
+MEASURED ON BITCOIN TICKS (hand-built study, 2026-11-05, 11.5 days of per-second books, every strike,
+costs at 100 lots: hold-to-settle taker ~2.25c/contract, taker in-and-out ~4.5c; stats clustered by event):
+- Kalshi lags spot, for real: of the spot-implied move over the last 5-30s that a contract has not yet
+  priced, the 15M prices ~10% over the next 30-120s (t 4), hourly KXBTCD ~20% (t 13), the daily KXBTCD
+  ladder ~85% within 2 minutes (t 13). Moves a contract makes WITHOUT spot reverse (5-27%, t -3 to -11);
+  there is no contract-price momentum. But the money is 0.2-1.5c a contract: 0 of the well-sampled cells
+  (100+ events) cleared the taker cost with t > 2.
+- Dead after cost: KXBTCD strike butterflies (3 legs of spread), KXBTC range vs KXBTCD pairs, 15M vs the
+  hourly ladder at the same close, Deribit- and Polymarket-implied gaps, rotation across strikes (they
+  revert, +0.2c/10min) and across expiries (nothing).
+- So a taker idea built on lag, momentum, reversion, ladder shape or rotation needs a gross edge of 3c+ a
+  contract held to settlement to survive; say what makes yours that large. These signals are most useful
+  to time or skew a resting order (maker), not to cross the spread."""
+
+
 def _tick_profile(m) -> str:
     """Extra profile for a market replayed from the per-second tick archive (tick_dataset.py)."""
     from app.trading.markets import TICK_FEATURES
@@ -1265,8 +1295,8 @@ def _tick_profile(m) -> str:
             "orders fill at the NEXT decision's quote (%ds later), capped by the shown size. vol_15m, "
             "vol_60m, ret_15m, ret_60m and z_score are rebuilt from minute closes and are absent in the "
             "first hour of each data stretch. Extra features: %s. History is short (the archive began %s), so "
-            "prefer simple, structural rules that need few trades: second-scale lead-lag of the book "
-            "behind spot, taker-flow bursts, stale quotes (book_age_s) after a spot move."
+            "prefer simple, structural rules that need few trades. Second-scale lead-lag of the book behind "
+            "spot is REAL here but worth well under the taker cost (see MEASURED ON BITCOIN TICKS)."
             % (m.decision_seconds, m.decision_seconds,
                "; ".join("%s = %s" % (k, v.replace("per-second data only: ", "")) for k, v in TICK_FEATURES.items()),
                datetime.fromtimestamp(m.data_from_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%MZ")))
@@ -1320,7 +1350,8 @@ Angles worth a mechanism (not exhaustive):
   longshot distortion near 5c/95c, round-number strike magnetism, US-open vs Asia-overnight regimes.
 - Basis / funding: implied probability vs perp funding / spot-perp basis; cross-coin ladder lead-lag.
 - Volatility: does the market over/under-price realised vol at specific horizons (e.g. the last
-  3-8 minutes of a 15-minute contract)?""" % (coin, coin, gbm, cross, coin) + (_tick_profile(m) if m.source == "ticks" else "")
+  3-8 minutes of a 15-minute contract)?""" % (coin, coin, gbm, cross, coin) + (_tick_profile(m) if m.source == "ticks" else "") + (
+            BTC_MEASURED if m.underlying == "BTC-USD" else "")
     cat = (m.category or "").lower()
     if "sport" in cat:
         return head + """
