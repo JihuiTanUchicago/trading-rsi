@@ -1,0 +1,10 @@
+[Unit]
+Description=Calibration of Kalshi's settled long-dated crypto contracts (app.long_dated_calibration_run): public market data and daily candles only, no orders; results to S3 research-watch/long-dated-calibration/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=1G
+TimeoutStartSec=3h
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.long_dated_calibration_run >> /opt/kalshi/logs/long_dated_calib.log 2>&1'
