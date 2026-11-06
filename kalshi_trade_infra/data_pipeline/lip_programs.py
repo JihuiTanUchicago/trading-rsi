@@ -42,6 +42,10 @@ REWARD_SERIES = [s for s in os.getenv("TAU_LIP_SERIES", ",".join([
 FEE_SERIES = [s for s in os.getenv("TAU_LIP_FEE_SERIES", ",".join(
     ["KXBTC15M", "KXBTCD", "KXBTC", "KXETH15M", "KXETHD"] + REWARD_SERIES)).split(",") if s]
 MAX_PAGES = 50
+# Bitcoin series we would quote if Kalshi paid rewards on them. 12 days of snapshots
+# (2026-10-25 to 11-06) never held one; the alerter emails the day one appears, since a pool is
+# posted at least 24h ahead and that day is the window to replay it before it starts.
+WATCH_SERIES = [s for s in os.getenv("TAU_LIP_WATCH_SERIES", "KXBTC15M,KXBTCD,KXBTC").split(",") if s]
 
 
 def snapshot_key(now: datetime) -> str:
@@ -109,6 +113,32 @@ def summarize(programs: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
                      "usd_per_day": round(s["usd_per_day"], 2), "top_usd_per_day": round(s["top_usd_per_day"], 2),
                      "target_sizes": sorted(s["targets"]), "discount_bps": sorted(s["discounts"])})
     return sorted(rows, key=lambda r: -r["usd_per_day"])
+
+
+def watched_pools(doc: Dict[str, Any], series: Iterable[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Per watched series holding any active or upcoming program: markets, total pool, pool per
+    market-hour (the unit the maker lab's break-even is stated in), target sizes, earliest start."""
+    want = set(WATCH_SERIES if series is None else series)
+    acc: Dict[str, Dict[str, Any]] = {}
+    for st in STATUSES:
+        for p in (doc.get("programs") or {}).get(st) or []:
+            name = series_of(p)
+            if name not in want:
+                continue
+            a = acc.setdefault(name, {"markets": set(), "usd": 0.0, "hours": 0.0, "targets": set(), "start": None})
+            a["markets"].add(p.get("market_ticker"))
+            a["usd"] += reward_usd(p)
+            s0, s1 = _dt(p.get("start_date")), _dt(p.get("end_date"))
+            if s0 and s1 and s1 > s0:
+                a["hours"] += (s1 - s0).total_seconds() / 3600
+            if p.get("target_size_fp") is not None:
+                a["targets"].add(float(p["target_size_fp"]))
+            if p.get("start_date") and (a["start"] is None or p["start_date"] < a["start"]):
+                a["start"] = p["start_date"]
+    return {name: {"markets": len(a["markets"]), "usd": round(a["usd"], 2),
+                   "usd_per_market_hour": round(a["usd"] / a["hours"], 2) if a["hours"] else None,
+                   "target_sizes": sorted(a["targets"]), "start": a["start"]}
+            for name, a in sorted(acc.items())}
 
 
 def series_fees(series: Iterable[str], get: Optional[Callable] = None) -> Dict[str, Dict[str, Any]]:
