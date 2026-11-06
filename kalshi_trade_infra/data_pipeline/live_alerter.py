@@ -211,7 +211,40 @@ def collect(cur) -> Dict:
         "cash_source": cash_source,
         "cash_as_of": cash_as_of,
         "writers": _writer_ages(cur),
+        "btc_lip": _btc_lip_pools(),
     }
+
+
+def _btc_lip_pools() -> Optional[Dict]:
+    """Liquidity reward pools Kalshi has posted on the Bitcoin series, from the collector's latest
+    S3 snapshot; None when it cannot be read (the last known value is kept, so no false alert)."""
+    try:
+        from data_pipeline import lip_programs
+
+        doc = lip_programs.load_latest()
+        return None if doc is None else lip_programs.watched_pools(doc)
+    except Exception as e:  # noqa: BLE001 - a missing snapshot must not stop the money alerts
+        print(f"btc lip pools unreadable: {e}")
+        return None
+
+
+def btc_lip_alerts(pools: Dict, prev: Dict) -> List[str]:
+    """One line per Bitcoin series that newly has a reward pool. Our quoting loses money without
+    one (maker lab and the ms replay, 2026-11-06), so a posted pool is the cue to replay it."""
+    lines = []
+    for name, p in sorted(pools.items()):
+        if name in prev:
+            continue
+        per_h = p.get("usd_per_market_hour")
+        lines.append(
+            f"Kalshi posted liquidity rewards on {name}: {p['markets']} markets, ${p['usd']:,.0f} in pools"
+            + (f" (${per_h:,.2f} per market-hour)" if per_h is not None else "")
+            + f", target size {', '.join('%g' % t for t in p['target_sizes']) or 'n/a'}, from {p.get('start') or 'n/a'}."
+            " Replay our quoting against these terms before they start."
+        )
+    for name in sorted(set(prev) - set(pools)):
+        lines.append(f"Liquidity rewards on {name} are no longer listed.")
+    return lines
 
 
 # Mismatch kinds. The kind, not the message, is what persistence keys on: a
@@ -464,6 +497,11 @@ def build_alerts(now: Dict, prev: Dict, cur) -> Tuple[List[str], List[str]]:
         urgent.append(
             f"ENGINE ERRORED {len(errs)}x since the last check - it cannot place orders: {uniq[0]}"
         )
+
+    if now.get("btc_lip") is None:
+        now["btc_lip"] = prev.get("btc_lip")
+    else:
+        normal.extend(btc_lip_alerts(now["btc_lip"], prev.get("btc_lip") or {}))
 
     days = attestation_days_left()
     now["attest_days"] = days

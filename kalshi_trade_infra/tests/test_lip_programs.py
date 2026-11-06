@@ -78,3 +78,17 @@ def test_snapshot_writes_a_dated_copy_and_latest():
 
 def test_load_latest_is_none_before_the_first_snapshot():
     assert lp.load_latest(s3=FakeS3()) is None
+
+
+def test_watched_pools_reports_bitcoin_series_per_market_hour():
+    doc = {"programs": {
+        "active": [_prog(1, "KXBTCD-26NOV0717-T80000", 500_000, start="2026-11-07T16:00:00Z", end="2026-11-07T17:00:00Z"),
+                   _prog(2, "KXHIGHNY-26NOV07-B60", 9_000_000)],
+        "upcoming": [_prog(3, "KXBTCD-26NOV0718-T80000", 1_000_000, start="2026-11-07T17:00:00Z", end="2026-11-07T18:00:00Z",
+                           target="300.00")]}}
+    pools = lp.watched_pools(doc)
+    assert list(pools) == ["KXBTCD"]
+    p = pools["KXBTCD"]
+    assert p["markets"] == 2 and p["usd"] == 150.0 and p["usd_per_market_hour"] == 75.0
+    assert p["target_sizes"] == [300.0, 500.0] and p["start"] == "2026-11-07T16:00:00Z"
+    assert lp.watched_pools({"programs": {"active": [_prog(2, "KXHIGHNY-26NOV07-B60", 1)]}}) == {}
