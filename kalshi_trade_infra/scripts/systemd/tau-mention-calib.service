@@ -1,0 +1,10 @@
+[Unit]
+Description=Calibration and track-record test of Kalshi settled mention markets (app.mention_calibration_run): public market data and hourly candles only, no orders; results to S3 research-watch/mention-calibration/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=2G
+TimeoutStartSec=5h
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.mention_calibration_run >> /opt/kalshi/logs/mention_calib.log 2>&1'
