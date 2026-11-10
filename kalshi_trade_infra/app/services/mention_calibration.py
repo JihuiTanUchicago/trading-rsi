@@ -6,7 +6,7 @@ past speeches and calls is public but nobody prices it by hand. Two cheap tests 
 Kalshi's settled history alone (no transcripts, no LLM):
 
   1. Calibration: when a word traded at p a day before the event ended, was it said about p of
-     the time? Two pre-registered rules: sell YES at 5-40c, buy YES at 60-95c (24h before end).
+     the time? Two pre-registered rules: sell YES at 5-40c, buy YES at 60-95c (2h before the event).
   2. Track record: the same word in the same series' EARLIER events (results known by then) gives
      a Laplace-smoothed base rate. Trade when it sits 10c+ past the quote, with 4+ prior events.
 
@@ -14,9 +14,12 @@ A transcript-reading LLM (test 3) is only worth building if one of these shows a
 
 Pure functions; app.mention_calibration_run fetches from Kalshi on the web box.
 
-Look-ahead: a word's market can close the moment the word is said, so its own close_time knows
-the answer. Horizons count back from the EVENT's end (latest close among its markets), and a
-market counts only while it was still open. Every word in one speech is one bet on that speech,
+Anchor: mention markets stay open after the speech, game or call ends, until settlement (all of
+an event's words close together, hours later). A quote "24h before close" can therefore come from
+after the event, when everyone already knows. Horizons count back from the moment the event was
+under way instead: the first hour any word that settled YES traded at 95c+ (said_time). That
+picks the time from the outcome's timing, never which words were said; events with no such hour
+fall back to the latest close. Every word in one speech is one bet on that speech,
 so intervals resample whole events.
 """
 from __future__ import annotations
@@ -28,7 +31,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.services.long_dated_calibration import _px, _ts, event_ends, result_of
 
-HORIZONS_H = (48, 24, 6, 2)
+HORIZONS_H = (24, 6, 2, 1)
 MAX_CANDLE_AGE_S = 6 * 3600
 TAKER_RATE = 0.07
 BOOT = 2000
@@ -36,10 +39,10 @@ MIN_PRIOR_EVENTS = 4
 EDGE = 0.10
 PRICE_BUCKETS = (0.0, 0.05, 0.15, 0.30, 0.50, 0.70, 0.85, 0.95, 1.0)
 RULES = (
-    {"name": "sell_yes_5_40c_24h", "kind": "calib", "h": 24, "side": "sell", "lo": 0.05, "hi": 0.40},
-    {"name": "buy_yes_60_95c_24h", "kind": "calib", "h": 24, "side": "buy", "lo": 0.60, "hi": 0.95},
+    {"name": "sell_yes_5_40c_2h", "kind": "calib", "h": 2, "side": "sell", "lo": 0.05, "hi": 0.40},
+    {"name": "buy_yes_60_95c_2h", "kind": "calib", "h": 2, "side": "buy", "lo": 0.60, "hi": 0.95},
+    {"name": "track_record_10c_2h", "kind": "prior", "h": 2},
     {"name": "track_record_10c_24h", "kind": "prior", "h": 24},
-    {"name": "track_record_10c_6h", "kind": "prior", "h": 6},
 )
 
 
@@ -100,8 +103,36 @@ def horizon_quotes(candles: Sequence[Sequence[float]], end: int, horizons: Seque
     return out
 
 
+def said_time(event_markets: Sequence[Dict], candles: Dict[str, Sequence[Sequence[float]]],
+               level: float = 0.95) -> Optional[int]:
+    """First candle end at which a market of this event that settled YES had its mid at level+."""
+    best = None
+    for m in event_markets:
+        if result_of(m) != 1.0:
+            continue
+        for e, bid, ask in candles.get(m.get("ticker")) or ():
+            if (bid + ask) / 2.0 >= level and (best is None or e < best):
+                best = int(e)
+    return best
+
+
+def anchors(markets: Sequence[Dict], candles: Dict[str, Sequence[Sequence[float]]]) -> Dict[str, int]:
+    """{event_ticker: anchor}: said_time where found, else the latest close."""
+    ends = event_ends(markets)
+    by: Dict[str, List[Dict]] = defaultdict(list)
+    for m in markets:
+        by[m.get("event_ticker")].append(m)
+    out = {}
+    for ev, ms in by.items():
+        if ev not in ends:
+            continue
+        st = said_time(ms, candles)
+        out[ev] = st if st is not None and st <= ends[ev] else ends[ev]
+    return out
+
+
 def observations(markets: Sequence[Dict], quotes: Dict[str, Dict[int, Tuple[float, float]]],
-                 horizons: Sequence[int] = HORIZONS_H) -> List[Dict]:
+                 horizons: Sequence[int] = HORIZONS_H, anchor: Optional[Dict[str, int]] = None) -> List[Dict]:
     """One row per (settled market, horizon) where it was open and quoted (quotes[ticker][h] from
     horizon_quotes), with the word's track
     record in the same series from events that ended before the observation time."""
@@ -118,11 +149,12 @@ def observations(markets: Sequence[Dict], quotes: Dict[str, Dict[int, Tuple[floa
         if res is None or ev not in ends:
             continue
         end, opened, closed = ends[ev], _ts(m.get("open_time")), _ts(m.get("close_time"))
+        at = (anchor or {}).get(ev, end)
         if opened is None or closed is None:
             continue
         series, word = m.get("series_ticker") or "", word_of(m)
         for h in horizons:
-            t = end - h * 3600
+            t = at - h * 3600
             if not (opened <= t < closed):
                 continue
             q = (quotes.get(tk) or {}).get(h)
@@ -130,7 +162,7 @@ def observations(markets: Sequence[Dict], quotes: Dict[str, Dict[int, Tuple[floa
                 continue
             prior = [r for e, r in hist[(series, word)] if e <= t]
             n = len(prior)
-            rows.append({"ticker": tk, "event": ev, "series": series, "word": word, "h": h, "end": end,
+            rows.append({"ticker": tk, "event": ev, "series": series, "word": word, "h": h, "end": end, "anchor": at,
                          "bid": q[0], "ask": q[1], "mid": (q[0] + q[1]) / 2.0, "yes": res,
                          "prior_n": n, "prior_p": (sum(prior) + 1.0) / (n + 2.0)})
     return rows
@@ -230,11 +262,11 @@ def summarize(rows: List[Dict]) -> Dict:
                       "buy": _stats([(r["event"], buy_pnl(r)) for r in rs])})
     by_series = defaultdict(list)
     for r in rows:
-        if r["h"] == 24:
+        if r["h"] == 2:
             by_series[r["series"]].append(r)
     series = sorted(({"series": s, "n": len(rs), "events": len({r["event"] for r in rs}),
                       "mean_mid": round(sum(r["mid"] for r in rs) / len(rs), 4),
                       "yes_rate": round(sum(r["yes"] for r in rs) / len(rs), 4)} for s, rs in by_series.items()),
                     key=lambda x: -x["n"])
     return {"rows": len(rows), "markets": len({r["ticker"] for r in rows}), "events": len({r["event"] for r in rows}),
-            "series_n": len(by_series), "rules": rules, "calibration": table, "by_series_24h": series[:80]}
+            "series_n": len(by_series), "rules": rules, "calibration": table, "by_series_2h": series[:80]}

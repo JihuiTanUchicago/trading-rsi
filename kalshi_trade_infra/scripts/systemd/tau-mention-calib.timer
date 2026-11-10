@@ -1,7 +1,7 @@
 [Unit]
-Description=Mention-market calibration once a week (and soon after a deploy installs it); candles already fetched are cached in S3
+Description=Mention-market calibration daily at 22:40Z (and soon after a deploy installs it); candles already fetched are cached in S3
 [Timer]
-OnCalendar=Mon *-*-* 04:40:00
+OnCalendar=*-*-* 22:40:00
 OnActiveSec=10min
 Persistent=true
 [Install]

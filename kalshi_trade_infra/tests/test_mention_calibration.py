@@ -61,10 +61,30 @@ def test_rules_need_30_events_and_cluster_by_event():
     rows = []
     for e in range(40):
         for w in range(3):
-            rows.append({"ticker": "%d-%d" % (e, w), "event": "E%d" % e, "series": "S", "word": "w%d" % w, "h": 24,
+            rows.append({"ticker": "%d-%d" % (e, w), "event": "E%d" % e, "series": "S", "word": "w%d" % w, "h": 2,
                          "end": END + e * H, "bid": 0.20, "ask": 0.22, "mid": 0.21, "yes": 0.0, "prior_n": 0, "prior_p": 0.5})
     s = mc.summarize(rows)
-    r = next(x for x in s["rules"] if x["name"] == "sell_yes_5_40c_24h")
+    r = next(x for x in s["rules"] if x["name"] == "sell_yes_5_40c_2h")
     assert r["trades"] == 120 and r["events"] == 40 and r["verdict"] == "edge"
     few = mc.summarize(rows[:60])
-    assert next(x for x in few["rules"] if x["name"] == "sell_yes_5_40c_24h")["verdict"] == "too_few_events"
+    assert next(x for x in few["rules"] if x["name"] == "sell_yes_5_40c_2h")["verdict"] == "too_few_events"
+
+
+def test_anchor_is_when_a_said_word_hit_95c_not_the_settlement_close():
+    # a game ends at END - 15h; every word settles together at END
+    said = mk("A", "G", END, "yes", "taylor / swift")
+    not_said = mk("B", "G", END, "no", "kylie / jenner")
+    candles = {"A": [[END - 20 * H, 0.30, 0.34], [END - 16 * H, 0.96, 0.99], [END - 2 * H, 0.99, 1.0]],
+               "B": [[END - 20 * H, 0.10, 0.12], [END - 2 * H, 0.0, 0.01]]}
+    at = mc.anchors([said, not_said], candles)
+    assert at == {"G": END - 16 * H}
+    quotes = {tk: mc.horizon_quotes(c, at["G"], horizons=(2, 1)) for tk, c in candles.items()}
+    rows = mc.observations([said, not_said], quotes, horizons=(2, 1), anchor=at)
+    got = {(r["ticker"], r["h"]): (r["bid"], r["anchor"]) for r in rows}
+    # 2h before the anchor reads the pre-game 20h candle, never the post-game 0/1 quotes
+    assert got[("A", 2)] == (0.30, END - 16 * H) and got[("B", 1)] == (0.10, END - 16 * H)
+
+
+def test_anchor_falls_back_to_the_close_when_no_word_hit_95c():
+    ms = [mk("A", "E", END, "no", "x"), mk("B", "E", END, "yes", "y")]
+    assert mc.anchors(ms, {"B": [[END - 5 * H, 0.5, 0.6]]}) == {"E": END}
