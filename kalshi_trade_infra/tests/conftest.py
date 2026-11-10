@@ -228,3 +228,18 @@ def _wait_for_requests_in_flight(limit_s=10.0):
         if time.monotonic() > deadline:
             break
         time.sleep(0.002)
+
+
+@pytest.fixture(autouse=True)
+def _kalshi_auth_route_offline(monkeypatch):
+    """Authenticated Kalshi calls go through data_pipeline.common.AUTH_ROUTE (origin host + kept-alive
+    sessions). Tests never touch the network: the route is held on CloudFront without a signed check, and
+    its session is the requests module itself, so tests that patch common.requests.post/get still see
+    every call. tests/test_kalshi_auth_route.py builds its own routes to test the real logic."""
+    import sys
+    common = sys.modules.get("data_pipeline.common")
+    if common is None:
+        from data_pipeline import common
+    monkeypatch.setattr(common, "AUTH_ROUTE", common._AuthRoute(None, common.KALSHI_API_HOST, keepalive_s=0))
+    monkeypatch.setattr(common.AUTH_ROUTE, "session", lambda host: common.requests)
+    yield

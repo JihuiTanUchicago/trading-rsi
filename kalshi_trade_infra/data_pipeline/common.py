@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pymysql
 import requests
+from requests.adapters import HTTPAdapter
 from dateutil import parser as date_parser
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -15,6 +16,15 @@ KALSHI_BASE_URL = os.getenv("KALSHI_BASE_URL", "https://api.elections.kalshi.com
 # Host for authenticated calls. Configurable so the order path can be proven
 # against Kalshi's demo environment before it is pointed at real money.
 KALSHI_API_HOST = os.getenv("KALSHI_API_HOST", "https://api.elections.kalshi.com").rstrip("/")
+# Kalshi's production API host above is a CloudFront edge; the exchange itself runs in AWS us-east-2.
+# Measured 2026-11-06 from our us-east-1 box: an uncached authenticated round trip is 24.7ms through
+# CloudFront and 14.8ms to Kalshi's origin load balancer (2.4ms from us-east-2). Todd approved routing
+# authenticated calls (orders first) straight to the origin on 2026-11-10. TAU_KALSHI_DIRECT=0 turns it
+# off; it only ever applies when KALSHI_API_HOST is the production CloudFront host (demo/staging overrides
+# are untouched).
+KALSHI_CLOUDFRONT_HOST = "https://api.elections.kalshi.com"
+KALSHI_ORIGIN_HOST = os.getenv("TAU_KALSHI_ORIGIN_HOST", "https://external-api.kalshi.com").rstrip("/")
+KALSHI_DIRECT_ENABLED = os.getenv("TAU_KALSHI_DIRECT", "1").strip().lower() not in ("0", "false", "no", "off")
 MYSQL_HOST = os.getenv("MYSQL_HOST")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
 MYSQL_USER = os.getenv("MYSQL_USER")
@@ -226,24 +236,146 @@ def kalshi_auth_headers(method: str, path: str, credentials: Optional[KalshiCred
     }
 
 
+class _AuthRoute:
+    """Which host authenticated Kalshi calls go to, plus kept-alive HTTP sessions for both hosts.
+
+    The origin is used only after a signed read-only call (GET /portfolio/balance) succeeds on it, so a
+    key or path the origin does not accept never costs an order. Any connection failure or gateway-type
+    answer (404/421/502/503/504) from the origin drops back to CloudFront for RECHECK_S, then the origin
+    is checked again. Orders are never re-sent on a fallback (a POST may have reached the exchange);
+    idempotent GETs are retried once on CloudFront. Sessions keep TCP+TLS open, which matters more than
+    the host: a fresh handshake to the origin costs ~2 extra round trips. A daemon pings the origin's
+    public exchange-status path every KEEPALIVE_S so the connection stays warm between sparse orders."""
+
+    RECHECK_S = 600.0
+    BAD_STATUS = (404, 421, 502, 503, 504)
+
+    def __init__(self, primary: Optional[str], fallback: str, keepalive_s: float = 25.0):
+        import threading
+        self.primary = primary.rstrip("/") if primary else None
+        self.fallback = fallback.rstrip("/")
+        self.keepalive_s = keepalive_s
+        self.state = "unchecked" if self.primary else "off"   # unchecked | ok | bad | off
+        self.retry_at = 0.0
+        self.last_error: Optional[str] = None
+        self._lock = threading.Lock()
+        self._sessions: Dict[str, requests.Session] = {}
+        self._warmer = None
+
+    def session(self, host: str) -> requests.Session:
+        s = self._sessions.get(host)
+        if s is None:
+            with self._lock:
+                s = self._sessions.get(host)
+                if s is None:
+                    s = requests.Session()
+                    adapter = HTTPAdapter(pool_connections=2, pool_maxsize=16)
+                    s.mount("https://", adapter)
+                    self._sessions[host] = s
+        return s
+
+    def mark_bad(self, why: str) -> None:
+        if self.primary is None:
+            return
+        self.state, self.retry_at, self.last_error = "bad", time.time() + self.RECHECK_S, why[:300]
+        print(f"[kalshi-route] origin {self.primary} off for {int(self.RECHECK_S)}s: {why[:200]}", flush=True)
+
+    def _check(self, credentials: Optional["KalshiCredentials"]) -> None:
+        path = "/trade-api/v2/portfolio/balance"
+        try:
+            r = self.session(self.primary).get(self.primary + path, headers=kalshi_auth_headers("GET", path, credentials),
+                                               timeout=3)
+            if r.status_code != 200:
+                raise RuntimeError(f"check status {r.status_code}: {r.text[:120]}")
+            r.json()
+        except Exception as e:
+            self.mark_bad(f"signed balance check failed: {e!r}")
+            return
+        self.state, self.last_error = "ok", None
+        print(f"[kalshi-route] authenticated calls now go to origin {self.primary}", flush=True)
+        self._start_warmer()
+
+    def host(self, credentials: Optional["KalshiCredentials"] = None) -> str:
+        if self.state == "off":
+            return self.fallback
+        if self.state == "ok":
+            return self.primary
+        if self.state == "bad" and time.time() < self.retry_at:
+            return self.fallback
+        with self._lock:
+            pending = self.state in ("unchecked", "bad") and not (self.state == "bad" and time.time() < self.retry_at)
+            if pending:
+                self.state = "checking"
+        if pending:
+            self._check(credentials)
+        return self.primary if self.state == "ok" else self.fallback
+
+    def _start_warmer(self) -> None:
+        if self._warmer is not None or not self.keepalive_s or self.keepalive_s <= 0:
+            return
+        import threading
+
+        def loop() -> None:
+            while True:
+                time.sleep(self.keepalive_s)
+                if self.state != "ok":
+                    continue
+                try:
+                    self.session(self.primary).get(self.primary + "/trade-api/v2/exchange/status", timeout=3)
+                except Exception as e:
+                    self.mark_bad(f"keepalive failed: {e!r}")
+
+        self._warmer = threading.Thread(target=loop, name="kalshi-route-keepalive", daemon=True)
+        self._warmer.start()
+
+
+def _make_auth_route() -> _AuthRoute:
+    direct = KALSHI_DIRECT_ENABLED and KALSHI_API_HOST == KALSHI_CLOUDFRONT_HOST and KALSHI_ORIGIN_HOST
+    try:
+        keep = float(os.getenv("TAU_KALSHI_KEEPALIVE_S", "25"))
+    except ValueError:
+        keep = 25.0
+    return _AuthRoute(KALSHI_ORIGIN_HOST if direct else None, KALSHI_API_HOST, keepalive_s=keep)
+
+
+AUTH_ROUTE = _make_auth_route()
+
+
+def kalshi_auth_route_status() -> Dict[str, Any]:
+    """For admin/health readouts: where authenticated calls go right now and why."""
+    r = AUTH_ROUTE
+    return {"state": r.state, "origin": r.primary, "fallback": r.fallback, "last_error": r.last_error,
+            "host": r.primary if r.state == "ok" else r.fallback}
+
+
 def api_post_auth(
     path: str, body: Dict[str, Any], timeout: int = 20, credentials: Optional[KalshiCredentials] = None,
     timing: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """`timing` (opt): when a dict is passed, this fills it with `sign_ms` (local encode+RSA-PSS
-    sign), `net_ms` (the request round-trip = network RTT + exchange processing) and `http_status`.
-    Purely additive measurement for the order path (Execution P2); every other caller omits it and is
-    unaffected. Measured around the existing calls — it never changes what is sent or when."""
-    url = f"{KALSHI_API_HOST}{path}"
+    sign), `net_ms` (the request round-trip = network RTT + exchange processing), `http_status` and
+    `host` ("origin" or "cloudfront"). Purely additive measurement for the order path (Execution P2);
+    every other caller omits it and is unaffected. Measured around the existing calls — it never changes
+    what is sent or when. Never re-sent on another host: the POST may already have reached Kalshi."""
+    host = AUTH_ROUTE.host(credentials)
+    url = f"{host}{path}"
     _t0 = time.perf_counter()
     headers = kalshi_auth_headers("POST", path, credentials)
     _t1 = time.perf_counter()
-    resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+    try:
+        resp = AUTH_ROUTE.session(host).post(url, json=body, headers=headers, timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        if host == AUTH_ROUTE.primary:
+            AUTH_ROUTE.mark_bad(f"POST {path}: {e!r}")
+        raise
     _t2 = time.perf_counter()
+    if host == AUTH_ROUTE.primary and resp.status_code in AUTH_ROUTE.BAD_STATUS:
+        AUTH_ROUTE.mark_bad(f"POST {path} -> {resp.status_code}")
     if timing is not None:
         timing["sign_ms"] = (_t1 - _t0) * 1000.0
         timing["net_ms"] = (_t2 - _t1) * 1000.0
         timing["http_status"] = resp.status_code
+        timing["host"] = "origin" if host == AUTH_ROUTE.primary else "cloudfront"
     if resp.status_code >= 400:
         raise RuntimeError(f"POST {url} failed {resp.status_code}: {resp.text[:400]}")
     return resp.json()
@@ -255,9 +387,23 @@ def api_get_auth(
     timeout: int = 20,
     credentials: Optional[KalshiCredentials] = None,
 ) -> Dict[str, Any]:
-    url = f"{KALSHI_API_HOST}{path}"
-    headers = kalshi_auth_headers("GET", path, credentials)
-    resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+    host = AUTH_ROUTE.host(credentials)
+    resp = None
+    try:
+        resp = AUTH_ROUTE.session(host).get(f"{host}{path}", params=params,
+                                            headers=kalshi_auth_headers("GET", path, credentials), timeout=timeout)
+        if host == AUTH_ROUTE.primary and resp.status_code in AUTH_ROUTE.BAD_STATUS:
+            AUTH_ROUTE.mark_bad(f"GET {path} -> {resp.status_code}")
+            resp = None
+    except (requests.ConnectionError, requests.Timeout) as e:
+        if host != AUTH_ROUTE.primary:
+            raise
+        AUTH_ROUTE.mark_bad(f"GET {path}: {e!r}")
+    if resp is None:   # origin failed: a GET is safe to repeat once on CloudFront
+        host = AUTH_ROUTE.fallback
+        resp = AUTH_ROUTE.session(host).get(f"{host}{path}", params=params,
+                                            headers=kalshi_auth_headers("GET", path, credentials), timeout=timeout)
+    url = f"{host}{path}"
     if resp.status_code >= 400:
         raise RuntimeError(f"GET {url} failed {resp.status_code}: {resp.text[:400]}")
     return resp.json()
