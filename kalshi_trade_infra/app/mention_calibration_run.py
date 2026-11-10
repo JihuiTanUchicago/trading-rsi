@@ -2,7 +2,7 @@
 
 Public market data only, no orders and no keys. Lists every mention series (ticker has MENTION,
 category "Mentions", or a "What will X say" title), every settled market in them, and each
-market's hourly candles over the last 50 hours before its event ended, then writes
+market's hourly candles over the last 72 hours before its event settled, then writes
 
     s3://<datalake>/research-watch/mention-calibration/latest.json   (rules, calibration, series)
     s3://<datalake>/research-watch/mention-calibration/obs.json      (every observation)
@@ -30,7 +30,7 @@ from data_pipeline.common import api_get
 BUCKET = os.getenv("DATALAKE_BUCKET", "kalshi-trade-datalake-568386354218-us-east-1")
 PREFIX = "research-watch/mention-calibration"
 PAUSE_S = float(os.getenv("TAU_MENTION_PAUSE_S", "0.06"))
-WINDOW_H = 50
+WINDOW_H = 72
 KEEP = ("ticker", "event_ticker", "title", "yes_sub_title", "no_sub_title", "custom_strike", "strike_type",
         "open_time", "close_time", "expected_expiration_time", "result", "status", "volume")
 
@@ -43,6 +43,8 @@ def _get(path: str, params: Optional[Dict] = None) -> Dict:
 def mention_series() -> List[Dict]:
     out = []
     for s in _get("/series").get("series") or []:
+        if (s.get("ticker") or "").startswith("KXMVE"):
+            continue        # multi-leg parlays of mention words, not one word's market
         if mc.is_mention_series(s.get("ticker"), s.get("category"), s.get("title")):
             out.append({k: s.get(k) for k in ("ticker", "title", "category", "frequency")})
     return sorted(out, key=lambda s: s["ticker"])
@@ -115,6 +117,7 @@ def main() -> None:
     markets.sort(key=lambda m: -(ends.get(m.get("event_ticker")) or 0))
     markets = markets[:a.max_markets]
     quotes: Dict[str, Dict] = {}
+    anchor: Dict[str, int] = {}
     fetched = 0
     by_series: Dict[str, List[Dict]] = {}
     for m in markets:
@@ -134,15 +137,18 @@ def main() -> None:
                 end = ends.get(m.get("event_ticker"))
                 cache[tk] = fetch_candles(m, end, cut) if end else []
                 new += 1
-            end = ends.get(m.get("event_ticker"))
-            if end:
-                quotes[tk] = mc.horizon_quotes(cache[tk], end)
+        at = mc.anchors(ms, cache)
+        anchor.update(at)
+        for m in ms:
+            a_ = at.get(m.get("event_ticker"))
+            if a_:
+                quotes[m["ticker"]] = mc.horizon_quotes(cache[m["ticker"]], a_)
         fetched += new
         if s3 is not None and new:
             s3.put_object(Bucket=BUCKET, Key=key, Body=json.dumps(cache, separators=(",", ":")).encode(),
                           ContentType="application/json")
         print("[mention] candles %s: %d markets, %d fetched (%.0fs)" % (s, len(ms), new, time.time() - t0), flush=True)
-    rows = mc.observations(markets, quotes)
+    rows = mc.observations(markets, quotes, anchor=anchor)
     rep = mc.summarize(rows)
     rep.update(generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                series=[s["ticker"] for s in series], settled_markets=len(markets), candles_fetched=fetched,
@@ -155,6 +161,9 @@ def main() -> None:
         with open(a.out, "w") as fh:
             json.dump(dict(rep, obs=rows), fh, default=str)
     if s3 is not None:
+        s3.put_object(Bucket=BUCKET, Key=PREFIX + "/markets.json", Body=json.dumps(
+            [dict(m, anchor=anchor.get(m.get("event_ticker"))) for m in markets], separators=(",", ":"), default=str).encode(),
+            ContentType="application/json")
         s3.put_object(Bucket=BUCKET, Key=PREFIX + "/obs.json", Body=json.dumps(rows, separators=(",", ":")).encode(),
                       ContentType="application/json")
         s3.put_object(Bucket=BUCKET, Key=PREFIX + "/latest.json", Body=json.dumps(rep, default=str).encode(),
