@@ -1,0 +1,10 @@
+[Unit]
+Description=Forward test of the in-play mention YES seller (app.mention_maker_run): public market data and trade prints only, no orders; results to S3 research-watch/mention-maker/. Runs on the WEB box.
+After=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalshi
+Nice=15
+MemoryMax=1G
+TimeoutStartSec=3h
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.mention_maker_run >> /opt/kalshi/logs/mention_maker.log 2>&1'

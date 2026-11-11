@@ -1,0 +1,8 @@
+[Unit]
+Description=Mention in-play YES seller forward test daily at 23:20Z (and soon after a deploy installs it); settled events are cached in S3
+[Timer]
+OnCalendar=*-*-* 23:20:00
+OnActiveSec=15min
+Persistent=true
+[Install]
+WantedBy=timers.target
