@@ -409,6 +409,25 @@ def api_get_auth(
     return resp.json()
 
 
+def api_delete_auth(path: str, timeout: int = 20, credentials: Optional[KalshiCredentials] = None) -> Dict[str, Any]:
+    """Signed DELETE (cancel a resting order). Like a POST it is never re-sent on the other host, since the
+    first may have reached Kalshi; a cancel that did is simply gone on the retry the caller makes."""
+    host = AUTH_ROUTE.host(credentials)
+    try:
+        resp = AUTH_ROUTE.session(host).delete(f"{host}{path}", headers=kalshi_auth_headers("DELETE", path, credentials),
+                                               timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        if host == AUTH_ROUTE.primary:
+            AUTH_ROUTE.mark_bad(f"DELETE {path}: {e!r}")
+        raise
+    if resp.status_code >= 400:
+        raise RuntimeError(f"DELETE {host}{path} failed {resp.status_code}: {resp.text[:400]}")
+    try:
+        return resp.json()
+    except ValueError:
+        return {}
+
+
 def get_kalshi_cash_balance_dollars(credentials: Optional[KalshiCredentials] = None) -> Optional[float]:
     """
     Best-effort account cash balance fetch for live equity marking.

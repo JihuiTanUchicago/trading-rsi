@@ -12,12 +12,13 @@ import data_pipeline.live_alerter as la
 
 
 class Cur:
-    """Answers the two queries position_mismatches issues: the old live_positions
-    rows and the aggregated live app_positions rows."""
+    """Answers the three queries position_mismatches issues: the old live_positions
+    rows, the aggregated live app_positions rows and the mention pilot's open positions."""
 
-    def __init__(self, live_rows, app_rows=None):
+    def __init__(self, live_rows, app_rows=None, pilot_rows=None):
         self._live = live_rows
         self._app = app_rows or []
+        self._pilot = pilot_rows or []
         self._last = []
 
     def execute(self, sql, params=()):
@@ -26,6 +27,8 @@ class Cur:
             self._last = self._live
         elif s.startswith("SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM app_positions"):
             self._last = self._app
+        elif s.startswith("SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM app_mention_pilot_positions"):
+            self._last = self._pilot
         else:
             raise AssertionError("unexpected SQL: " + s[:80])
 
@@ -33,9 +36,9 @@ class Cur:
         return self._last
 
 
-def run(kalshi, live_rows, monkeypatch, app_rows=None):
+def run(kalshi, live_rows, monkeypatch, app_rows=None, pilot_rows=None):
     monkeypatch.setattr(la, "api_get_auth", lambda path, params=None: {"market_positions": kalshi})
-    return la.position_mismatches(Cur(live_rows, app_rows))
+    return la.position_mismatches(Cur(live_rows, app_rows, pilot_rows))
 
 
 def row(ticker, qty, model="random_forest_high_conviction"):
@@ -48,6 +51,15 @@ def app_row(ticker, side, qty):
 
 def test_agreement_is_silent(monkeypatch):
     assert run([{"ticker": "T1", "position_fp": "27.00"}], [row("T1", 27)], monkeypatch) == []
+
+
+def test_the_mention_pilots_no_positions_are_part_of_our_book(monkeypatch):
+    """The live mention pilot holds NO positions on the same account: they reconcile clean, and only
+    an exchange position nobody holds is flagged."""
+    kalshi = [{"ticker": "KXTRUMPMENTION-26NOV14-TARIFF", "position_fp": "-3.00"},
+              {"ticker": "KXTRUMPMENTION-26NOV14-CHINA", "position_fp": "-2.00"}]
+    out = run(kalshi, [], monkeypatch, pilot_rows=[app_row("KXTRUMPMENTION-26NOV14-TARIFF", "no", 3)])
+    assert len(out) == 1 and "CHINA" in out[0] and "does not know" in out[0]
 
 
 def test_a_held_no_position_reconciles_clean(monkeypatch):

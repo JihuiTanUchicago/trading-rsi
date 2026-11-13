@@ -86,7 +86,8 @@ class FakeCur:
             self._last = [{"user_id": u} for u in self.store["users"]]
         elif s.startswith("SELECT market_ticker AS ticker, 'yes' AS side"):
             self._last = list(self.store.get("legacy", []))
-        elif s.startswith("SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM app_positions"):
+        elif s.startswith("SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM ( SELECT ticker, side, qty "
+                          "FROM app_positions"):   # + the mention pilot's open positions (UNION ALL)
             uid = params[0]
             self._last = list(self.store["book"].get(uid, []))
         elif s.startswith("SELECT ticker, kind, exchange_qty, book_qty, detected_at, updated_at "

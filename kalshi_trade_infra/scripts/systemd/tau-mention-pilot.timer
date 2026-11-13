@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep the live mention pilot running: start it again 20s after each run ends (app.mention_pilot_run exits by itself after 55 min, or sleeps and exits while it is off).
+[Timer]
+OnBootSec=2min
+OnActiveSec=1min
+OnUnitInactiveSec=20s
+Unit=tau-mention-pilot.service
+[Install]
+WantedBy=timers.target

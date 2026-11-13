@@ -13,6 +13,7 @@ from app.adapters.brokers import broker_repository
 from app import rsi_scout
 from app.research import rsi_playbook, rsi_repair, rsi_sleep, tournament
 from app.adapters.kalshi_perps import kalshi_perps_orders_repository
+from app.adapters.kalshi import mention_pilot_repository
 
 DDL = [
     # -- market history (written by app.market_history; Kalshi candles go in
@@ -655,6 +656,7 @@ DDL.extend(rsi_sleep.DDL)
 DDL.extend(rsi_scout.DDL)
 DDL.extend(tournament.DDL)
 DDL.extend(rsi_repair.DDL)
+DDL.extend(mention_pilot_repository.DDL)
 
 
 def _add_column_if_missing(cur, table: str, column: str, ddl: str) -> None:

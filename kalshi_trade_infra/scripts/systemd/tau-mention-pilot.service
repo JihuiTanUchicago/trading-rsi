@@ -1,0 +1,10 @@
+[Unit]
+Description=LIVE pilot of the in-play mention YES seller (app.mention_pilot_run): real post-only orders on the user's Kalshi cash, capped by app.services.mention_pilot (loss stop, collateral cap). Off unless TAU_MENTION_PILOT_ENABLED=1 and APP_LIVE_TRADING_ENABLED=1. Runs on the WEB box; each run lasts at most 55 min and cancels its resting orders on start and stop.
+After=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=/opt/kalshi
+MemoryMax=512M
+TimeoutStopSec=90
+KillSignal=SIGTERM
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.mention_pilot_run >> /opt/kalshi/logs/mention_pilot.log 2>&1'
