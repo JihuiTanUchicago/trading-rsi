@@ -230,8 +230,11 @@ def test_generated_market_builds_backtest_and_settles(monkeypatch):
         close = datetime.fromtimestamp(open_ts + 45 * 60, tz=timezone.utc)
         ticker = "%s-E%d-T" % (m.series, k)
         markets.append({"ticker": ticker, "strike": 0.0, "close_time": close, "result": "yes"})
-        for j in range(1, 3):  # two 15-minute candles before close
-            candles.append({"ticker": ticker, "end_period_ts": open_ts + j * 15 * 60,
+        # Two candles before close, one bar apart at this market's 1-minute cadence: next-bar fills
+        # expire after FILL_MAX_DELAY_BARS bars, so 15-minute gaps never fill (this branch only runs
+        # where an OS sandbox exists; CI runners have one as of 2026-11-13).
+        for j in range(1, 3):
+            candles.append({"ticker": ticker, "end_period_ts": open_ts + j * 60,
                             "yes_bid_close": 0.55, "yes_ask_close": 0.57})
     ds = backtest.build_dataset(m, markets, candles, btc=[])
     assert ds.contracts == 8 and len(ds.frames) > 0
