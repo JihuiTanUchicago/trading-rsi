@@ -301,6 +301,12 @@ def classify_mismatches(cur) -> List[Tuple[str, str, str]]:
     for r in cur.fetchall():
         signed = int(r["qty"]) if str(r["side"]).lower() == "yes" else -int(r["qty"])
         ours[r["ticker"]] = ours.get(r["ticker"], 0) + signed
+    # The live mention pilot (app.mention_pilot_run) holds NO positions on the same account.
+    cur.execute("SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM app_mention_pilot_positions "
+                "WHERE status='open' GROUP BY ticker, side")
+    for r in cur.fetchall():
+        signed = int(r["qty"]) if str(r["side"]).lower() == "yes" else -int(r["qty"])
+        ours[r["ticker"]] = ours.get(r["ticker"], 0) + signed
 
     out = []
     for ticker in sorted(set(theirs) | set(ours)):

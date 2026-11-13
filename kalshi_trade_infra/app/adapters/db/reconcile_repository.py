@@ -48,12 +48,16 @@ def legacy_live_book_rows(cur) -> List[Dict]:
 
 def live_book_by_ticker_side(cur, user_id: int) -> List[Dict]:
     """This user's open LIVE positions, summed by (ticker, side). The caller folds
-    these into a signed net per ticker (YES positive, NO negative)."""
+    these into a signed net per ticker (YES positive, NO negative). The live mention
+    pilot's NO positions (app.adapters.kalshi.mention_pilot_repository) are on the same Kalshi account, so
+    they are part of the book too."""
     cur.execute(
-        """SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM app_positions
-           WHERE user_id=%s AND mode='live' AND status='open'
-           GROUP BY ticker, side""",
-        (user_id,),
+        """SELECT ticker, side, COALESCE(SUM(qty),0) AS qty FROM (
+             SELECT ticker, side, qty FROM app_positions WHERE user_id=%s AND mode='live' AND status='open'
+             UNION ALL
+             SELECT ticker, side, qty FROM app_mention_pilot_positions WHERE user_id=%s AND status='open'
+           ) b GROUP BY ticker, side""",
+        (user_id, user_id),
     )
     return cur.fetchall()
 
