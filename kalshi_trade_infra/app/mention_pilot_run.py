@@ -101,7 +101,9 @@ class Pilot:
         t = now()
         self.triggers = mp.Triggers(repo.triggers_since(cur, t - mp.HOLD_S))
         self.resting: Dict[str, Dict] = {}
-        self.said: Set[str] = set()
+        # Words that printed at CANCEL_AT or above: never quoted again. Kept in the DB, so a run that
+        # starts mid-event (every 55 min) does not forget them and quote a word that was just said.
+        self.said: Set[str] = set(repo.said_since(cur, t - mp.HOLD_S - 3600))
         self.filled = repo.filled_by_ticker(cur)
         self.last_trade_ts = t - 5
         self.seen_trades: Dict[str, float] = {}
@@ -210,6 +212,11 @@ class Pilot:
 
     # -- the step ---------------------------------------------------------------------------------
 
+    def mark_said(self, ticker: str, ts: float) -> None:
+        if ticker not in self.said:
+            self.said.add(ticker)
+            repo.save_said(self.cur, ticker, ts)
+
     def read_trades(self) -> List[Dict]:
         rows, cursor = [], None
         for _ in range(5):
@@ -246,7 +253,7 @@ class Pilot:
                 repo.save_trigger(self.cur, ev, trig)
                 self.log("LIVE %s (trigger %s at %.2f)" % (ev, r["ticker"], r["p"]))
             if r["p"] >= mp.CANCEL_AT:
-                self.said.add(r["ticker"])
+                self.mark_said(r["ticker"], r["ts"])
             for oid, o in self.resting.items():
                 if o["ticker"] != r["ticker"] or r["ts"] < o.get("placed_ts", 0):
                     continue
@@ -287,7 +294,7 @@ class Pilot:
             bid = _f(m.get("yes_bid_dollars"))
             ask = _f(m.get("yes_ask_dollars"))
             if bid is not None and bid >= mp.CANCEL_AT:
-                self.said.add(tk)
+                self.mark_said(tk, self.now())
             oid = mine.pop(tk, None)
             if oid is not None:
                 mine_px = float(self.resting[oid]["yes_price"])

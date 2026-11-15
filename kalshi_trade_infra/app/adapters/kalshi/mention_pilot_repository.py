@@ -18,6 +18,12 @@ DDL = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
     """
+    CREATE TABLE IF NOT EXISTS app_mention_pilot_said (
+      ticker VARCHAR(128) PRIMARY KEY,
+      ts DOUBLE NOT NULL                      -- first print (or bid) at the cancel level
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
     CREATE TABLE IF NOT EXISTS app_mention_pilot_orders (
       order_id VARCHAR(64) PRIMARY KEY,
       client_order_id VARCHAR(64) NOT NULL,
@@ -80,6 +86,15 @@ def save_trigger(cur, event: str, ts: float) -> None:
 def triggers_since(cur, since_ts: float) -> Dict[str, float]:
     cur.execute("SELECT event_ticker, trigger_ts FROM app_mention_pilot_events WHERE trigger_ts >= %s", (since_ts,))
     return {r["event_ticker"]: float(r["trigger_ts"]) for r in cur.fetchall()}
+
+
+def save_said(cur, ticker: str, ts: float) -> None:
+    cur.execute("INSERT IGNORE INTO app_mention_pilot_said (ticker, ts) VALUES (%s,%s)", (ticker, float(ts)))
+
+
+def said_since(cur, since_ts: float) -> List[str]:
+    cur.execute("SELECT ticker FROM app_mention_pilot_said WHERE ts >= %s", (since_ts,))
+    return [r["ticker"] for r in cur.fetchall()]
 
 
 def add_order(cur, order_id: str, client_order_id: str, user_id: int, event: str, ticker: str,
