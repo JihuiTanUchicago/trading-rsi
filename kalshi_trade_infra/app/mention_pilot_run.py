@@ -110,6 +110,10 @@ class Pilot:
         self.shard_cash: Optional[float] = None
         self.realized = repo.realized_pnl(cur, user_id)
         self.open_cost = self._open_cost()
+        # Off by default: the loss stop counts open positions at full cost. TAU_MENTION_PILOT_RISK_AT_MARK=1
+        # counts them at what they would lose if sold now (mp.position_risk), refreshed each minute.
+        self.risk_at_mark = os.getenv("TAU_MENTION_PILOT_RISK_AT_MARK", "0") == "1"
+        self.open_risk: Optional[float] = None
         self.minute_at = 0.0
         self.stopped = False
 
@@ -123,7 +127,8 @@ class Pilot:
                    for o in self.resting.values())
 
     def room(self) -> float:
-        return mp.room(self.realized, self.open_cost, self.resting_collateral(), self.shard_cash)
+        return mp.room(self.realized, self.open_cost, self.resting_collateral(), self.shard_cash,
+                       self.open_risk if self.risk_at_mark else None)
 
     def read_cash(self) -> None:
         try:
@@ -135,14 +140,18 @@ class Pilot:
             self.log("balance unreadable: %s" % str(e)[:160])
 
     def settle(self) -> int:
-        n = 0
+        n, risk = 0, 0.0
         for p in repo.open_positions(self.cur, self.user_id):
+            cost = float(p["cost"]) + float(p["fees"])
             try:
                 m = (self.api.public("/markets/" + p["ticker"]) or {}).get("market") or {}
             except Exception:  # noqa: BLE001 - try again next minute
+                risk += cost
                 continue
             result = market_settlement(m)
             if result is None:
+                ask = m.get("yes_ask_dollars")
+                risk += mp.position_risk(float(p["qty"]), cost, float(ask) if ask not in (None, "") else None)
                 continue
             qty = float(p["qty"])
             _, _, pnl = settlement_terms(result, "no", qty, float(p["cost"]) / qty, float(p["fees"]))
@@ -151,6 +160,7 @@ class Pilot:
                 self.log("settled %s %s qty %.0f pnl %+.2f" % (p["ticker"], result, qty, pnl))
         self.realized = repo.realized_pnl(self.cur, self.user_id)
         self.open_cost = self._open_cost()
+        self.open_risk = risk
         return n
 
     # -- orders -----------------------------------------------------------------------------------
@@ -339,7 +349,8 @@ class Pilot:
     def report(self) -> Dict:
         rep = mp.summary({o["order_id"]: o for o in repo.orders(self.cur)}, self.realized, self.open_cost,
                          repo.settled_count(self.cur, self.user_id))
-        rep.update(generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), shard_cash=self.shard_cash,
+        rep.update(open_risk=None if self.open_risk is None else round(self.open_risk, 2), risk_at_mark=self.risk_at_mark,
+                   generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), shard_cash=self.shard_cash,
                    resting=len(self.resting), live_events=sorted(self.triggers.live(self.now())))
         try:
             import boto3

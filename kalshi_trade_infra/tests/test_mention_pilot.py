@@ -321,3 +321,35 @@ def test_cancel_of_an_order_already_gone_is_done_without_the_deprecated_path():
     api = run.Api(("kid", None), get=None, get_auth=None, post_auth=None, delete_auth=delete, sleep=lambda s: None)
     assert api.cancel("abc") is True
     assert calls == [run.ORDERS + "/abc"]
+
+
+def test_position_risk_is_the_loss_if_sold_at_the_no_bid():
+    assert mp.position_risk(3, 2.40, 0.02) == 0.0                              # decided winner
+    assert mp.position_risk(3, 2.46, 1.00) == pytest.approx(2.46)              # said: all of it
+    assert mp.position_risk(3, 2.10, 0.50) == pytest.approx(0.60)
+    assert mp.position_risk(3, 2.10, None) == pytest.approx(2.10)
+
+
+def test_room_counts_mark_risk_in_the_loss_leg_only():
+    assert mp.room(0.0, 24.51, 0.0, 26.23) == pytest.approx(0.49)
+    assert mp.room(0.0, 24.51, 0.0, 26.23, open_risk=10.0) == pytest.approx(15.0)
+    assert mp.room(0.0, 40.0, 0.0, 60.0, open_risk=0.0) == pytest.approx(5.0)   # capital cap still on cost
+    assert mp.room(-25.0, 0.0, 0.0, 50.0, open_risk=0.0) == 0.0
+
+
+def _decided_book(store, ex, ticker, ask):
+    store.pos[ticker] = dict(id=1, ticker=ticker, qty=30.0, cost=24.6, fees=0.0, status="open")   # $0.40 of loss room at cost
+    ex.results[ticker] = {"status": "active", "yes_ask_dollars": "%.4f" % ask}
+
+
+@pytest.mark.parametrize("flag,ask,quotes", [("0", 0.01, False), ("1", 0.01, True), ("1", 1.00, False)])
+def test_decided_unsettled_words_block_the_next_event_only_at_cost(world, monkeypatch, flag, ask, quotes):
+    pilot, store, ex, clock = world
+    monkeypatch.setenv("TAU_MENTION_PILOT_RISK_AT_MARK", flag)
+    _decided_book(store, ex, "KXHILLARYMENTION-26NOV14-EPST", ask)
+    pilot = run.Pilot(None, pilot.api, 1, {"KXTRUMPMENTION"}, now=lambda: clock["t"], log=lambda m: None)
+    go_live(pilot, ex, clock)
+    ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30)}
+    clock["t"] += 61
+    pilot.step()
+    assert bool(ex.placed) is quotes
