@@ -82,16 +82,14 @@ class Api:
         return self._post(ORDERS, body, credentials=self.creds)
 
     def cancel(self, order_id: str) -> bool:
-        """True once the order is gone (cancelled now, or already filled/cancelled)."""
-        for path in (ORDERS + "/" + order_id, "/trade-api/v2/portfolio/orders/" + order_id):
-            try:
-                self._delete(path, credentials=self.creds)
-                return True
-            except RuntimeError as e:
-                if " 404" in str(e):
-                    continue
+        """True once the order is gone (cancelled now, or already filled/cancelled). A 404 means the
+        order is no longer resting. (The old /portfolio/orders/{id} fallback answers 410 deprecated.)"""
+        try:
+            self._delete(ORDERS + "/" + order_id, credentials=self.creds)
+        except RuntimeError as e:
+            if " 404" not in str(e):
                 raise
-        return True   # neither path knows it: it is not resting
+        return True
 
 
 class Pilot:
