@@ -309,3 +309,15 @@ def test_runner_is_off_without_both_flags(monkeypatch):
     monkeypatch.setenv("TAU_MENTION_PILOT_ENABLED", "1")
     monkeypatch.delenv("APP_LIVE_TRADING_ENABLED", raising=False)
     run.main()
+
+
+def test_cancel_of_an_order_already_gone_is_done_without_the_deprecated_path():
+    calls = []
+
+    def delete(path, credentials=None):
+        calls.append(path)
+        raise RuntimeError("DELETE %s failed 404: not found" % path)
+
+    api = run.Api(("kid", None), get=None, get_auth=None, post_auth=None, delete_auth=delete, sleep=lambda s: None)
+    assert api.cancel("abc") is True
+    assert calls == [run.ORDERS + "/abc"]
