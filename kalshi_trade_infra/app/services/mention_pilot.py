@@ -102,15 +102,29 @@ def collateral(qty: float, yes_price: float) -> float:
     return qty * (1.0 - yes_price)
 
 
-def room(realized_pnl: float, open_cost: float, resting: float, shard_cash: Optional[float]) -> float:
+def room(realized_pnl: float, open_cost: float, resting: float, shard_cash: Optional[float],
+         open_risk: Optional[float] = None) -> float:
     """Collateral the pilot may still put out. Realized loss plus everything still at risk stays inside
     LOSS_STOP_USD, the total out stays under MAX_COLLATERAL_USD, and it never exceeds the shard's cash.
-    Unknown cash (an unreadable balance) means no new orders."""
+    Unknown cash (an unreadable balance) means no new orders.
+
+    open_risk, when given, replaces open_cost in the loss leg only: what the open positions would lose
+    if sold now at the best NO bid (position_risk). Decided-but-unsettled words (Kalshi can take days to
+    settle) then stop blocking the next event. Capital out (MAX_COLLATERAL_USD) still counts full cost."""
     if shard_cash is None or halted(realized_pnl):
         return 0.0
-    at_risk = open_cost + resting
-    free = min(MAX_COLLATERAL_USD - at_risk, LOSS_STOP_USD + realized_pnl - at_risk, shard_cash - resting)
+    loss_risk = (open_cost if open_risk is None else open_risk) + resting
+    free = min(MAX_COLLATERAL_USD - open_cost - resting, LOSS_STOP_USD + realized_pnl - loss_risk,
+               shard_cash - resting)
     return max(0.0, free)
+
+
+def position_risk(qty: float, cost_with_fees: float, yes_ask: Optional[float]) -> float:
+    """What a NO position loses if sold now: cost less qty at the best NO bid (1 - best YES ask). No ask
+    to price from means the whole cost is at risk."""
+    if yes_ask is None or not (0.0 < yes_ask <= 1.0):
+        return cost_with_fees
+    return max(0.0, cost_with_fees - qty * (1.0 - yes_ask))
 
 
 def halted(realized_pnl: float) -> bool:
