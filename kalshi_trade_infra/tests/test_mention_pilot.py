@@ -70,7 +70,13 @@ class Store:
     """In-memory stand-in for mention_pilot_repository."""
 
     def __init__(self):
-        self.events, self.ords, self.fills, self.pos = {}, {}, {}, {}
+        self.events, self.ords, self.fills, self.pos, self.said = {}, {}, {}, {}, {}
+
+    def save_said(self, _cur, tk, ts):
+        self.said.setdefault(tk, ts)
+
+    def said_since(self, _cur, since):
+        return [t for t, ts in self.said.items() if ts >= since]
 
     def triggers_since(self, _cur, since):
         return {e: t for e, t in self.events.items() if t >= since}
@@ -232,6 +238,21 @@ def test_a_said_word_is_cancelled_and_never_quoted_again(world):
     clock["t"] += 30
     pilot.step()
     assert len(ex.placed) == 1
+
+
+def test_a_said_word_stays_said_for_the_next_run(world, monkeypatch):
+    """Runs restart every 55 minutes mid-event: the new run must not quote a word the old one saw said."""
+    pilot, store, ex, clock = world
+    go_live(pilot, ex, clock)
+    ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30)}
+    ex.trades = [trade(E + "-CHINA", clock["t"], 0.92)]
+    pilot.step()
+    assert not ex.placed and E + "-CHINA" in store.said
+    clock["t"] += 60
+    ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30)}   # the price fell back
+    fresh = run.Pilot(None, pilot.api, 1, {"KXTRUMPMENTION"}, now=lambda: clock["t"], log=lambda m: None)
+    fresh.step()
+    assert not ex.placed
 
 
 def test_prints_through_our_ask_count_as_replay_fills_and_real_fills_are_booked_once(world):
