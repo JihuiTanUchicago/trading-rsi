@@ -25,6 +25,8 @@ Stdlib only, no I/O, so all of it is testable.
 from __future__ import annotations
 
 import math
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
 from app.services import mention_maker as mm
@@ -43,6 +45,33 @@ EXIT_PREFIX = "mpx-"
 EXIT_AT = 0.02
 
 
+_EVENT_DATE = re.compile(r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})")
+_MONTHS = {m: i + 1 for i, m in enumerate("JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split())}
+
+
+def event_date(event: str) -> Optional[datetime]:
+    """The date in a Kalshi event ticker (KXHILLARYMENTION-26NOV14 -> 2026-11-14 UTC), or None."""
+    m = _EVENT_DATE.search(event or "")
+    if not m:
+        return None
+    try:
+        return datetime(2000 + int(m.group(1)), _MONTHS[m.group(2)], int(m.group(3)), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def on_event_day(event: str, ts: float) -> bool:
+    """A trigger only counts on the event's own date or the UTC day after (US evening shows end after
+    00Z). Thin pre-event markets jump to 90c weeks early (KXEARNINGSMENTIONCHWY-26DEC09 'triggered' on
+    11-16 on a 0.90 print): that is not a live event, and quoting it would hold NO for weeks with no
+    in-play decay. No date in the ticker: no trigger."""
+    d = event_date(event)
+    if d is None:
+        return False
+    day = datetime.fromtimestamp(ts, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return d <= day <= d + timedelta(days=1)
+
+
 class Triggers:
     """Online version of mention_maker.event_trigger: the first print >= 90c right after a print < 70c in
     any market of an event. Fed the public trade stream in time order."""
@@ -55,7 +84,7 @@ class Triggers:
         """The event's trigger time when this print is the one that sets it, else None."""
         prev = self.last.get(ticker)
         self.last[ticker] = price
-        if event in self.at or prev is None:
+        if event in self.at or prev is None or not on_event_day(event, ts):
             return None
         if prev < mm.TRIGGER_FROM_BELOW and price >= mm.TRIGGER_AT:
             self.at[event] = ts
