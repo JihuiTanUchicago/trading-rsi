@@ -53,6 +53,29 @@ DDL = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
     """
+    CREATE TABLE IF NOT EXISTS app_mention_pilot_exits (
+      order_id VARCHAR(64) PRIMARY KEY,        -- an immediate-or-cancel YES buy that sells a decided NO
+      position_id BIGINT NOT NULL,
+      ticker VARCHAR(128) NOT NULL,
+      yes_price DECIMAL(6,4) NOT NULL,
+      qty DECIMAL(10,2) NOT NULL,
+      placed_ts DOUBLE NOT NULL,
+      INDEX idx_mpx_position (position_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_mention_pilot_exit_fills (
+      fill_id VARCHAR(64) PRIMARY KEY,
+      order_id VARCHAR(64) NOT NULL,
+      position_id BIGINT NOT NULL,
+      qty DECIMAL(10,2) NOT NULL,
+      yes_price DECIMAL(6,4) NOT NULL,
+      fee DECIMAL(12,6) NOT NULL,
+      pnl DECIMAL(12,4) NOT NULL,              -- realized on these contracts: proceeds - their cost - fees
+      ts DOUBLE NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
     CREATE TABLE IF NOT EXISTS app_mention_pilot_positions (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       user_id BIGINT NOT NULL,
@@ -149,9 +172,50 @@ def settle_position(cur, position_id: int, result: str, pnl: float) -> bool:
 
 
 def realized_pnl(cur, user_id: int) -> float:
+    """Settled positions plus every contract sold back early (exit fills)."""
     cur.execute("SELECT COALESCE(SUM(pnl),0) AS p FROM app_mention_pilot_positions WHERE user_id=%s AND status='closed'",
                 (user_id,))
-    return float((cur.fetchone() or {}).get("p") or 0)
+    settled = float((cur.fetchone() or {}).get("p") or 0)
+    cur.execute("""SELECT COALESCE(SUM(x.pnl),0) AS p FROM app_mention_pilot_exit_fills x
+                   JOIN app_mention_pilot_positions p ON p.id = x.position_id WHERE p.user_id=%s""", (user_id,))
+    return settled + float((cur.fetchone() or {}).get("p") or 0)
+
+
+def add_exit(cur, order_id: str, position_id: int, ticker: str, yes_price: float, qty: float, ts: float) -> None:
+    cur.execute("""INSERT IGNORE INTO app_mention_pilot_exits (order_id, position_id, ticker, yes_price, qty, placed_ts)
+                   VALUES (%s,%s,%s,%s,%s,%s)""", (order_id, position_id, ticker, yes_price, qty, ts))
+
+
+def exits(cur) -> Dict[str, Dict]:
+    cur.execute("SELECT * FROM app_mention_pilot_exits")
+    return {r["order_id"]: r for r in cur.fetchall()}
+
+
+def book_exit_fill(cur, fill_id: str, order_id: str, position_id: int, qty: float, yes_price: float, fee: float,
+                   ts: float) -> Optional[float]:
+    """Book one fill of an exit order exactly once: the sold contracts leave the open position with their
+    share of its cost and entry fees, and their P&L is realized. The position closes (result 'sold', pnl 0,
+    since its P&L sits in the exit fills) when nothing is left. Returns the realized P&L, or None when the
+    fill was already booked or the position is gone."""
+    cur.execute("SELECT qty, cost, fees FROM app_mention_pilot_positions WHERE id=%s AND status='open'", (position_id,))
+    p = cur.fetchone()
+    if not p or float(p["qty"]) <= 0:
+        return None
+    held = float(p["qty"])
+    q = min(float(qty), held)
+    cost, fees = float(p["cost"]) * q / held, float(p["fees"]) * q / held
+    pnl = round(q * (1.0 - yes_price) - cost - fees - fee, 4)
+    cur.execute("""INSERT IGNORE INTO app_mention_pilot_exit_fills (fill_id, order_id, position_id, qty, yes_price, fee, pnl, ts)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""", (fill_id, order_id, position_id, q, yes_price, fee, pnl, ts))
+    if cur.rowcount != 1:
+        return None
+    if held - q <= 1e-9:
+        cur.execute("""UPDATE app_mention_pilot_positions SET qty=0, cost=0, fees=0, status='closed', result='sold',
+                       pnl=0, closed_at=%s WHERE id=%s""", (_now(), position_id))
+    else:
+        cur.execute("UPDATE app_mention_pilot_positions SET qty=qty-%s, cost=cost-%s, fees=fees-%s WHERE id=%s",
+                    (q, round(cost, 4), round(fees, 6), position_id))
+    return pnl
 
 
 def filled_by_ticker(cur) -> Dict[str, float]:

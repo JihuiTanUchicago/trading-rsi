@@ -18,6 +18,7 @@ stop and writes s3://<datalake>/research-watch/mention-pilot/latest.json.
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal
 import time
@@ -92,6 +93,9 @@ class Api:
         return True
 
 
+EXIT_GAP_S = 300.0
+
+
 class Pilot:
     def __init__(self, cur, api: Api, user_id: int, series: Set[str], now: Callable[[], float] = time.time,
                  log: Callable[[str], None] = lambda m: print("[mention-pilot] " + m, flush=True)):
@@ -139,8 +143,43 @@ class Pilot:
             self.shard_cash = None
             self.log("balance unreadable: %s" % str(e)[:160])
 
+    def exit_position(self, p: Dict, yes_ask: float) -> bool:
+        """Buy YES immediate-or-cancel at the ask for what is left of a decided NO position. Never more
+        than Kalshi says we hold (so it can only close NO, never open YES), and at most one exit per
+        position every EXIT_GAP_S, so a fill that is slow to show up is not sold twice."""
+        now = self.now()
+        if any(int(x["position_id"]) == int(p["id"]) and now - float(x["placed_ts"]) < EXIT_GAP_S
+               for x in repo.exits(self.cur).values()):
+            return False
+        try:
+            page = self.api.private("/trade-api/v2/portfolio/positions", {"ticker": p["ticker"], "limit": 10})
+        except Exception as e:  # noqa: BLE001 - try again next minute
+            self.log("exit %s: positions unreadable: %s" % (p["ticker"], str(e)[:160]))
+            return False
+        held_no = 0.0
+        for row in page.get("market_positions") or []:
+            if row.get("ticker") == p["ticker"]:
+                held_no = max(0.0, -float(row.get("position_fp") or row.get("position") or 0))
+        qty = int(math.floor(min(float(p["qty"]), held_no) + 1e-9))
+        if qty <= 0:
+            return False
+        body = {"ticker": p["ticker"], "side": "bid", "count": "%d.00" % qty, "price": "%.4f" % yes_ask,
+                "time_in_force": "immediate_or_cancel", "self_trade_prevention_type": "taker_at_cross",
+                "client_order_id": mp.EXIT_PREFIX + uuid.uuid4().hex[:24]}
+        try:
+            r = self.api.place(body)
+        except Exception as e:  # noqa: BLE001 - try again next minute
+            self.log("exit %s refused: %s" % (p["ticker"], str(e)[:200]))
+            return True   # counts as this minute's exit: a bad order format fails once, not once per word
+        oid = r.get("order_id") or (r.get("order") or {}).get("order_id")
+        if oid:
+            repo.add_exit(self.cur, oid, p["id"], p["ticker"], yes_ask, qty, now)
+            self.log("EXIT %s x%d buy YES @%.2f (decided, not said)" % (p["ticker"], qty, yes_ask))
+        return True
+
     def settle(self) -> int:
-        n, risk = 0, 0.0
+        n, risk, exited = 0, 0.0, False
+        now = self.now()
         for p in repo.open_positions(self.cur, self.user_id):
             cost = float(p["cost"]) + float(p["fees"])
             try:
@@ -151,7 +190,11 @@ class Pilot:
             result = market_settlement(m)
             if result is None:
                 ask = m.get("yes_ask_dollars")
-                risk += mp.position_risk(float(p["qty"]), cost, float(ask) if ask not in (None, "") else None)
+                ask = float(ask) if ask not in (None, "") else None
+                risk += mp.position_risk(float(p["qty"]), cost, ask)
+                trig = self.triggers.at.get(p.get("event_ticker") or event_of(p["ticker"]))
+                if not exited and mp.should_exit(ask, trig is None or now >= trig + mp.HOLD_S):
+                    exited = self.exit_position(p, ask)   # one exit a minute: a bad one costs one word
                 continue
             qty = float(p["qty"])
             _, _, pnl = settlement_terms(result, "no", qty, float(p["cost"]) / qty, float(p["fees"]))
@@ -220,6 +263,23 @@ class Pilot:
 
     # -- the step ---------------------------------------------------------------------------------
 
+    def book_exit(self, x: Dict, f: Dict) -> None:
+        try:
+            qty = float(f.get("count_fp") or f.get("count") or 0)
+            yes_px = f.get("yes_price_dollars")
+            yes_px = float(yes_px) if yes_px is not None else 1.0 - float(f["no_price_dollars"])
+            fee = float(f.get("fee_cost") or 0)
+        except (TypeError, ValueError, KeyError):
+            return
+        if qty <= 0:
+            return
+        pnl = repo.book_exit_fill(self.cur, f["fill_id"], x["order_id"], int(x["position_id"]), qty, yes_px, fee,
+                                  float(f.get("ts") or self.now()))
+        if pnl is not None:
+            self.realized = repo.realized_pnl(self.cur, self.user_id)
+            self.open_cost = self._open_cost()
+            self.log("SOLD %s x%.0f at YES %.2f fee %.4f pnl %+.2f" % (x["ticker"], qty, yes_px, fee, pnl))
+
     def mark_said(self, ticker: str, ts: float) -> None:
         if ticker not in self.said:
             self.said.add(ticker)
@@ -273,8 +333,13 @@ class Pilot:
 
     def sync_fills(self) -> None:
         known = {o["order_id"]: o for o in repo.orders(self.cur)}
+        out = repo.exits(self.cur)
         page = self.api.private("/trade-api/v2/portfolio/fills", {"min_ts": self.fill_min_ts, "limit": 200})
         for f in page.get("fills") or []:
+            x = out.get(f.get("order_id"))
+            if x is not None:
+                self.book_exit(x, f)
+                continue
             o = known.get(f.get("order_id"))
             terms = mp.fill_terms(f) if o else None
             if not terms:
