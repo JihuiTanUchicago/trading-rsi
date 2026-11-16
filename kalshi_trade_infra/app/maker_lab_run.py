@@ -10,7 +10,9 @@ series runs every 12 hours and, with a 12-hour holdout, its held-out windows nev
 shows the model the summaries of that series' last PRIOR_RUNS runs.
 
 Before its own search, a run judges up to FORWARD_PER_RUN earlier finalists of its series on the 24
-hours after their holdout (maker_lab.forward_due); ``--forward-only`` does just that, for every series.
+hours after their holdout (maker_lab.forward_due), then confirms forward passes of its series on the 72
+hours after their forward window (maker_lab.confirm_due); ``--forward-only`` does just those, for every
+series.
 """
 from __future__ import annotations
 
@@ -23,7 +25,8 @@ from typing import List, Optional, Sequence
 
 from app.adapters.sim.maker_eval import FALLBACKS, evaluate
 from app.adapters.llm.llm import Usage
-from app.services.maker_lab import S3ForwardBook, S3Ledger, forward_due, judge_forward, run_lab, split, summary_lines
+from app.services.maker_lab import (S3ConfirmBook, S3ForwardBook, S3Ledger, confirm_due, forward_due, judge_confirm,
+                                    judge_forward, run_lab, split, summary_lines)
 from trading_core.engine.maker_policy import MAKER_SERIES
 
 PREFIX = "research-watch/maker/runs/"
@@ -80,6 +83,12 @@ def forward(s3, bucket: str, archived_to: datetime, series: Optional[str], limit
                                                                            archived_to, limit)]
 
 
+def confirm(s3, bucket: str, archived_to: datetime, series: Optional[str], limit: int, workers: int) -> List[dict]:
+    fwd, book = S3ForwardBook(s3, bucket), S3ConfirmBook(s3, bucket)
+    return [judge_confirm(c, fwd, book, evaluate, workers)
+            for c in confirm_due(run_docs(s3, bucket, series), fwd, book, archived_to, limit)]
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thin CLI
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--series", default="auto", choices=MAKER_SERIES + ("auto",))
@@ -104,7 +113,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
     if a.forward_only:
         import boto3
         from data_pipeline.tick_store import BUCKET
-        done = forward(boto3.client("s3"), BUCKET, archived_to, None, 10, a.workers)
+        s3 = boto3.client("s3")
+        done = forward(s3, BUCKET, archived_to, None, 10, a.workers)
+        done += confirm(s3, BUCKET, archived_to, None, 10, a.workers)
         print(json.dumps(done, indent=1))
         return 0
     series = auto_series(datetime.now(timezone.utc)) if a.series == "auto" else a.series
@@ -145,6 +156,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
             status("started", forward=fwd)
     except Exception:  # noqa: BLE001 - a forward failure must not cost the run its search
         print("[maker_lab] forward step failed: %s" % traceback.format_exc()[-2000:], flush=True)
+    conf: List[dict] = []
+    try:
+        conf = confirm(s3, BUCKET, archived_to, series, 2, a.workers)
+        if conf:
+            status("started", forward=fwd, confirm=conf)
+    except Exception:  # noqa: BLE001 - a confirm failure must not cost the run its search
+        print("[maker_lab] confirm step failed: %s" % traceback.format_exc()[-2000:], flush=True)
     try:
         out = run_lab(series, research, holdout, model, Usage(), S3Ledger(s3, BUCKET), evaluate, rounds,
                       per_round, a.workers, log=note, prior=prior_lines(s3, BUCKET, series))
@@ -153,13 +171,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
         raise
     out["model"] = choice.model_id
     out["forward"] = fwd
+    out["confirm"] = conf
     body = json.dumps(out, indent=1, default=str)
     key = "research-watch/maker/runs/%s_%s.json" % (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M"), series)
     s3.put_object(Bucket=BUCKET, Key=key, Body=body.encode())
     if a.out:
         with open(a.out, "w") as f:
             f.write(body)
-    status("done", result=key, forward=fwd, steps=len(progress), fallbacks=list(FALLBACKS))
+    status("done", result=key, forward=fwd, confirm=conf, steps=len(progress), fallbacks=list(FALLBACKS))
     print("saved s3://%s/%s" % (BUCKET, key))
     return 0
 

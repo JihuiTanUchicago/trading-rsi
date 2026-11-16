@@ -24,6 +24,15 @@ FORWARD_MAX_P with a positive fee-stressed mean is judged ONCE more, frozen, on 
 follow its holdout window (hours no lab run had when it was picked), by the same judge() at GATE_ALPHA.
 The rule is fixed before any forward hour is scored; a policy (series + levers) is judged forward at
 most once, and forward verdicts live in their own ledger so they never split a holdout's alpha.
+
+Confirmation (fixed 2026-11-16, after the first two forward passes, before any later hour was scored).
+The forward judge scores 60-second markouts, and inventory held past 60 s is not scored. A forward pass
+is judged ONCE more, frozen, on the CONFIRM_HOURS that follow its forward window. It passes only when
+both of these hold:
+- judge() passes at GATE_ALPHA divided by the number of forward passes so far.
+- The summed trading P&L of those hours is positive. That P&L is each hour's book marked at its last
+  mid, and the hourly series settle on the hour, so it is close to settled money.
+Confirm verdicts live in their own ledger.
 """
 from __future__ import annotations
 
@@ -42,6 +51,7 @@ MIN_HOURS = 12
 MIN_FILLS = 200
 FORWARD_HOURS = 24
 FORWARD_MAX_P = 0.20
+CONFIRM_HOURS = 72
 ROUND0 = ("join_touch", "spot_fair_2c", "spot_fair_2c_pull")
 
 SYSTEM = """You are a quantitative researcher designing PASSIVE market-making policies for Kalshi Bitcoin
@@ -250,6 +260,60 @@ def judge_forward(c: Dict, book: ForwardBook, evaluate: Callable[..., List[Dict]
                   "markout_per_contract": v["stats"].get("markout_per_contract"), "at": int(time.time())})
     book.record(entry)
     log("forward %s %s on %d hours after its holdout: %s" % (c["series"], c["name"], len(hours), v["reason"]))
+    return entry
+
+
+class ConfirmBook(ForwardBook):
+    """Confirm verdicts, one per (series, policy hash); the S3 one persists them (S3ConfirmBook)."""
+
+
+class S3ConfirmBook(S3ForwardBook):
+    KEY = "research-watch/maker/confirm.json"
+
+
+def confirm_due(runs: Sequence[Dict], forward: ForwardBook, book: ForwardBook, archived_to: datetime,
+                limit: int) -> List[Dict]:
+    """Forward passes whose confirm window (the CONFIRM_HOURS after their forward window) has fully
+    archived and that were never confirmed, oldest first, at most ``limit``. The frozen policy comes
+    from the lab run that picked it (matched by series and levers hash)."""
+    policies = {}
+    for run in runs:
+        for r in (run.get("results") or {}).values():
+            if r.get("hash") and r.get("policy"):
+                policies.setdefault((run.get("series"), r["hash"]), r["policy"])
+    out: List[Dict] = []
+    for e in sorted((e for e in forward.entries if e.get("passed")), key=lambda e: e["end"]):
+        key = (e["series"], e["hash"])
+        start = int(e["end"])
+        end = start + CONFIRM_HOURS * 3600
+        if key in policies and end <= archived_to.timestamp() and not book.judged(*key) and \
+                not any((o["series"], o["hash"]) == key for o in out):
+            out.append({"series": e["series"], "name": e["name"], "hash": e["hash"], "policy": policies[key],
+                        "forward_p": e.get("p_value"), "start": start, "end": end})
+    return out[:limit]
+
+
+def judge_confirm(c: Dict, forward: ForwardBook, book: ForwardBook, evaluate: Callable[..., List[Dict]],
+                  workers: int = 1, log: Callable[[str], None] = print) -> Dict:
+    hours = [datetime.fromtimestamp(t, timezone.utc) for t in range(c["start"], c["end"], 3600)]
+    rows = evaluate(c["policy"], hours, workers=workers)
+    alpha = GATE_ALPHA / max(1, sum(1 for e in forward.entries if e.get("passed")))
+    v = judge(rows, alpha)
+    pnl = [float(r.get("trading_pnl") or 0.0) for r in rows]
+    settled = round(sum(pnl), 2)
+    passed, reason = v["passed"], v["reason"]
+    if passed and settled <= 0:
+        passed, reason = False, "markouts pass but the held inventory lost: trading P&L $%.2f" % settled
+    entry = {k: c[k] for k in ("series", "name", "hash", "forward_p", "start", "end")}
+    entry.update({"passed": passed, "reason": reason, "alpha": alpha, "p_value": v.get("p_value"),
+                  "mean": v.get("mean"), "fee_stressed_mean": v.get("fee_stressed_mean"), "hours": v["hours"],
+                  "fills": v["fills"], "markout_per_contract": v["stats"].get("markout_per_contract"),
+                  "trading_pnl": settled, "losing_hours": sum(1 for x in pnl if x < 0),
+                  "worst_hour": round(min(pnl), 2) if pnl else None,
+                  "peak_collateral": max((r.get("peak_collateral") or 0.0 for r in rows), default=0.0),
+                  "at": int(time.time())})
+    book.record(entry)
+    log("confirm %s %s on %d hours after its forward window: %s" % (c["series"], c["name"], len(hours), reason))
     return entry
 
 

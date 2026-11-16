@@ -178,3 +178,46 @@ def test_a_clone_of_a_policy_already_judged_forward_is_not_judged_again():
     assert [c["name"] for c in lab.forward_due(runs, book, H0 + timedelta(days=5), limit=5)] == ["a"]
     book.record({"series": "KXBTC", "hash": "same"})
     assert lab.forward_due(runs, book, H0 + timedelta(days=5), limit=5) == []
+
+
+def test_a_forward_pass_is_confirmed_once_on_72_hours_and_needs_trading_pnl_too():
+    """Fixed 2026-11-16 after the first forward passes: markouts must pass again on the 72 hours after
+    the forward window, at alpha split by forward passes, and the held inventory must not lose."""
+    end = int((H0 + timedelta(hours=11)).timestamp())
+    runs = [_run("KXBTC", "r5.1", 0.0, 40.0, end, "p1"), _run("KXBTC", "r5.3", 0.0, 30.0, end, "p2")]
+    fwd = lab.ForwardBook([
+        {"series": "KXBTC", "name": "r5.1", "hash": "p1", "passed": True, "p_value": 0.0,
+         "start": end + 3600, "end": end + 25 * 3600},
+        {"series": "KXBTC", "name": "r5.3", "hash": "p2", "passed": True, "p_value": 0.0,
+         "start": end + 13 * 3600, "end": end + 37 * 3600},
+        {"series": "KXBTC", "name": "old", "hash": "p9", "passed": False, "start": 0, "end": end}])
+    book = lab.ConfirmBook()
+    first_due = datetime.fromtimestamp(end + 97 * 3600, timezone.utc)
+    due = lab.confirm_due(runs, fwd, book, first_due, limit=5)
+    assert [c["name"] for c in due] == ["r5.1"]                              # r5.3's window not archived yet
+    c = due[0]
+    assert c["start"] == end + 25 * 3600 and c["end"] - c["start"] == 72 * 3600 and c["policy"]["min_edge"] == 0.02
+
+    seen = []
+
+    def evaluate(policy, hours, workers=1):
+        seen.append(list(hours))
+        rows = _rows(hours, lambda i: 6.0 + (i % 4))
+        for r in rows:
+            r["trading_pnl"] = -5.0                                          # markouts win, inventory loses
+        return rows
+
+    e = lab.judge_confirm(c, fwd, book, evaluate, log=lambda m: None)
+    assert not e["passed"] and "held inventory lost" in e["reason"] and e["trading_pnl"] == -360.0
+    assert e["alpha"] == 0.025 and e["hours"] == 72 and len(seen[0]) == 72
+    later = first_due + timedelta(hours=24)
+    assert [c["name"] for c in lab.confirm_due(runs, fwd, book, later, limit=5)] == ["r5.3"]   # r5.1 never again
+
+    def good(policy, hours, workers=1):
+        rows = _rows(hours, lambda i: 6.0 + (i % 4))
+        for r in rows:
+            r["trading_pnl"] = 3.0
+        return rows
+
+    e2 = lab.judge_confirm(lab.confirm_due(runs, fwd, book, later, limit=5)[0], fwd, book, good, log=lambda m: None)
+    assert e2["passed"] and e2["trading_pnl"] == 216.0 and e2["losing_hours"] == 0
