@@ -78,7 +78,8 @@ class Triggers:
 
     def __init__(self, known: Optional[Dict[str, float]] = None):
         self.last: Dict[str, float] = {}
-        self.at: Dict[str, float] = dict(known or {})
+        # Saved triggers pass the same date check: one saved before the check existed must not come back.
+        self.at: Dict[str, float] = {e: t for e, t in (known or {}).items() if on_event_day(e, t)}
 
     def see(self, event: str, ticker: str, ts: float, price: float) -> Optional[float]:
         """The event's trigger time when this print is the one that sets it, else None."""

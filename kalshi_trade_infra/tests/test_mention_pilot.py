@@ -79,6 +79,7 @@ def test_a_jump_weeks_before_the_event_date_is_not_a_live_event():
     assert not mp.on_event_day("KXFTNMENTION-26NOV15", T0 + 3 * 86400)
     assert not mp.on_event_day("NODATE", T0)
     assert mp.event_date("KXNBAMENTION-26NOV14LALBOS").day == 14
+    assert mp.Triggers({ev: T0, "KXX-26NOV14": T0}).at == {"KXX-26NOV14": T0}   # saved triggers too
 
 
 # -- the runner, with a fake exchange and a fake store ---------------------------------------------
