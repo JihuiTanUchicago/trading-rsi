@@ -54,14 +54,31 @@ def test_fill_terms_read_a_kalshi_fill_row_as_a_no_position():
     assert mp.fill_terms({"count_fp": "0"}) is None
 
 
+T0 = 1_794_697_200.0   # 2026-11-14 23:00Z
+
+
 def test_trigger_is_a_jump_to_90c_from_below_70c():
     tr = mp.Triggers()
-    assert tr.see("E", "E-A", 100, 0.40) is None
-    assert tr.see("E", "E-B", 101, 0.95) is None        # first print of B: no previous price
-    assert tr.see("E", "E-A", 200, 0.92) == 200
-    assert tr.see("E", "E-A", 300, 0.10) is None and tr.at["E"] == 200
-    assert tr.live(200 + mp.DELAY_S) == {"E": 200}
-    assert tr.live(200 + mp.HOLD_S) == {}
+    ev = "KXX-26NOV14"
+    assert tr.see(ev, ev + "-A", T0 + 100, 0.40) is None
+    assert tr.see(ev, ev + "-B", T0 + 101, 0.95) is None        # first print of B: no previous price
+    assert tr.see(ev, ev + "-A", T0 + 200, 0.92) == T0 + 200
+    assert tr.see(ev, ev + "-A", T0 + 300, 0.10) is None and tr.at[ev] == T0 + 200
+    assert tr.live(T0 + 200 + mp.DELAY_S) == {ev: T0 + 200}
+    assert tr.live(T0 + 200 + mp.HOLD_S) == {}
+
+
+def test_a_jump_weeks_before_the_event_date_is_not_a_live_event():
+    tr = mp.Triggers()
+    ev = "KXEARNINGSMENTIONCHWY-26DEC09"
+    assert tr.see(ev, ev + "-SMAR", T0, 0.60) is None
+    assert tr.see(ev, ev + "-SMAR", T0 + 10, 0.90) is None and not tr.at
+    assert mp.on_event_day("KXHILLARYMENTION-26NOV14", 1_794_706_026)      # 11-15 01:27Z, the US evening
+    assert mp.on_event_day("KXFTNMENTION-26NOV15", 1_794_757_594)
+    assert not mp.on_event_day("KXFTNMENTION-26NOV15", T0)                 # the day before
+    assert not mp.on_event_day("KXFTNMENTION-26NOV15", T0 + 3 * 86400)
+    assert not mp.on_event_day("NODATE", T0)
+    assert mp.event_date("KXNBAMENTION-26NOV14LALBOS").day == 14
 
 
 # -- the runner, with a fake exchange and a fake store ---------------------------------------------
@@ -205,7 +222,7 @@ def market(tk, bid, ask, idx=0):
 
 @pytest.fixture
 def world(monkeypatch):
-    store, ex, clock = Store(), Exchange(), {"t": 1_000_000.0}
+    store, ex, clock = Store(), Exchange(), {"t": T0}
     monkeypatch.setattr(run, "repo", types.SimpleNamespace(**{k: getattr(store, k) for k in dir(store)
                                                               if not k.startswith("_")}))
     monkeypatch.setattr(run.Pilot, "report", lambda self: {})
