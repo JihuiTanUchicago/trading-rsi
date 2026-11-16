@@ -75,7 +75,8 @@ def test_a_jump_weeks_before_the_event_date_is_not_a_live_event():
     assert tr.see(ev, ev + "-SMAR", T0 + 10, 0.90) is None and not tr.at
     assert mp.on_event_day("KXHILLARYMENTION-26NOV14", 1_794_706_026)      # 11-15 01:27Z, the US evening
     assert mp.on_event_day("KXFTNMENTION-26NOV15", 1_794_757_594)
-    assert not mp.on_event_day("KXFTNMENTION-26NOV15", T0)                 # the day before
+    assert mp.on_event_day("KXFTNMENTION-26NOV15", T0)                     # the UTC day before counts
+    assert not mp.on_event_day("KXFTNMENTION-26NOV15", T0 - 86400)         # two days before does not
     assert not mp.on_event_day("KXFTNMENTION-26NOV15", T0 + 3 * 86400)
     assert not mp.on_event_day("NODATE", T0)
     assert mp.event_date("KXNBAMENTION-26NOV14LALBOS").day == 14

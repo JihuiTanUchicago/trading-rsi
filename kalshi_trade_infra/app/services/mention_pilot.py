@@ -61,15 +61,18 @@ def event_date(event: str) -> Optional[datetime]:
 
 
 def on_event_day(event: str, ts: float) -> bool:
-    """A trigger only counts on the event's own date or the UTC day after (US evening shows end after
-    00Z). Thin pre-event markets jump to 90c weeks early (KXEARNINGSMENTIONCHWY-26DEC09 'triggered' on
-    11-16 on a 0.90 print): that is not a live event, and quoting it would hold NO for weeks with no
-    in-play decay. No date in the ticker: no trigger."""
+    """A trigger only counts from the UTC day before the event ticker's date to the UTC day after (shows
+    and calls run either side of 00Z). Thin pre-event markets jump to 90c weeks early
+    (KXEARNINGSMENTIONCHWY-26DEC09 'triggered' on 11-16 on a 0.90 print): that is not a live event, and
+    quoting it would hold NO for weeks. In the 10.5-month non-sport replay (2.5h, 100/word) the kept
+    window has 855 events at +8.3c a contract (day before 128 at +10.9c, on/after 727 at +7.9c); the
+    excluded 1 to 7 days early lose (62 events, -4.8c) and >7 days early (86, +7.5c) would hold cash for
+    weeks. No date in the ticker: no trigger."""
     d = event_date(event)
     if d is None:
         return False
     day = datetime.fromtimestamp(ts, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return d <= day <= d + timedelta(days=1)
+    return d - timedelta(days=1) <= day <= d + timedelta(days=1)
 
 
 class Triggers:
