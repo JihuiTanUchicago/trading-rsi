@@ -71,6 +71,28 @@ class Store:
 
     def __init__(self):
         self.events, self.ords, self.fills, self.pos, self.said = {}, {}, {}, {}, {}
+        self.exit_orders, self.exit_fills = {}, {}
+
+    def add_exit(self, _cur, oid, pid, tk, px, qty, ts):
+        self.exit_orders[oid] = dict(order_id=oid, position_id=pid, ticker=tk, yes_price=px, qty=qty, placed_ts=ts)
+
+    def exits(self, _cur):
+        return dict(self.exit_orders)
+
+    def book_exit_fill(self, _cur, fid, oid, pid, qty, yes_px, fee, ts):
+        p = next((p for p in self.pos.values() if p["id"] == pid and p["status"] == "open"), None)
+        if p is None or fid in self.exit_fills:
+            return None
+        q = min(qty, p["qty"])
+        cost, fees = p["cost"] * q / p["qty"], p["fees"] * q / p["qty"]
+        pnl = round(q * (1 - yes_px) - cost - fees - fee, 4)
+        self.exit_fills[fid] = pnl
+        p["qty"] -= q
+        p["cost"] -= cost
+        p["fees"] -= fees
+        if p["qty"] <= 1e-9:
+            p.update(status="closed", result="sold", pnl=0.0)
+        return pnl
 
     def save_said(self, _cur, tk, ts):
         self.said.setdefault(tk, ts)
@@ -120,7 +142,7 @@ class Store:
         return False
 
     def realized_pnl(self, _cur, _uid):
-        return sum(p["pnl"] for p in self.pos.values() if p["status"] == "closed")
+        return sum(p["pnl"] for p in self.pos.values() if p["status"] == "closed") + sum(self.exit_fills.values())
 
     def filled_by_ticker(self, _cur):
         out = {}
@@ -137,6 +159,7 @@ class Exchange:
         self.trades, self.markets, self.fills, self.results = [], {}, [], {}
         self.placed, self.cancelled = [], []
         self.cash = 50.0
+        self.held = {}   # ticker -> Kalshi position (negative = NO)
 
     def get(self, path, params=None):
         if path == "/markets/trades":
@@ -155,6 +178,9 @@ class Exchange:
             return {"fills": self.fills}
         if path.endswith("/orders"):
             return {"orders": []}
+        if path.endswith("/positions"):
+            return {"market_positions": [{"ticker": t, "position_fp": "%.2f" % q} for t, q in self.held.items()
+                                         if t == (params or {}).get("ticker")]}
         raise AssertionError(path)
 
     def post(self, path, body, credentials=None):
@@ -353,3 +379,88 @@ def test_decided_unsettled_words_block_the_next_event_only_at_cost(world, monkey
     clock["t"] += 61
     pilot.step()
     assert bool(ex.placed) is quotes
+
+
+H = "KXHILLARYMENTION-26NOV14"
+
+
+def _held(store, ex, tk, qty=3.0, cost=2.40, status="active", ask=0.01, pid=1):
+    store.pos[tk] = dict(id=pid, event_ticker=H, ticker=tk, qty=qty, cost=cost, fees=0.0, status="open")
+    ex.results[tk] = {"status": status, "yes_ask_dollars": "%.4f" % ask}
+    ex.held[tk] = -qty
+
+
+def test_should_exit_only_after_the_window_on_a_decided_no():
+    assert mp.should_exit(0.01, True) and mp.should_exit(0.02, True)
+    assert not mp.should_exit(0.03, True)
+    assert not mp.should_exit(0.01, False)      # event still live: the word may yet be said
+    assert not mp.should_exit(None, True)
+
+
+def test_a_decided_winner_is_sold_back_once_and_frees_the_loss_room(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", ask=0.01)
+    _held(store, ex, H + "-IMPE", ask=1.00, cost=2.46, pid=2)   # said: held to settlement
+    pilot.open_cost = pilot._open_cost()
+    pilot.step()
+    exits = [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    assert len(exits) == 1
+    b = exits[0]
+    assert b["ticker"] == H + "-EPST" and b["side"] == "bid" and b["price"] == "0.0100"
+    assert b["count"] == "3.00" and b["time_in_force"] == "immediate_or_cancel" and "post_only" not in b
+    oid = "o%d" % len(ex.placed)
+    ex.fills = [{"fill_id": "x1", "order_id": oid, "count_fp": "3.00", "yes_price_dollars": "0.0100",
+                 "fee_cost": "0.0100", "ts": clock["t"]}]
+    clock["t"] += 61
+    pilot.step()
+    p = store.pos[H + "-EPST"]
+    assert p["status"] == "closed" and p["result"] == "sold"
+    assert pilot.realized == pytest.approx(3 * 0.99 - 2.40 - 0.01)
+    assert pilot.open_cost == pytest.approx(2.46)
+    assert len([b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]) == 1
+
+
+def test_an_exit_never_sells_more_than_kalshi_holds_or_twice_inside_the_gap(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", ask=0.02)
+    ex.held[H + "-EPST"] = -2.0          # Kalshi shows less than our book: sell only that
+    pilot.step()
+    assert [b["count"] for b in ex.placed] == ["2.00"]
+    clock["t"] += 61                      # no fill shows up yet: wait out the gap, do not resend
+    pilot.step()
+    assert len(ex.placed) == 1
+    clock["t"] += run.EXIT_GAP_S
+    pilot.step()
+    assert len(ex.placed) == 2
+
+
+def test_a_partial_exit_fill_leaves_the_rest_open_at_its_share_of_cost(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", ask=0.01, cost=2.40)
+    pilot.step()
+    ex.fills = [{"fill_id": "x1", "order_id": "o1", "count_fp": "1.00", "yes_price_dollars": "0.0100",
+                 "fee_cost": "0.0000", "ts": clock["t"]}]
+    pilot.step()
+    p = store.pos[H + "-EPST"]
+    assert p["status"] == "open" and p["qty"] == 2 and p["cost"] == pytest.approx(1.60)
+    assert pilot.realized == pytest.approx(0.99 - 0.80)
+
+
+def test_no_exit_while_the_event_is_live(world):
+    pilot, store, ex, clock = world
+    store.events[H] = clock["t"] - 60
+    pilot = run.Pilot(None, pilot.api, 1, {"KXHILLARYMENTION"}, now=lambda: clock["t"], log=lambda m: None)
+    _held(store, ex, H + "-EPST", ask=0.01)
+    pilot.step()
+    assert not [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+
+
+def test_one_exit_a_minute(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", ask=0.01)
+    _held(store, ex, H + "-BIDE", ask=0.01, pid=2)
+    pilot.step()
+    assert len(ex.placed) == 1
+    clock["t"] += 61
+    pilot.step()
+    assert len(ex.placed) == 2 and {b["ticker"] for b in ex.placed} == {H + "-EPST", H + "-BIDE"}

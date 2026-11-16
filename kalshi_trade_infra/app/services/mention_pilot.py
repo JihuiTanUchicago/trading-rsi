@@ -37,6 +37,10 @@ REQUOTE_MIN_S = 10.0
 LO, HI = mm.LO, mm.HI
 DELAY_S, HOLD_S = mm.DELAY_S, mm.HOLD_S
 CLIENT_PREFIX = "mp-"
+EXIT_PREFIX = "mpx-"
+# Todd 2026-11-16: once an event's window has closed, sell back NO positions on words the market has
+# decided were not said (YES ask at or under EXIT_AT), so unsettled winners stop holding the loss room.
+EXIT_AT = 0.02
 
 
 class Triggers:
@@ -61,6 +65,12 @@ class Triggers:
     def live(self, now: float) -> Dict[str, float]:
         """Events inside their quoting window right now: trigger + DELAY_S <= now < trigger + HOLD_S."""
         return {e: t for e, t in self.at.items() if t + DELAY_S <= now < t + HOLD_S}
+
+
+def should_exit(yes_ask: Optional[float], window_closed: bool) -> bool:
+    """Sell a NO position back now: its event's quoting window is over and YES is offered at EXIT_AT or
+    less (the word was not said; the NO is worth 98c or more and only waits for Kalshi to settle)."""
+    return window_closed and yes_ask is not None and 0.0 < yes_ask <= EXIT_AT + 1e-9
 
 
 def best_prices(orderbook: Dict) -> Tuple[Optional[float], Optional[float]]:
