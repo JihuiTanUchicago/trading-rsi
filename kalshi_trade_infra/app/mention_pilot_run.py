@@ -117,6 +117,7 @@ class Pilot:
         # Off by default: the loss stop counts open positions at full cost. TAU_MENTION_PILOT_RISK_AT_MARK=1
         # counts them at what they would lose if sold now (mp.position_risk), refreshed each minute.
         self.risk_at_mark = os.getenv("TAU_MENTION_PILOT_RISK_AT_MARK", "0") == "1"
+        self.exit_refused: Dict[int, float] = {}
         self.open_risk: Optional[float] = None
         self.minute_at = 0.0
         self.stopped = False
@@ -151,6 +152,8 @@ class Pilot:
         if any(int(x["position_id"]) == int(p["id"]) and now - float(x["placed_ts"]) < EXIT_GAP_S
                for x in repo.exits(self.cur).values()):
             return False
+        if now - self.exit_refused.get(int(p["id"]), -1e18) < EXIT_GAP_S:
+            return False   # Kalshi refused this one recently: same gap as a placed exit
         try:
             page = self.api.private("/trade-api/v2/portfolio/positions", {"ticker": p["ticker"], "limit": 10})
         except Exception as e:  # noqa: BLE001 - try again next minute
@@ -160,22 +163,28 @@ class Pilot:
         for row in page.get("market_positions") or []:
             if row.get("ticker") == p["ticker"]:
                 held_no = max(0.0, -float(row.get("position_fp") or row.get("position") or 0))
-        qty = int(math.floor(min(float(p["qty"]), held_no) + 1e-9))
+        # Kalshi fills in hundredths of a contract, so sell the exact held amount (2.75 -> 2.75, not 2);
+        # if a fractional count is refused, fall back to the whole contracts.
+        qty = math.floor(min(float(p["qty"]), held_no) * 100 + 1e-6) / 100
+        tries = [qty] + ([float(int(qty))] if int(qty) >= 1 and int(qty) != qty else [])
         if qty <= 0:
             return False
-        body = {"ticker": p["ticker"], "side": "bid", "count": "%d.00" % qty, "price": "%.4f" % yes_ask,
-                "time_in_force": "immediate_or_cancel", "self_trade_prevention_type": "taker_at_cross",
-                "client_order_id": mp.EXIT_PREFIX + uuid.uuid4().hex[:24]}
-        try:
-            r = self.api.place(body)
-        except Exception as e:  # noqa: BLE001 - try again next minute
-            self.log("exit %s refused: %s" % (p["ticker"], str(e)[:200]))
-            return True   # counts as this minute's exit: a bad order format fails once, not once per word
-        oid = r.get("order_id") or (r.get("order") or {}).get("order_id")
-        if oid:
-            repo.add_exit(self.cur, oid, p["id"], p["ticker"], yes_ask, qty, now)
-            self.log("EXIT %s x%d buy YES @%.2f (decided, not said)" % (p["ticker"], qty, yes_ask))
-        return True
+        for q in tries:
+            body = {"ticker": p["ticker"], "side": "bid", "count": "%.2f" % q, "price": "%.4f" % yes_ask,
+                    "time_in_force": "immediate_or_cancel", "self_trade_prevention_type": "taker_at_cross",
+                    "client_order_id": mp.EXIT_PREFIX + uuid.uuid4().hex[:24]}
+            try:
+                r = self.api.place(body)
+            except Exception as e:  # noqa: BLE001 - try again next minute
+                self.log("exit %s x%.2f refused: %s" % (p["ticker"], q, str(e)[:200]))
+                continue
+            oid = r.get("order_id") or (r.get("order") or {}).get("order_id")
+            if oid:
+                repo.add_exit(self.cur, oid, p["id"], p["ticker"], yes_ask, q, now)
+                self.log("EXIT %s x%.2f buy YES @%.2f (decided, not said)" % (p["ticker"], q, yes_ask))
+            return True
+        self.exit_refused[int(p["id"])] = now
+        return True   # counts as this minute's exit: a bad order format fails once, not once per word
 
     def settle(self) -> int:
         n, risk, exited = 0, 0.0, False
@@ -278,7 +287,7 @@ class Pilot:
         if pnl is not None:
             self.realized = repo.realized_pnl(self.cur, self.user_id)
             self.open_cost = self._open_cost()
-            self.log("SOLD %s x%.0f at YES %.2f fee %.4f pnl %+.2f" % (x["ticker"], qty, yes_px, fee, pnl))
+            self.log("SOLD %s x%.2f at YES %.2f fee %.4f pnl %+.2f" % (x["ticker"], qty, yes_px, fee, pnl))
 
     def mark_said(self, ticker: str, ts: float) -> None:
         if ticker not in self.said:
@@ -349,7 +358,7 @@ class Pilot:
                               qty, no_px, fee, float(f.get("ts") or self.now())):
                 self.filled[o["ticker"]] = self.filled.get(o["ticker"], 0.0) + qty
                 self.open_cost += qty * no_px + fee
-                self.log("FILL %s x%.0f NO @%.2f fee %.4f" % (o["ticker"], qty, no_px, fee))
+                self.log("FILL %s x%.2f NO @%.2f fee %.4f" % (o["ticker"], qty, no_px, fee))
                 r = self.resting.get(o["order_id"])
                 if r is not None:
                     r["filled"] = float(r.get("filled") or 0) + qty
