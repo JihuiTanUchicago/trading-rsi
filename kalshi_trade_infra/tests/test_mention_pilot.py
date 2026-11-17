@@ -179,6 +179,7 @@ class Exchange:
         self.placed, self.cancelled = [], []
         self.cash = 50.0
         self.held = {}   # ticker -> Kalshi position (negative = NO)
+        self.refuse = lambda body: False   # True = Kalshi rejects this order
 
     def get(self, path, params=None):
         if path == "/markets/trades":
@@ -203,6 +204,8 @@ class Exchange:
         raise AssertionError(path)
 
     def post(self, path, body, credentials=None):
+        if self.refuse(body):
+            raise RuntimeError("POST failed 400: invalid count")
         self.placed.append(body)
         return {"order": {"order_id": "o%d" % len(self.placed)}}
 
@@ -483,3 +486,26 @@ def test_one_exit_a_minute(world):
     clock["t"] += 61
     pilot.step()
     assert len(ex.placed) == 2 and {b["ticker"] for b in ex.placed} == {H + "-EPST", H + "-BIDE"}
+
+
+def test_an_exit_sells_a_fractional_holding_in_full(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", qty=2.75, cost=2.06, ask=0.01)   # Kalshi filled 2.75 of an ask for 3
+    pilot.step()
+    assert [b["count"] for b in ex.placed] == ["2.75"]
+
+
+def test_a_refused_fractional_exit_falls_back_to_whole_contracts_then_waits_the_gap(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", qty=2.75, cost=2.06, ask=0.01)
+    ex.refuse = lambda body: not body["count"].endswith(".00")
+    pilot.step()
+    assert [b["count"] for b in ex.placed] == ["2.00"]
+    store.pos[H + "-EPST"]["qty"] = 0.75     # the whole contracts sold; only a fraction is left
+    ex.held[H + "-EPST"] = -0.75
+    clock["t"] += run.EXIT_GAP_S + 1
+    pilot.step()                              # 0.75 refused, nothing whole to fall back to
+    assert len(ex.placed) == 1
+    clock["t"] += 61
+    pilot.step()                              # a refusal waits the gap too, not one retry a minute
+    assert len(ex.placed) == 1
