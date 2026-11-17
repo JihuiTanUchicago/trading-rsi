@@ -509,3 +509,60 @@ def test_a_refused_fractional_exit_falls_back_to_whole_contracts_then_waits_the_
     clock["t"] += 61
     pilot.step()                              # a refusal waits the gap too, not one retry a minute
     assert len(ex.placed) == 1
+
+
+def _thin(ex, tk, bid=0.0, ask=0.13, last=0.01):
+    ex.results[tk] = {"status": "active", "yes_bid_dollars": "%.4f" % bid, "yes_ask_dollars": "%.4f" % ask,
+                      "last_price_dollars": "%.4f" % last}
+
+
+def test_should_bid_exit_only_on_a_dead_looking_word_after_the_window():
+    assert mp.should_bid_exit(0.0, 0.01, True)
+    assert mp.should_bid_exit(0.02, 0.05, True)
+    assert not mp.should_bid_exit(0.0, 0.01, False)     # still live: the word may yet be said
+    assert not mp.should_bid_exit(0.0, 0.25, True)      # last print 25c: not decided
+    assert not mp.should_bid_exit(0.09, 0.01, True)     # someone pays 9c for YES: not decided
+    assert not mp.should_bid_exit(0.0, None, True)
+
+
+def test_a_thin_dead_word_gets_a_resting_2c_bid_that_books_as_an_exit(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-PROF", qty=2.97, cost=1.52)
+    _thin(ex, H + "-PROF")                        # last 1c, but the cheapest YES offer is 13c
+    pilot.step()
+    exits = [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    assert len(exits) == 1
+    b = exits[0]
+    assert b["side"] == "bid" and b["price"] == "0.0200" and b["count"] == "2.97"
+    assert b["post_only"] is True and b["time_in_force"] == "good_till_canceled"
+    ex.fills = [{"fill_id": "x1", "order_id": "o1", "count_fp": "2.97", "yes_price_dollars": "0.0200",
+                 "fee_cost": "0.0000", "ts": clock["t"]}]
+    clock["t"] += 61
+    pilot.step()
+    p = store.pos[H + "-PROF"]
+    assert p["status"] == "closed" and p["result"] == "sold"
+    assert pilot.realized == pytest.approx(2.97 * 0.98 - 1.52)
+
+
+def test_a_resting_exit_bid_is_cancelled_before_the_next_so_bids_never_stack(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-PROF", qty=3.0, cost=1.52)
+    _thin(ex, H + "-PROF")
+    pilot.step()
+    assert len(ex.placed) == 1 and not ex.cancelled
+    clock["t"] += 61
+    pilot.step()                                   # inside the gap: nothing new
+    assert len(ex.placed) == 1
+    clock["t"] += run.EXIT_GAP_S
+    pilot.step()
+    assert ex.cancelled == ["o1"] and len(ex.placed) == 2
+
+
+def test_no_resting_exit_bid_while_the_word_can_still_be_said(world):
+    pilot, store, ex, clock = world
+    store.events[H] = clock["t"] - 60
+    pilot = run.Pilot(None, pilot.api, 1, {"KXHILLARYMENTION"}, now=lambda: clock["t"], log=lambda m: None)
+    _held(store, ex, H + "-PROF", qty=3.0, cost=1.52)
+    _thin(ex, H + "-PROF")
+    pilot.step()
+    assert not [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]

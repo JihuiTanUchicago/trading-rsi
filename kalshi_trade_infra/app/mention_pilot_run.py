@@ -144,14 +144,21 @@ class Pilot:
             self.shard_cash = None
             self.log("balance unreadable: %s" % str(e)[:160])
 
-    def exit_position(self, p: Dict, yes_ask: float) -> bool:
-        """Buy YES immediate-or-cancel at the ask for what is left of a decided NO position. Never more
-        than Kalshi says we hold (so it can only close NO, never open YES), and at most one exit per
-        position every EXIT_GAP_S, so a fill that is slow to show up is not sold twice."""
+    def exit_position(self, p: Dict, yes_ask: float, resting: bool = False) -> bool:
+        """Buy YES for what is left of a decided NO position: immediate-or-cancel at the ask, or (resting)
+        a post-only bid at EXIT_AT when the book offers no YES that cheap. Never more than Kalshi says we
+        hold (so it can only close NO, never open YES), at most one exit per position every EXIT_GAP_S,
+        and any earlier exit order for the position is cancelled first, so resting bids never stack."""
         now = self.now()
-        if any(int(x["position_id"]) == int(p["id"]) and now - float(x["placed_ts"]) < EXIT_GAP_S
-               for x in repo.exits(self.cur).values()):
+        mine = {oid: x for oid, x in repo.exits(self.cur).items() if int(x["position_id"]) == int(p["id"])}
+        if any(now - float(x["placed_ts"]) < EXIT_GAP_S for x in mine.values()):
             return False
+        for oid in mine:
+            try:
+                self.api.cancel(oid)   # 404 (already filled or gone) counts as done
+            except Exception as e:  # noqa: BLE001 - an earlier bid may still rest: do not add another
+                self.log("exit %s: earlier exit %s not cancelled: %s" % (p["ticker"], oid[:8], str(e)[:160]))
+                return True
         if now - self.exit_refused.get(int(p["id"]), -1e18) < EXIT_GAP_S:
             return False   # Kalshi refused this one recently: same gap as a placed exit
         try:
@@ -173,6 +180,8 @@ class Pilot:
             body = {"ticker": p["ticker"], "side": "bid", "count": "%.2f" % q, "price": "%.4f" % yes_ask,
                     "time_in_force": "immediate_or_cancel", "self_trade_prevention_type": "taker_at_cross",
                     "client_order_id": mp.EXIT_PREFIX + uuid.uuid4().hex[:24]}
+            if resting:
+                body.update({"time_in_force": "good_till_canceled", "post_only": True})
             try:
                 r = self.api.place(body)
             except Exception as e:  # noqa: BLE001 - try again next minute
@@ -181,7 +190,8 @@ class Pilot:
             oid = r.get("order_id") or (r.get("order") or {}).get("order_id")
             if oid:
                 repo.add_exit(self.cur, oid, p["id"], p["ticker"], yes_ask, q, now)
-                self.log("EXIT %s x%.2f buy YES @%.2f (decided, not said)" % (p["ticker"], q, yes_ask))
+                self.log("EXIT %s x%.2f %s YES @%.2f (decided, not said)"
+                         % (p["ticker"], q, "bid resting" if resting else "buy", yes_ask))
             return True
         self.exit_refused[int(p["id"])] = now
         return True   # counts as this minute's exit: a bad order format fails once, not once per word
@@ -202,8 +212,12 @@ class Pilot:
                 ask = float(ask) if ask not in (None, "") else None
                 risk += mp.position_risk(float(p["qty"]), cost, ask)
                 trig = self.triggers.at.get(p.get("event_ticker") or event_of(p["ticker"]))
-                if not exited and mp.should_exit(ask, trig is None or now >= trig + mp.HOLD_S):
+                closed = trig is None or now >= trig + mp.HOLD_S
+                if not exited and mp.should_exit(ask, closed):
                     exited = self.exit_position(p, ask)   # one exit a minute: a bad one costs one word
+                elif not exited and mp.should_bid_exit(_f(m.get("yes_bid_dollars")), _f(m.get("last_price_dollars")),
+                                                       closed):
+                    exited = self.exit_position(p, mp.EXIT_AT, resting=True)
                 continue
             qty = float(p["qty"])
             _, _, pnl = settlement_terms(result, "no", qty, float(p["cost"]) / qty, float(p["fees"]))

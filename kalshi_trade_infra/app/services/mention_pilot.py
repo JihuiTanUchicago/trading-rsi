@@ -106,6 +106,17 @@ def should_exit(yes_ask: Optional[float], window_closed: bool) -> bool:
     return window_closed and yes_ask is not None and 0.0 < yes_ask <= EXIT_AT + 1e-9
 
 
+DEAD_LAST = 0.05   # last print at or under this, and no YES bid over EXIT_AT: the word looks unsaid
+
+
+def should_bid_exit(yes_bid: Optional[float], last: Optional[float], window_closed: bool) -> bool:
+    """Rest a YES bid at EXIT_AT for a NO position whose word looks unsaid but whose book offers no YES at
+    EXIT_AT or less (thin markets: last print 1c, cheapest YES offer 13c+). Holders of dead YES sell into it.
+    Never during the window; a bid that fills on a word that is later said only closed the NO at 2c."""
+    return (window_closed and last is not None and 0.0 < last <= DEAD_LAST + 1e-9
+            and (yes_bid or 0.0) <= EXIT_AT + 1e-9)
+
+
 def best_prices(orderbook: Dict) -> Tuple[Optional[float], Optional[float]]:
     """(best YES bid, best YES ask) from GET /markets/{t}/orderbook. Kalshi lists resting bids on each
     side in ascending price; a NO bid at q is a YES ask at 1 - q."""
