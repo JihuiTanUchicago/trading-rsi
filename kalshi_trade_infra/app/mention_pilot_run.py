@@ -213,6 +213,8 @@ class Pilot:
                 risk += mp.position_risk(float(p["qty"]), cost, ask)
                 trig = self.triggers.at.get(p.get("event_ticker") or event_of(p["ticker"]))
                 closed = trig is None or now >= trig + mp.HOLD_S
+                if (m.get("status") or "active") != "active":
+                    continue   # trading halted until Kalshi settles (409 market_inactive): nothing to sell into
                 if not exited and mp.should_exit(ask, closed):
                     exited = self.exit_position(p, ask)   # one exit a minute: a bad one costs one word
                 elif not exited and mp.should_bid_exit(_f(m.get("yes_bid_dollars")), _f(m.get("last_price_dollars")),
