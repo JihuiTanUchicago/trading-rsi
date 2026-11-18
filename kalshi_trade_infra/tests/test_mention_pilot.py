@@ -319,6 +319,38 @@ def test_an_event_goes_live_once_even_after_a_restart_past_its_window(world):
     assert store.events == first and not fresh.triggers.live(clock["t"]) and not ex.placed
 
 
+def test_tape_flags_a_fall_of_more_than_10c_against_the_print_5_minutes_back():
+    tp = mp.Tape()
+    tp.add("W", T0, 0.45)
+    tp.add("W", T0 + 100, 0.40)
+    assert not tp.fell("W", T0 + 200)               # nothing 5 minutes old yet
+    tp.add("W", T0 + 290, 0.34)
+    assert tp.fell("W", T0 + 300)                   # 0.34 vs 0.45 at T0: down 11c
+    assert not tp.fell("W", T0 + 400)               # reference is now 0.40 (T0+100): down 6c
+    assert not tp.fell("NEW", T0) and not tp.fell("W", T0 - 1)
+    tp.add("W", T0 + 1000, 0.36)
+    assert not tp.fell("W", T0 + 1000)              # flat 5 minutes after the fall: quoting again
+
+
+def test_no_yes_ask_right_after_a_sharp_fall_and_a_resting_one_is_pulled(world):
+    pilot, store, ex, clock = world
+    ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30), E + "-WALL": market(E + "-WALL", 0.20, 0.30)}
+    go_live(pilot, ex, clock)
+    pilot.step()
+    assert {b["ticker"] for b in ex.placed} == {E + "-CHINA", E + "-WALL"}
+    t = clock["t"]
+    clock["t"] += mp.DROP_S + 30
+    ex.trades = [trade(E + "-CHINA", t + 1, 0.45, yes=False), trade(E + "-CHINA", clock["t"] - 5, 0.30, yes=False)]
+    pilot.step()
+    assert ex.cancelled == ["o1"] and {o["ticker"] for o in pilot.resting.values()} == {E + "-WALL"}
+    clock["t"] += mp.REQUOTE_MIN_S + 1
+    pilot.step()
+    assert len(ex.placed) == 2                      # still falling-back: no new CHINA ask
+    clock["t"] += mp.DROP_S + 1                     # 5 flat minutes later the market is quotable again
+    pilot.step()
+    assert [b["ticker"] for b in ex.placed[2:]] == [E + "-CHINA"]
+
+
 def test_prints_through_our_ask_count_as_replay_fills_and_real_fills_are_booked_once(world):
     pilot, store, ex, clock = world
     ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30)}

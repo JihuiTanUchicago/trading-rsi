@@ -115,6 +115,7 @@ class Pilot:
         self.seen_trades: Dict[str, float] = {}
         self.fill_min_ts = int(t) - 3600
         self.last_quote: Dict[str, float] = {}
+        self.tape = mp.Tape()
         self.shard_cash: Optional[float] = None
         self.realized = repo.realized_pnl(cur, user_id)
         self.open_cost = self._open_cost()
@@ -349,6 +350,7 @@ class Pilot:
             if trig is not None:
                 repo.save_trigger(self.cur, ev, trig)
                 self.log("LIVE %s (trigger %s at %.2f)" % (ev, r["ticker"], r["p"]))
+            self.tape.add(r["ticker"], r["ts"], r["p"])
             if r["p"] >= mp.CANCEL_AT:
                 self.mark_said(r["ticker"], r["ts"])
             for oid, o in self.resting.items():
@@ -403,10 +405,14 @@ class Pilot:
                 undercut = ask is not None and ask < mine_px - 1e-9
                 if tk in self.said or not (mp.LO <= mine_px < mp.HI):
                     self.cancel(oid, "said" if tk in self.said else "band")
+                elif self.tape.fell(tk, self.now()):
+                    self.cancel(oid, "price fell over %.0fc in %.0f min" % (100 * mp.DROP_BY, mp.DROP_S / 60))
                 elif undercut and self.now() - self.last_quote.get(tk, 0) >= mp.REQUOTE_MIN_S:
                     self.cancel(oid, "undercut to %.2f" % ask)
                 continue
             if tk in self.said or self.now() - self.last_quote.get(tk, 0) < mp.REQUOTE_MIN_S:
+                continue
+            if self.tape.fell(tk, self.now()):
                 continue
             px = mp.quote_price(bid, ask)
             if px is None:

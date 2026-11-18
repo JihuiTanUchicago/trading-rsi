@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
+from typing import Deque, Dict, Optional, Tuple
 
 from app.services import mention_maker as mm
 
@@ -98,6 +99,39 @@ class Triggers:
     def live(self, now: float) -> Dict[str, float]:
         """Events inside their quoting window right now: trigger + DELAY_S <= now < trigger + HOLD_S."""
         return {e: t for e, t in self.at.items() if t + DELAY_S <= now < t + HOLD_S}
+
+
+DROP_S = 300.0     # look-back for the drop filter
+DROP_BY = 0.10     # a fall of more than this over DROP_S: stop selling YES in that market
+
+
+class Tape:
+    """Recent prints per market, for the drop filter: no YES ask in a market whose last print is more than
+    DROP_BY under the last print at least DROP_S earlier. YES buyers right after a sharp fall are informed
+    (the word is coming): in the replay of every non-sport mention print at our size (3 contracts), fills
+    after such a fall made +10c a contract vs +23c (Jan-Jun 2026), +2c vs +17c (Jul-Oct), -2c vs +6c
+    (10-20..11-18) and -22c vs -1c (forward 11-12..11-18): the same sign in all four samples."""
+
+    def __init__(self) -> None:
+        self.h: Dict[str, Deque[Tuple[float, float]]] = {}
+
+    def add(self, ticker: str, ts: float, price: float) -> None:
+        d = self.h.setdefault(ticker, deque())
+        d.append((ts, price))
+        while len(d) > 1 and d[1][0] <= ts - DROP_S:
+            d.popleft()   # keep the newest print at least DROP_S old, and everything after it
+
+    def fell(self, ticker: str, now: float) -> bool:
+        d = self.h.get(ticker)
+        if not d:
+            return False
+        ref = None
+        for ts, p in d:
+            if ts <= now - DROP_S:
+                ref = p
+            else:
+                break
+        return ref is not None and d[-1][1] - ref < -DROP_BY - 1e-9
 
 
 def should_exit(yes_ask: Optional[float], window_closed: bool) -> bool:
