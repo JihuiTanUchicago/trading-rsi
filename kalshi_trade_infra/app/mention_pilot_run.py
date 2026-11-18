@@ -94,6 +94,7 @@ class Api:
 
 
 EXIT_GAP_S = 300.0
+TRIGGER_MEMORY_S = 4 * 86400.0   # on_event_day spans the day before to the day after the ticker date
 
 
 class Pilot:
@@ -101,7 +102,10 @@ class Pilot:
                  log: Callable[[str], None] = lambda m: print("[mention-pilot] " + m, flush=True)):
         self.cur, self.api, self.user_id, self.series, self.now, self.log = cur, api, user_id, series, now, log
         t = now()
-        self.triggers = mp.Triggers(repo.triggers_since(cur, t - mp.HOLD_S))
+        # Every trigger an event could still have: one per event, ever. Loading only the last HOLD_S let a
+        # run that started after the window forget the trigger and fire a second one on a later 70c->90c
+        # jump (KXLUCKEYMENTION-26NOV18 went live again 5.5h after its first window, 2026-11-18).
+        self.triggers = mp.Triggers(repo.triggers_since(cur, t - TRIGGER_MEMORY_S))
         self.resting: Dict[str, Dict] = {}
         # Words that printed at CANCEL_AT or above: never quoted again. Kept in the DB, so a run that
         # starts mid-event (every 55 min) does not forget them and quote a word that was just said.
