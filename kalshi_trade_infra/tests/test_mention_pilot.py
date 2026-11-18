@@ -566,3 +566,10 @@ def test_no_resting_exit_bid_while_the_word_can_still_be_said(world):
     _thin(ex, H + "-PROF")
     pilot.step()
     assert not [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+
+
+def test_no_exit_once_kalshi_stops_trading_the_market(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", ask=0.01, status="closed")   # decided, waiting to settle: 409 market_inactive
+    pilot.step()
+    assert not [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
