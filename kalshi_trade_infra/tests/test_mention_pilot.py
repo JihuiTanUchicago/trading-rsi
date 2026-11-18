@@ -303,6 +303,22 @@ def test_a_said_word_stays_said_for_the_next_run(world, monkeypatch):
     assert not ex.placed
 
 
+def test_an_event_goes_live_once_even_after_a_restart_past_its_window(world):
+    """A run that starts after the window must remember the trigger: a later 70c->90c jump on the same
+    event is not a second live window (KXLUCKEYMENTION-26NOV18 re-triggered 5.5h later, 2026-11-18)."""
+    pilot, store, ex, clock = world
+    go_live(pilot, ex, clock)
+    first = dict(store.events)
+    clock["t"] += mp.HOLD_S + 3 * 3600
+    fresh = run.Pilot(None, pilot.api, 1, {"KXTRUMPMENTION"}, now=lambda: clock["t"], log=lambda m: None)
+    ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30)}
+    ex.trades = [trade(E + "-WALL", clock["t"] - 20, 0.50), trade(E + "-WALL", clock["t"] - 10, 0.95)]
+    fresh.step()
+    clock["t"] += 30
+    fresh.step()
+    assert store.events == first and not fresh.triggers.live(clock["t"]) and not ex.placed
+
+
 def test_prints_through_our_ask_count_as_replay_fills_and_real_fills_are_booked_once(world):
     pilot, store, ex, clock = world
     ex.markets = {E + "-CHINA": market(E + "-CHINA", 0.20, 0.30)}
