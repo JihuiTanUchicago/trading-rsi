@@ -112,6 +112,7 @@ class Market:
     close_ts: float
     floor: Optional[float]
     cap: Optional[float]
+    listed_mid: Optional[float] = None    # from the /markets listing (refreshed each minute): the band pre-filter
 
 
 def _num(v) -> Optional[float]:
@@ -138,7 +139,9 @@ def markets_from(page: Dict, now: float, max_secs_to_close: float) -> List[Marke
         tk, close = m.get("ticker"), _ts(m.get("close_time"))
         if not tk or not str(tk).startswith(SERIES + "-") or close is None or not 0 < close - now <= max_secs_to_close:
             continue
-        out.append(Market(tk, close, _num(m.get("floor_strike")), _num(m.get("cap_strike"))))
+        bid, ask = _num(m.get("yes_bid_dollars")), _num(m.get("yes_ask_dollars"))
+        mid = (bid + ask) / 2 if bid is not None and ask is not None and ask > 0 else None
+        out.append(Market(tk, close, _num(m.get("floor_strike")), _num(m.get("cap_strike")), mid))
     return out
 
 
@@ -187,6 +190,20 @@ def pilot_pnl(book, mids: Dict[str, float], carried: float = 0.0) -> float:
 
 def position_collateral(book) -> float:
     return sum(abs(p.qty) * p.avg_price for p in book.open_positions().values())
+
+
+def pick_universe(quotes: Dict[InstrumentId, Quote], held: Iterable[str], budget: float,
+                  quote_size: float) -> List[InstrumentId]:
+    """The contracts to quote within the collateral budget. A contract quoted on both sides ties up at
+    most quote_size dollars (its YES bid + NO bid < $1 each), so the budget buys floor(budget / quote_size)
+    contracts: held ones first (they must be able to work back to flat), then the rest nearest 50c, where
+    the flow is. Without this a small cap posts everything, trips the cap, cancels, and reposts each step."""
+    held = set(held)
+    first = [y for y in quotes if y.symbol in held]
+    rest = sorted((y for y in quotes if y.symbol not in held),
+                  key=lambda y: abs((quotes[y].mid if quotes[y].mid is not None else 0.0) - 0.5))
+    n = max(0, int(budget // max(quote_size, 1e-9)))
+    return first + rest[:max(0, n - len(first))]
 
 
 @dataclass
