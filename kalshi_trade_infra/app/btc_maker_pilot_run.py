@@ -111,7 +111,8 @@ class Pilot:
         self.markets_at = 0.0
         self.trade_min_ts = int(time.time())
         self.state = self.load_state()
-        self.counts = {"steps": 0, "posts": 0, "cancels": 0, "fills": 0, "filled_qty": 0.0, "paused": 0}
+        self.counts = {"steps": 0, "posts": 0, "cancels": 0, "fills": 0, "filled_qty": 0.0, "paused": 0,
+                       "rotations": 0}
         self.fill_log: List[Dict] = []
         self.peak_collateral = 0.0
         self.last_reason = ""
@@ -230,10 +231,14 @@ class Pilot:
         self.last_reason = ""
         held = {iid.symbol for iid in self.loop.book.open_positions()}
         budget = self.cap - bp.position_collateral(self.loop.book)
-        universe = bp.pick_universe(quotes, held, budget, self.cfg.quote_size)
+        working = {o.order_id: o.instrument.symbol for o in self.venue.open_orders()}
+        universe = bp.pick_universe(quotes, held, budget, self.cfg.quote_size, quoted=set(working.values()))
         out = self.loop.step(now, quotes, fair=fair, secs_to_close=stc, universe=universe)
         self.counts["posts"] += len(out.posts)
         self.counts["cancels"] += len(out.cancels)
+        in_u = {y.symbol for y in universe}
+        # Cancels that rotate a contract out of the universe, as opposed to repricing one still quoted.
+        self.counts["rotations"] += sum(1 for oid in out.cancels if working.get(oid) not in in_u)
         self.note_fills(out.fills)
 
     def book_only(self) -> None:
