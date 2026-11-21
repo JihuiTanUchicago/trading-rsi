@@ -1,0 +1,10 @@
+[Unit]
+Description=Bitcoin maker pilot (app.btc_maker_pilot_run): the lab's confirmed KXBTC policy on live books. DRY RUN by default (public reads, a shadow venue that never sends an order). LIVE only with TAU_BTC_MAKER_PILOT_ENABLED=1, TAU_BTC_MAKER_PILOT_DRY_RUN=0 and APP_LIVE_TRADING_ENABLED=1, capped by a loss stop and a collateral cap. Each run ends 2 min after an hourly close and cancels its orders on start and stop.
+After=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=/opt/kalshi
+MemoryMax=512M
+TimeoutStopSec=90
+KillSignal=SIGTERM
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.btc_maker_pilot_run >> /opt/kalshi/logs/btc_maker_pilot.log 2>&1'
