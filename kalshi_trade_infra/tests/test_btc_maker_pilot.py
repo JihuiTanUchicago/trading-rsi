@@ -146,5 +146,16 @@ def test_a_small_cap_never_churns_post_cancel_each_step():
                   spot_get=lambda url: {"price": "97200"}, log=lambda m: None)
     for _ in range(4):
         p.step()
-    assert p.counts["paused"] == 0 and p.counts["cancels"] == 0
+    assert p.counts["paused"] == 0 and p.counts["cancels"] == 0 and p.counts["rotations"] == 0
     assert p.venue.resting_collateral() <= p.cap and len({o.instrument.symbol for o in p.venue.open_orders()}) <= 6
+
+
+def test_a_quoted_contract_keeps_its_slot_near_the_cut():
+    def q(t, mid):
+        return bp.Quote(InstrumentId("kalshi", t, "yes"), 0.0, mid - 0.01, mid + 0.01, 10, 10)
+    quotes = {x.instrument: x for x in (q("A", 0.50), q("B", 0.47), q("C", 0.44), q("D", 0.40), q("E", 0.10))}
+    assert [y.symbol for y in bp.pick_universe(quotes, set(), 6.0, 3)] == ["A", "B"]
+    # C ticked just past B, but B is quoted and still within two places of the cut: no swap
+    assert [y.symbol for y in bp.pick_universe(quotes, set(), 6.0, 3, quoted={"B", "D"})] == ["B", "D"]
+    # E is far past the cut: it gives up its slot to the best unquoted contract
+    assert [y.symbol for y in bp.pick_universe(quotes, set(), 6.0, 3, quoted={"B", "E"})] == ["B", "A"]

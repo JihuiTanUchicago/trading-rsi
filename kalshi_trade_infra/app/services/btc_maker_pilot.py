@@ -193,17 +193,24 @@ def position_collateral(book) -> float:
 
 
 def pick_universe(quotes: Dict[InstrumentId, Quote], held: Iterable[str], budget: float,
-                  quote_size: float) -> List[InstrumentId]:
+                  quote_size: float, quoted: Iterable[str] = (), margin: int = 2) -> List[InstrumentId]:
     """The contracts to quote within the collateral budget. A contract quoted on both sides ties up at
     most quote_size dollars (its YES bid + NO bid < $1 each), so the budget buys floor(budget / quote_size)
     contracts: held ones first (they must be able to work back to flat), then the rest nearest 50c, where
-    the flow is. Without this a small cap posts everything, trips the cap, cancels, and reposts each step."""
-    held = set(held)
+    the flow is. Without this a small cap posts everything, trips the cap, cancels, and reposts each step.
+
+    Hysteresis: a contract we already quote (``quoted``) keeps its slot while it ranks within ``margin``
+    places of the cut. Without it two contracts near the cut swap on every tick of the mid, and each swap
+    cancels and reposts both sides, which throws away queue position the replay credited."""
+    held, quoted = set(held), set(quoted)
     first = [y for y in quotes if y.symbol in held]
     rest = sorted((y for y in quotes if y.symbol not in held),
                   key=lambda y: abs((quotes[y].mid if quotes[y].mid is not None else 0.0) - 0.5))
     n = max(0, int(budget // max(quote_size, 1e-9)))
-    return first + rest[:max(0, n - len(first))]
+    slots = max(0, n - len(first))
+    keep = [y for y in rest[:slots + margin] if y.symbol in quoted][:slots]
+    fill = [y for y in rest if y not in keep][:slots - len(keep)]
+    return first + keep + fill
 
 
 @dataclass
