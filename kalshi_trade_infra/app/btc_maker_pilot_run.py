@@ -116,6 +116,7 @@ class Pilot:
         self.peak_collateral = 0.0
         self.last_reason = ""
         self.stopped = bool(self.state.get("stopped"))
+        self.cap = float(os.getenv("TAU_BTC_MAKER_PILOT_COLLATERAL_CAP", "20"))
 
     # --- state ------------------------------------------------------------------------------
     def load_state(self) -> Dict:
@@ -186,15 +187,17 @@ class Pilot:
         spot, rv = self.spot.last(), self.spot.rv()
         quotes, fair, stc = {}, {}, {}
         lo, hi = self.cfg.mid_band
+        held_now = {iid.symbol for iid in self.loop.book.open_positions()}
+        # Books only for what can be quoted: held contracts plus, by the minute-old listing, the in-band ones
+        # nearest 50c, a few more than the collateral budget quotes. KXBTC lists ~190 contracts an hour.
+        n_books = int(self.cap // max(self.cfg.quote_size, 1e-9)) + 4
+        cands = sorted((m for m in self.markets if m.ticker not in held_now and
+                        (m.listed_mid is None or lo - 0.10 <= m.listed_mid <= hi + 0.10)),
+                       key=lambda m: 1.0 if m.listed_mid is None else abs(m.listed_mid - 0.5))
+        want = held_now | {m.ticker for m in cands[:n_books]}
         for m in self.markets:
             secs = m.close_ts - now
-            if secs <= 0:
-                continue
-            last_mid = self.mids.get(m.ticker)
-            held = any(iid.symbol == m.ticker for iid in self.loop.book.open_positions())
-            # Books only for contracts near the band (or held): out-of-band ones are never quoted.
-            if last_mid is not None and not held and not (lo - 0.05 <= last_mid <= hi + 0.05) and \
-                    self.counts["steps"] % 15:
+            if secs <= 0 or m.ticker not in want:
                 continue
             q = bp.quote_from_book(m.ticker, self.get("/markets/%s/orderbook" % m.ticker, None), now, move)
             if q is None:
@@ -209,8 +212,7 @@ class Pilot:
         pnl = bp.pilot_pnl(self.loop.book, self.mids, self.carried())
         collateral = self.venue.resting_collateral() + bp.position_collateral(self.loop.book)
         self.peak_collateral = max(self.peak_collateral, collateral)
-        v = bp.guard(pnl, collateral, float(os.getenv("TAU_BTC_MAKER_PILOT_LOSS_STOP", "15")),
-                     float(os.getenv("TAU_BTC_MAKER_PILOT_COLLATERAL_CAP", "20")))
+        v = bp.guard(pnl, collateral, float(os.getenv("TAU_BTC_MAKER_PILOT_LOSS_STOP", "15")), self.cap)
         if v.stop:
             self.log("LOSS STOP: %s; cancelling everything and stopping for good" % v.reason)
             self.venue.cancel_all()
@@ -226,7 +228,10 @@ class Pilot:
             self.book_only()
             return
         self.last_reason = ""
-        out = self.loop.step(now, quotes, fair=fair, secs_to_close=stc)
+        held = {iid.symbol for iid in self.loop.book.open_positions()}
+        budget = self.cap - bp.position_collateral(self.loop.book)
+        universe = bp.pick_universe(quotes, held, budget, self.cfg.quote_size)
+        out = self.loop.step(now, quotes, fair=fair, secs_to_close=stc, universe=universe)
         self.counts["posts"] += len(out.posts)
         self.counts["cancels"] += len(out.cancels)
         self.note_fills(out.fills)

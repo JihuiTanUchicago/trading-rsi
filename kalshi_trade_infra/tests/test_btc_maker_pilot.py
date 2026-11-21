@@ -38,10 +38,12 @@ def test_fair_value_only_for_single_strike_contracts():
 
 def test_books_markets_and_pilot_size():
     now = 1_800_000_000.0
-    page = {"markets": [{"ticker": "KXBTC-X-B1", "close_time": _iso(now + 1800), "floor_strike": 97000, "cap_strike": 97500},
+    page = {"markets": [{"ticker": "KXBTC-X-B1", "close_time": _iso(now + 1800), "floor_strike": 97000, "cap_strike": 97500,
+                         "yes_bid_dollars": "0.10", "yes_ask_dollars": "0.14"},
                         {"ticker": "KXBTC-Y-B1", "close_time": _iso(now + 7200)},
                         {"ticker": "KXBTCD-X-T1", "close_time": _iso(now + 1800)}]}
-    assert [m.ticker for m in bp.markets_from(page, now, 3600)] == ["KXBTC-X-B1"]
+    ms = bp.markets_from(page, now, 3600)
+    assert [m.ticker for m in ms] == ["KXBTC-X-B1"] and abs(ms[0].listed_mid - 0.12) < 1e-9
     q = bp.quote_from_book("KXBTC-X-B1", {"orderbook_fp": {"yes_dollars": [["0.38", "5"], ["0.40", "100"]],
                                                            "no_dollars": [["0.55", "70"]]}}, now, 3.0)
     assert (q.bid, q.ask, q.bid_size, q.ask_size, q.features["spot_move_bp"]) == (0.40, 0.45, 100.0, 70.0, 3.0)
@@ -78,11 +80,14 @@ class FakeKalshi:
     def __init__(self, now):
         self.now = now
         self.trades = []
+        self.markets = 1
 
     def __call__(self, path, params=None):
         if path == "/markets":
-            return {"markets": [{"ticker": "KXBTC-X-B1", "close_time": _iso(self.now + 2400),
-                                 "floor_strike": 97000, "cap_strike": 97500}]}
+            return {"markets": [{"ticker": "KXBTC-X-B%d" % i if i else "KXBTC-X-B1", "close_time": _iso(self.now + 2400),
+                                 "floor_strike": 97000 + 500 * i, "cap_strike": 97500 + 500 * i,
+                                 "yes_bid_dollars": "0.40", "yes_ask_dollars": "0.45"}
+                                for i in range(self.markets)]}
         if path.endswith("/orderbook"):
             return {"orderbook_fp": {"yes_dollars": [["0.40", "100"]], "no_dollars": [["0.55", "100"]]}}
         if path == "/markets/trades":
@@ -122,3 +127,24 @@ def test_runs_end_just_after_an_hourly_close():
     h = 1_800_000_000 - 1_800_000_000 % 3600
     assert run.run_deadline(h + 140) == h + 3600 + 120
     assert run.run_deadline(h + 3600 - 100) == h + 7200 + 120                # under 10 minutes left: the next one
+
+
+def test_the_universe_fits_the_collateral_budget_held_contracts_first():
+    def q(t, mid):
+        return bp.Quote(InstrumentId("kalshi", t, "yes"), 0.0, mid - 0.01, mid + 0.01, 10, 10)
+    quotes = {x.instrument: x for x in (q("A", 0.10), q("B", 0.48), q("C", 0.55), q("D", 0.90), q("E", 0.30))}
+    u = bp.pick_universe(quotes, {"D"}, 10.0, 3)                            # $10 buys 3 contracts at size 3
+    assert [y.symbol for y in u] == ["D", "B", "C"]
+    assert bp.pick_universe(quotes, set(), 2.0, 3) == []
+
+
+def test_a_small_cap_never_churns_post_cancel_each_step():
+    now = time.time()
+    k = FakeKalshi(now)
+    k.markets = 12
+    p = run.Pilot(k, run.ShadowVenue(), POLICY, bp.pilot_config(POLICY, 3, 3),
+                  spot_get=lambda url: {"price": "97200"}, log=lambda m: None)
+    for _ in range(4):
+        p.step()
+    assert p.counts["paused"] == 0 and p.counts["cancels"] == 0
+    assert p.venue.resting_collateral() <= p.cap and len({o.instrument.symbol for o in p.venue.open_orders()}) <= 6
