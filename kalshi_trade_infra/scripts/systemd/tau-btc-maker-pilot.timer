@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep the Bitcoin maker pilot running: start it again 20s after each run ends (app.btc_maker_pilot_run exits by itself just after each hourly close, or sleeps and exits while it is off).
+[Timer]
+OnBootSec=3min
+OnActiveSec=1min
+OnUnitInactiveSec=20s
+Unit=tau-btc-maker-pilot.service
+[Install]
+WantedBy=timers.target
