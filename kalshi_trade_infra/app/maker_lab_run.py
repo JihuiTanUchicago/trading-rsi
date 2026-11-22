@@ -25,8 +25,8 @@ from typing import List, Optional, Sequence
 
 from app.adapters.sim.maker_eval import FALLBACKS, evaluate
 from app.adapters.llm.llm import Usage
-from app.services.maker_lab import (S3ConfirmBook, S3ForwardBook, S3Ledger, confirm_due, forward_due, judge_confirm,
-                                    judge_forward, run_lab, split, summary_lines)
+from app.services.maker_lab import (S3ConfirmBook, S3ForwardBook, S3Ledger, S3TrackBook, confirm_due, forward_due,
+                                    judge_confirm, judge_forward, run_lab, split, summary_lines, track)
 from trading_core.engine.maker_policy import MAKER_SERIES
 
 PREFIX = "research-watch/maker/runs/"
@@ -89,6 +89,15 @@ def confirm(s3, bucket: str, archived_to: datetime, series: Optional[str], limit
             for c in confirm_due(run_docs(s3, bucket, series), fwd, book, archived_to, limit)]
 
 
+# Archived hours each run scores per tracked (confirmed policy, size); ~10 s a KXBTC hour.
+TRACK_PER_RUN = 12
+
+
+def track_confirmed(s3, bucket: str, archived_to: datetime, workers: int) -> List[dict]:
+    return track(run_docs(s3, bucket), S3ConfirmBook(s3, bucket), S3TrackBook(s3, bucket), evaluate, archived_to,
+                 TRACK_PER_RUN, workers)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thin CLI
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--series", default="auto", choices=MAKER_SERIES + ("auto",))
@@ -116,7 +125,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
         s3 = boto3.client("s3")
         done = forward(s3, BUCKET, archived_to, None, 10, a.workers)
         done += confirm(s3, BUCKET, archived_to, None, 10, a.workers)
-        print(json.dumps(done, indent=1))
+        done += track_confirmed(s3, BUCKET, archived_to, a.workers)
+        print(json.dumps(done, indent=1, default=str))
         return 0
     series = auto_series(datetime.now(timezone.utc)) if a.series == "auto" else a.series
     rounds, per_round = search_size(series, a.rounds, a.per_round)
@@ -163,6 +173,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
             status("started", forward=fwd, confirm=conf)
     except Exception:  # noqa: BLE001 - a confirm failure must not cost the run its search
         print("[maker_lab] confirm step failed: %s" % traceback.format_exc()[-2000:], flush=True)
+    tracked: List[dict] = []
+    try:
+        tracked = track_confirmed(s3, BUCKET, archived_to, a.workers)
+    except Exception:  # noqa: BLE001 - a readout: never costs the run its search
+        print("[maker_lab] track step failed: %s" % traceback.format_exc()[-2000:], flush=True)
     try:
         out = run_lab(series, research, holdout, model, Usage(), S3Ledger(s3, BUCKET), evaluate, rounds,
                       per_round, a.workers, log=note, prior=prior_lines(s3, BUCKET, series))
@@ -172,6 +187,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
     out["model"] = choice.model_id
     out["forward"] = fwd
     out["confirm"] = conf
+    out["track"] = tracked
     body = json.dumps(out, indent=1, default=str)
     key = "research-watch/maker/runs/%s_%s.json" % (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M"), series)
     s3.put_object(Bucket=BUCKET, Key=key, Body=body.encode())

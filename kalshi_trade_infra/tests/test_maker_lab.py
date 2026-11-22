@@ -221,3 +221,30 @@ def test_a_forward_pass_is_confirmed_once_on_72_hours_and_needs_trading_pnl_too(
 
     e2 = lab.judge_confirm(lab.confirm_due(runs, fwd, book, later, limit=5)[0], fwd, book, good, log=lambda m: None)
     assert e2["passed"] and e2["trading_pnl"] == 216.0 and e2["losing_hours"] == 0
+
+
+def test_a_confirmed_policy_is_tracked_on_settled_pnl_at_tradable_size():
+    """Added 2026-11-22: r5.1's 78 hours after its confirm made +$819 markouts but -$128 settled at
+    paper size, so confirmed policies are also scored each hour after confirm at a size we could trade."""
+    end = int((H0 + timedelta(hours=11)).timestamp())
+    runs = [_run("KXBTC", "r5.1", 0.0, 40.0, end, "p1"), _run("KXBTC", "r5.3", 0.0, 30.0, end, "p2")]
+    conf = lab.ConfirmBook([{"series": "KXBTC", "name": "r5.1", "hash": "p1", "passed": True, "start": end, "end": end},
+                            {"series": "KXBTC", "name": "r5.3", "hash": "p2", "passed": False, "start": end, "end": end}])
+    book = lab.TrackBook()
+    sizes = []
+
+    def evaluate(policy, hours, workers=1):
+        sizes.append((policy["quote_size"], policy["max_inventory"]))
+        rows = _rows(hours, lambda i: 1.0)
+        for i, r in enumerate(rows):
+            r["trading_pnl"], r["peak_collateral"] = (2.0 if i % 2 else -1.0), 150.0
+        return rows
+
+    at = datetime.fromtimestamp(end + 5 * 3600, timezone.utc)
+    out = lab.track(runs, conf, book, evaluate, at, limit=3, log=lambda m: None)
+    assert [o["added"] for o in out] == [3] and sizes == [(10.0, 10.0)]       # r5.3 failed confirm: not tracked
+    out = lab.track(runs, conf, book, evaluate, at, limit=3, log=lambda m: None)
+    s = book.doc["tracks"]["KXBTC|p1|10"]["summary"]
+    assert [o["added"] for o in out] == [2] and s["hours"] == 5 and s["losing_hours"] == 3
+    assert s["trading_pnl"] == 1.0 and s["peak_collateral"] == 150.0 and s["settled_c_per_contract"] == 0.02
+    assert lab.track(runs, conf, book, evaluate, at, limit=3, log=lambda m: None) == []   # nothing new archived

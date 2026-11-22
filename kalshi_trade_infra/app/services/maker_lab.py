@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Sequence
@@ -315,6 +316,90 @@ def judge_confirm(c: Dict, forward: ForwardBook, book: ForwardBook, evaluate: Ca
     book.record(entry)
     log("confirm %s %s on %d hours after its forward window: %s" % (c["series"], c["name"], len(hours), reason))
     return entry
+
+
+# --- settled-profit tracking of confirmed policies ----------------------------------------------------
+# Paper size (inventory in the hundreds) makes an hour's settled P&L mostly inventory noise: r5.1's
+# 78 hours after its confirm made +$819 of 60s markouts but -$128 settled. A confirmed policy is
+# therefore also scored every hour after its confirm window at the size we could actually trade,
+# on settled P&L, which is the number a live account sees. Read-only: it gates nothing.
+TRACK_SIZES = (10.0,)
+
+
+class TrackBook:
+    """Scored hours per (series, hash, size): {"tracks": {"<series>|<hash>|<size>": {...}}}."""
+
+    def __init__(self, doc: Optional[Dict] = None) -> None:
+        self.doc = doc or {"tracks": {}}
+
+    def save(self) -> None:
+        pass
+
+
+class S3TrackBook(TrackBook):
+    KEY = "research-watch/maker/track.json"
+
+    def __init__(self, s3, bucket: str) -> None:
+        self.s3, self.bucket = s3, bucket
+        try:
+            doc = json.loads(s3.get_object(Bucket=bucket, Key=self.KEY)["Body"].read())
+        except Exception:  # noqa: BLE001 - first run
+            doc = None
+        super().__init__(doc)
+
+    def save(self) -> None:
+        self.s3.put_object(Bucket=self.bucket, Key=self.KEY, Body=json.dumps(self.doc, default=str).encode())
+
+
+def track_summary(rows: Sequence[Dict]) -> Dict:
+    pnl = [float(r.get("trading_pnl") or 0.0) for r in rows]
+    m60 = [float(r.get("m60") or 0.0) for r in rows]
+    qty = sum(float(r.get("qty") or 0.0) for r in rows)
+
+    def t(x):
+        if len(x) < 2:
+            return None
+        m = sum(x) / len(x)
+        sd = math.sqrt(sum((v - m) ** 2 for v in x) / (len(x) - 1))
+        return round(m / (sd / math.sqrt(len(x))), 2) if sd > 0 else None
+    return {"hours": len(rows), "trading_pnl": round(sum(pnl), 2), "t_settled": t(pnl), "m60": round(sum(m60), 2),
+            "t_m60": t(m60), "qty": round(qty, 1),
+            "settled_c_per_contract": round(100 * sum(pnl) / qty, 3) if qty else None,
+            "losing_hours": sum(1 for x in pnl if x < 0), "worst_hour": round(min(pnl), 2) if pnl else None,
+            "peak_collateral": max((float(r.get("peak_collateral") or 0.0) for r in rows), default=0.0)}
+
+
+def track(runs: Sequence[Dict], confirm: ForwardBook, book: TrackBook, evaluate: Callable[..., List[Dict]],
+          archived_to: datetime, limit: int, workers: int = 1, log: Callable[[str], None] = print) -> List[Dict]:
+    """Score up to ``limit`` not-yet-scored archived hours per confirmed policy and size, oldest first."""
+    policies = {}
+    for run in runs:
+        for r in (run.get("results") or {}).values():
+            if r.get("hash") and r.get("policy"):
+                policies.setdefault((run.get("series"), r["hash"]), r["policy"])
+    out = []
+    for e in (e for e in confirm.entries if e.get("passed")):
+        policy = policies.get((e["series"], e["hash"]))
+        if policy is None:
+            continue
+        for size in TRACK_SIZES:
+            key = "%s|%s|%g" % (e["series"], e["hash"], size)
+            tr = book.doc["tracks"].setdefault(key, {"series": e["series"], "name": e["name"], "hash": e["hash"],
+                                                     "size": size, "start": int(e["end"]), "hours": {}})
+            todo = [t for t in range(tr["start"], int(archived_to.timestamp()), 3600)
+                    if str(t) not in tr["hours"]][:limit]
+            if not todo:
+                continue
+            sized = dict(policy, quote_size=size, max_inventory=size)
+            rows = evaluate(sized, [datetime.fromtimestamp(t, timezone.utc) for t in todo], workers=workers)
+            for t, r in zip(todo, rows):
+                tr["hours"][str(t)] = r
+            tr["summary"] = track_summary([tr["hours"][k] for k in sorted(tr["hours"], key=int)])
+            tr["at"] = int(time.time())
+            book.save()
+            log("track %s %s size %g: +%d hours, %s" % (e["series"], e["name"], size, len(todo), tr["summary"]))
+            out.append({"key": key, "added": len(todo), "summary": tr["summary"]})
+    return out
 
 
 def run_lab(series: str, research: Sequence[datetime], holdout: Sequence[datetime], model: ModelFn, usage: Usage,
