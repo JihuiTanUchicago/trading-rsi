@@ -159,3 +159,26 @@ def test_a_quoted_contract_keeps_its_slot_near_the_cut():
     assert [y.symbol for y in bp.pick_universe(quotes, set(), 6.0, 3, quoted={"B", "D"})] == ["B", "D"]
     # E is far past the cut: it gives up its slot to the best unquoted contract
     assert [y.symbol for y in bp.pick_universe(quotes, set(), 6.0, 3, quoted={"B", "E"})] == ["B", "A"]
+
+
+class FakeS3:
+    def __init__(self):
+        self.objects = {}
+
+    def get_object(self, Bucket, Key):
+        raise KeyError(Key)
+
+    def put_object(self, Bucket, Key, Body, ContentType=None):
+        self.objects[Key] = Body
+
+
+def test_every_run_keeps_its_own_report_next_to_latest():
+    now = time.time()
+    s3 = FakeS3()
+    p = run.Pilot(FakeKalshi(now), run.ShadowVenue(), POLICY, bp.pilot_config(POLICY, 3, 3), s3=s3,
+                  spot_get=lambda url: {"price": "97200"}, log=lambda m: None)
+    p.step()
+    p.report()
+    keys = sorted(s3.objects)
+    assert keys[0].endswith("latest.json") and keys[1].startswith(run.PREFIX + "runs/") and keys[1].endswith("_dry.json")
+    assert s3.objects[keys[0]] == s3.objects[keys[1]]

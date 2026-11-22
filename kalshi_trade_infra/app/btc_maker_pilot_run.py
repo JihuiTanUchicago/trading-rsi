@@ -14,7 +14,8 @@ so every position a run opened has settled when it ends, and the next run starts
 picked up at the next run. A run cancels its orders when it starts and when it stops. A live run will
 not start while Kalshi shows an open KXBTC position. Its P&L carries across runs in
 s3://<datalake>/research-watch/btc-maker-pilot/state.json, and the loss stop there is permanent. The
-report is in latest.json next to it.
+report is in latest.json next to it, and every run's report (with its fills) is kept in
+runs/<start>_<dry|live>.json there.
 
     python -m app.btc_maker_pilot_run
 """
@@ -114,6 +115,7 @@ class Pilot:
         self.counts = {"steps": 0, "posts": 0, "cancels": 0, "fills": 0, "filled_qty": 0.0, "paused": 0,
                        "rotations": 0}
         self.fill_log: List[Dict] = []
+        self.started = datetime.now(timezone.utc)
         self.peak_collateral = 0.0
         self.last_reason = ""
         self.stopped = bool(self.state.get("stopped"))
@@ -260,14 +262,19 @@ class Pilot:
                "counts": self.counts, "run_pnl_at_mid": round(pnl_run, 2), "carried": round(self.carried(), 2),
                "peak_collateral": round(self.peak_collateral, 2), "resting": len(self.venue.open_orders()),
                "markets": len(self.markets), "stopped": self.stopped, "spot": self.spot.last(),
-               "fills": self.fill_log[-200:]}
+               "started": self.started.isoformat(), "fills": self.fill_log[-200:]}
         if self.s3 is not None:
-            try:
-                self.s3.put_object(Bucket=BUCKET, Key=PREFIX + "latest.json",
-                                   Body=json.dumps(rep, default=str).encode(), ContentType="application/json")
-            except Exception as e:  # noqa: BLE001 - a readout, never a reason to stop
-                self.log("report not written: %s" % str(e)[:120])
+            body = json.dumps(rep, default=str).encode()
+            # latest.json is the current run; runs/<start>.json keeps every run's fills for later readouts.
+            for key in ("latest.json", self.run_key()):
+                try:
+                    self.s3.put_object(Bucket=BUCKET, Key=PREFIX + key, Body=body, ContentType="application/json")
+                except Exception as e:  # noqa: BLE001 - a readout, never a reason to stop
+                    self.log("report %s not written: %s" % (key, str(e)[:120]))
         return rep
+
+    def run_key(self) -> str:
+        return "runs/%s_%s.json" % (self.started.strftime("%Y%m%dT%H%M%SZ"), "live" if self.live else "dry")
 
 
 def run_deadline(now: float, after_close_s: float = 120.0) -> float:
