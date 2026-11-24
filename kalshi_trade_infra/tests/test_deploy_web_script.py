@@ -43,7 +43,8 @@ def _dry_run(tmp_path: Path, *, missing: str = "", large: bool = False):
                  "tau-code-paper.service", "tau-code-paper.timer", "tau-maker-lab.service", "tau-maker-lab.timer",
                  "tau-maker-scan.service", "tau-maker-scan.timer", "tau-sports-rescore.service", "tau-sports-rescore.timer", "tau-maker-scan-once.timer", "tau-maker-confirm.service", "tau-maker-confirm.timer", "tau-maker-holdout.service", "tau-maker-holdout.timer", "tau-arb-scan.service", "tau-arb-scan.timer", "tau-favorite-bid.service", "tau-favorite-bid.timer", "tau-long-dated-calib.service", "tau-long-dated-calib.timer", "tau-mention-calib.service", "tau-mention-calib.timer", "tau-mention-maker.service", "tau-mention-maker.timer",
                  "tau-mention-pilot.service", "tau-mention-pilot.timer", "tau-btc-maker-pilot.service",
-                 "tau-btc-maker-pilot.timer"):
+                 "tau-btc-maker-pilot.timer", "tau-implication-watch.service", "tau-implication-watch.timer",
+                 "tau-implication-map.service", "tau-implication-map.timer"):
         (package / "scripts" / "systemd" / unit).write_text("[Unit]\n")
     git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
            "-c", "user.name=Tau Test", "-c", "user.email=tau-test@example.invalid"]

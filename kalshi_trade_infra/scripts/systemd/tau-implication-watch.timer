@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep the paper implication watcher running: start it again 20s after each run ends (app.implication_watch_run exits by itself after 4h).
+[Timer]
+OnBootSec=3min
+OnActiveSec=1min
+OnUnitInactiveSec=20s
+Unit=tau-implication-watch.service
+[Install]
+WantedBy=timers.target
