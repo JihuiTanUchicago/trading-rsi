@@ -98,7 +98,7 @@ def test_each_run_sees_the_summary_of_earlier_runs():
 def test_the_timer_rotates_series_so_each_holdout_window_is_used_once():
     from app.maker_lab_run import auto_series
     picks = [auto_series(H0 + timedelta(hours=h)) for h in range(0, 24, 4)]
-    assert picks == ["KXBTCD", "KXBTC15M", "KXBTC"] * 2
+    assert picks == ["housekeeping", "KXBTC15M", "KXBTC"] * 2       # KXBTCD searches timed out from 11-12
 
 
 def test_a_worker_killed_out_of_memory_finishes_the_hours_in_process(monkeypatch):

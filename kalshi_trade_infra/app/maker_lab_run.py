@@ -5,8 +5,11 @@ s3://<datalake>/research-watch/maker/runs/<UTC time>_<series>.json.
     python -m app.maker_lab_run --series KXBTCD --hours 24 --holdout 12
     python -m app.maker_lab_run --series auto       # the timer: rotates the series every 4 hours
 
-``--series auto`` takes KXBTCD, KXBTC15M, KXBTC in turn by the 4-hour slot of the day, so each
-series runs every 12 hours and, with a 12-hour holdout, its held-out windows never overlap. Each run
+``--series auto`` takes the ROTATION slots in turn by the 4-hour slot of the day, so each searched
+series runs every 12 hours and, with a 12-hour holdout, its held-out windows never overlap. The
+KXBTCD slot became a housekeeping slot on 2026-11-24 (forward, confirm and track for every series,
+no search): every KXBTCD search since 11-12 was killed at the unit's 4-hour timeout without a
+result, and its finished searches never produced a positive finalist. Each run
 shows the model the summaries of that series' last PRIOR_RUNS runs.
 
 Before its own search, a run judges up to FORWARD_PER_RUN earlier finalists of its series on the 24
@@ -32,7 +35,8 @@ from trading_core.engine.maker_policy import MAKER_SERIES
 PREFIX = "research-watch/maker/runs/"
 STATUS = "research-watch/maker/status/"   # <UTC time>_<series>.json: started, then done or failed
 PRIOR_RUNS = 3
-ROTATION = ("KXBTCD", "KXBTC15M", "KXBTC")
+HOUSEKEEPING = "housekeeping"
+ROTATION = (HOUSEKEEPING, "KXBTC15M", "KXBTC")
 # (rounds, policies per round) per series, sized to finish inside the 4-hour slot: a KXBTCD hour
 # replays in 20-40s, so it stays at 3x4 (~2h20m); KXBTC (~10s/hour) and KXBTC15M search wider.
 # Todd moved taker research spend to the maker lane on 2026-10-30.
@@ -119,7 +123,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
         datetime.now(timezone.utc) - timedelta(minutes=30)
     research, holdout = split(end, a.hours, a.holdout)
     archived_to = holdout[-1] + timedelta(hours=1)
-    if a.forward_only:
+    series = auto_series(datetime.now(timezone.utc)) if a.series == "auto" else a.series
+    if a.forward_only or series == HOUSEKEEPING:
         import boto3
         from data_pipeline.tick_store import BUCKET
         s3 = boto3.client("s3")
@@ -128,7 +133,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:  # pragma: no cover - thi
         done += track_confirmed(s3, BUCKET, archived_to, a.workers)
         print(json.dumps(done, indent=1, default=str))
         return 0
-    series = auto_series(datetime.now(timezone.utc)) if a.series == "auto" else a.series
     rounds, per_round = search_size(series, a.rounds, a.per_round)
     choice = catalog.resolve(a.model)
     model = lambda system, messages, on_delta=None: claude(system, messages, choice.model_id)  # noqa: E731
