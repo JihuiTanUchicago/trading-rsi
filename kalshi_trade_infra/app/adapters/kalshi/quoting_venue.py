@@ -142,7 +142,7 @@ class KalshiQuotingVenue:
 
     def sync_orders(self) -> None:
         """Drop from view any order the exchange no longer shows resting (filled or cancelled there)."""
-        page = self.api.private(ORDERS_PATH, {"status": "resting", "limit": 1000}) or {}
+        page = self.api.private(ORDERS_PATH, {"status": "resting", "limit": 200}) or {}
         live = {o.get("order_id") for o in page.get("orders") or []}
         for oid in [k for k in self._orders if k not in live]:
             self._orders.pop(oid, None)
@@ -150,7 +150,7 @@ class KalshiQuotingVenue:
     def cancel_all(self) -> int:
         """Cancel every resting order with our client prefix, ours in view or strays from an earlier run."""
         n = 0
-        page = self.api.private(ORDERS_PATH, {"status": "resting", "limit": 1000}) or {}
+        page = self.api.private(ORDERS_PATH, {"status": "resting", "limit": 200}) or {}
         ids = {o["order_id"] for o in page.get("orders") or []
                if str(o.get("client_order_id") or "").startswith(self.prefix) and o.get("order_id")}
         for oid in ids | set(self._orders):

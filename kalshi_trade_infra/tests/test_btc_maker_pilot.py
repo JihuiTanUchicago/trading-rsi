@@ -182,3 +182,88 @@ def test_every_run_keeps_its_own_report_next_to_latest():
     keys = sorted(s3.objects)
     assert keys[0].endswith("latest.json") and keys[1].startswith(run.PREFIX + "runs/") and keys[1].endswith("_dry.json")
     assert s3.objects[keys[0]] == s3.objects[keys[1]]
+
+
+def test_funding_moves_the_shortfall_once_and_keeps_the_mention_pilots_cash():
+    p = bp.funding_plan({0: 284.72, 2: 0.0}, 250, 30)
+    assert not p.ready and p.transfer == 250.0
+    assert bp.funding_plan({0: 270.0, 2: 0.0}, 250, 30).transfer == 0.0          # would leave shard 0 under $30
+    assert "waiting for a deposit" in bp.funding_plan({0: 34.72}, 250, 30).reason
+    assert bp.funding_plan({0: 34.72, 2: 245.0}, 250, 30).ready                 # already there (within 5%)
+    assert bp.funding_plan({0: 0.0, 2: 10.0}, 250, 30, funded=True).ready        # funded once: never again
+    assert bp.funding_plan({0: 0.0}, 0, 30).ready                               # no funding asked for
+    assert bp.shard_cash({"balance_breakdown": [{"exchange_index": 0, "balance": "34.72"},
+                                                {"exchange_index": 2, "balance": 1.5}]}) == {0: 34.72, 2: 1.5}
+    assert bp.account_stopped(199.9, 250.0, 50) and not bp.account_stopped(201.0, 250.0, 50)
+    assert not bp.account_stopped(0.0, None, 50)
+
+
+class LiveApi:
+    """Kalshi's private side for the preflight: balances by shard, the transfer, orders that rest."""
+
+    def __init__(self, cash):
+        self.cash, self.creds, self.transfers, self.resting, self.placed, self.cancelled = cash, "creds", [], [], [], []
+        self.refuse = False
+
+    def private(self, path, params=None):
+        if path.endswith("/balance"):
+            return {"balance_breakdown": [{"exchange_index": k, "balance": v} for k, v in self.cash.items()]}
+        if path.endswith("/fills"):
+            return {"fills": []}
+        return {"orders": list(self.resting)}
+
+    def _post(self, path, body, credentials=None):
+        assert path == run.TRANSFER_PATH and credentials == "creds"
+        self.transfers.append(body)
+        usd = body["amount"] / 10000
+        self.cash[0] -= usd
+        self.cash[body["destination_exchange_shard"]] = self.cash.get(body["destination_exchange_shard"], 0) + usd
+        return {"transfer_id": "t1"}
+
+    def place(self, body):
+        if self.refuse:
+            raise RuntimeError("POST failed 403: location attestation")
+        self.placed.append(body)
+        oid = "o%d" % len(self.placed)
+        self.resting.append({"order_id": oid, "client_order_id": body["client_order_id"]})
+        return {"order_id": oid}
+
+    def cancel(self, oid):
+        self.cancelled.append(oid)
+        self.resting = [o for o in self.resting if o["order_id"] != oid]
+
+
+def _live_pilot(api, s3):
+    from app.adapters.kalshi.quoting_venue import KalshiQuotingVenue
+    k = FakeKalshi(time.time())
+    return run.Pilot(k, KalshiQuotingVenue(api, "tbm-", log=lambda m: None), POLICY, bp.pilot_config(POLICY, 10, 10),
+                     s3=s3, spot_get=lambda url: {"price": "97200"}, log=lambda m: None)
+
+
+def test_live_preflight_waits_for_the_deposit_then_funds_probes_and_records_the_baseline():
+    s3 = FakeS3()
+    api = LiveApi({0: 34.72})
+    p = _live_pilot(api, s3)
+    assert not p.live_preflight(api, 50, 250, 30, sleep=lambda s: None)
+    assert "waiting for a deposit" in p.waiting and api.transfers == [] and api.placed == []
+    api.cash[0] += 250.0                                                        # Todd's deposit lands on shard 0
+    p = _live_pilot(api, s3)
+    assert p.live_preflight(api, 50, 250, 30, sleep=lambda s: None)
+    t = api.transfers[0]
+    assert t["amount"] == 2_500_000 and (t["source_exchange_shard"], t["destination_exchange_shard"]) == (0, 2)
+    assert p.state["funded"] and p.state["live_start_cash"] == 250.0 and p.account["pnl_since_live"] == 0.0
+    probe = api.placed[0]
+    assert probe["price"] == "0.0100" and probe["count"] == "1.00" and probe["post_only"] is True
+    assert api.cancelled == ["o1"] and p.venue.open_orders() == []
+    # a later run: no second transfer; the account stop fires once shard 2 is down $50 since live began
+    api.cash[2] = 199.0
+    p.state = {"funded": True, "live_start_cash": 250.0}
+    assert not p.live_preflight(api, 50, 250, 30, sleep=lambda s: None)
+    assert len(api.transfers) == 1 and p.stopped and "ACCOUNT LOSS STOP" in p.waiting
+
+
+def test_a_refused_probe_means_no_quoting():
+    api = LiveApi({0: 30.0, 2: 250.0})
+    api.refuse = True
+    p = _live_pilot(api, FakeS3())
+    assert not p.live_preflight(api, 50, 250, 30, sleep=lambda s: None) and "probe order refused" in p.waiting

@@ -113,6 +113,7 @@ class Market:
     floor: Optional[float]
     cap: Optional[float]
     listed_mid: Optional[float] = None    # from the /markets listing (refreshed each minute): the band pre-filter
+    shard: Optional[int] = None           # exchange_index: orders draw on this shard's cash
 
 
 def _num(v) -> Optional[float]:
@@ -141,7 +142,9 @@ def markets_from(page: Dict, now: float, max_secs_to_close: float) -> List[Marke
             continue
         bid, ask = _num(m.get("yes_bid_dollars")), _num(m.get("yes_ask_dollars"))
         mid = (bid + ask) / 2 if bid is not None and ask is not None and ask > 0 else None
-        out.append(Market(tk, close, _num(m.get("floor_strike")), _num(m.get("cap_strike")), mid))
+        shard = m.get("exchange_index")
+        out.append(Market(tk, close, _num(m.get("floor_strike")), _num(m.get("cap_strike")), mid,
+                          int(shard) if isinstance(shard, (int, float)) and not isinstance(shard, bool) else None))
     return out
 
 
@@ -226,3 +229,51 @@ def guard(pnl: float, collateral: float, loss_stop: float, collateral_cap: float
     if collateral > collateral_cap:
         return GuardVerdict(pause=True, reason="collateral $%.2f over the $%.2f cap" % (collateral, collateral_cap))
     return GuardVerdict()
+
+
+# --- live funding and the account-level loss stop -------------------------------------------------------
+# Todd 2026-11-24 23:43Z (card "Yes, plus fund BTC maker"): live at size 10, a $50 loss stop, about $250
+# of collateral on the crypto shard. Kalshi cash sits per exchange shard and an order draws only on its
+# market's shard, so the deposit (which lands on shard 0, where the mention pilot trades) is moved once.
+CRYPTO_SHARD = 2
+
+
+def shard_cash(balance: Dict) -> Dict[int, float]:
+    """{exchange_index: dollars} from /portfolio/balance's balance_breakdown."""
+    out: Dict[int, float] = {}
+    for x in balance.get("balance_breakdown") or []:
+        try:
+            out[int(x.get("exchange_index"))] = float(x.get("balance"))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+@dataclass
+class FundingPlan:
+    ready: bool
+    transfer: float = 0.0          # dollars to move from shard 0 to the crypto shard now
+    reason: str = ""
+
+
+def funding_plan(cash: Dict[int, float], fund_usd: float, keep_on_0: float, shard: int = CRYPTO_SHARD,
+                 funded: bool = False) -> FundingPlan:
+    """Whether the crypto shard holds the pilot's collateral, and what to move there if not. It moves at
+    most the shortfall, only once (``funded`` comes from state.json), and never takes shard 0 below
+    ``keep_on_0`` (the mention pilot's cash)."""
+    have = cash.get(shard, 0.0)
+    if funded or have >= 0.95 * fund_usd:
+        return FundingPlan(True, 0.0, "shard %d holds $%.2f" % (shard, have))
+    need = round(fund_usd - have, 2)
+    spare = cash.get(0, 0.0) - keep_on_0
+    if spare >= need:
+        return FundingPlan(False, need, "moving $%.2f from shard 0 to shard %d" % (need, shard))
+    return FundingPlan(False, 0.0, "waiting for a deposit: shard 0 $%.2f (keeping $%.2f for the mention pilot), "
+                                   "shard %d $%.2f, the pilot needs $%.2f there" % (cash.get(0, 0.0), keep_on_0,
+                                                                                    shard, have, fund_usd))
+
+
+def account_stopped(cash_now: float, start_cash: Optional[float], loss_stop: float) -> bool:
+    """The account-level stop, checked at each run's start when the pilot is flat: the crypto shard's
+    cash fell by the loss stop since the pilot went live. Independent of the pilot's own fill accounting."""
+    return start_cash is not None and cash_now <= start_cash - abs(loss_stop)
