@@ -7,7 +7,11 @@ Modes, chosen by switches in /opt/kalshi/.env.app (TAU_BTC_MAKER_PILOT_ENABLED=0
   plumbing and decisions working, at no cost.
 - **LIVE.** Needs all three of TAU_BTC_MAKER_PILOT_ENABLED=1, TAU_BTC_MAKER_PILOT_DRY_RUN=0 and
   APP_LIVE_TRADING_ENABLED=1. REAL post-only orders go on the user's Kalshi cash (crypto trades on
-  shard 2), through app.adapters.kalshi.quoting_venue.
+  shard 2), through app.adapters.kalshi.quoting_venue. Before a live run quotes, live_preflight
+  funds the crypto shard once (TAU_BTC_MAKER_PILOT_FUND_USD from a deposit on shard 0, never taking shard 0
+  under TAU_BTC_MAKER_PILOT_KEEP_ON_SHARD0), records that shard's cash when the pilot first goes live,
+  stops for good once it has fallen by the loss stop (an account-level check on Kalshi's own numbers), and
+  rests then cancels one 1c bid to prove orders are accepted. Until all of that passes, a run only waits.
 
 Each run ends 2 minutes after an hourly close. The policy stops quoting 20 minutes before each close,
 so every position a run opened has settled when it ends, and the next run starts flat. A deploy is
@@ -25,6 +29,7 @@ import json
 import os
 import signal
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence
 
@@ -41,6 +46,8 @@ POLICY_NAME = "r5.1 r5.1_ultra_flow_close1200"
 CLIENT_PREFIX = "tbm-"
 COINBASE_TICKER = "https://api.exchange.coinbase.com/products/BTC-USD/ticker"
 MAX_ERRORS = 5
+BALANCE_PATH = "/trade-api/v2/portfolio/balance"
+TRANSFER_PATH = "/trade-api/v2/portfolio/intra_exchange_instance_transfer"
 
 
 class ShadowVenue:
@@ -120,6 +127,8 @@ class Pilot:
         self.last_reason = ""
         self.stopped = bool(self.state.get("stopped"))
         self.cap = float(os.getenv("TAU_BTC_MAKER_PILOT_COLLATERAL_CAP", "20"))
+        self.account: Dict = {}       # live: the crypto shard's cash at this run's start vs when the pilot went live
+        self.waiting = ""             # live: why this run did not start quoting
 
     # --- state ------------------------------------------------------------------------------
     def load_state(self) -> Dict:
@@ -143,6 +152,74 @@ class Pilot:
             self.state = st
         except Exception as e:  # noqa: BLE001
             self.log("state not saved: %s" % str(e)[:120])
+
+    def put_state(self) -> None:
+        if self.s3 is not None:
+            self.s3.put_object(Bucket=BUCKET, Key=PREFIX + "state.json", Body=json.dumps(self.state).encode())
+
+    def wait(self, reason: str) -> bool:
+        self.waiting = reason
+        self.log("not quoting: %s" % reason)
+        self.report()
+        return False
+
+    def live_preflight(self, api, loss_stop: float, fund_usd: float, keep_on_0: float, sleep=time.sleep) -> bool:
+        """Before a live run quotes (the pilot is flat: every earlier position has settled). In order:
+        fund the crypto shard once from a deposit on shard 0; record the shard's cash when the pilot first
+        goes live; stop for good if that cash has since fallen by the loss stop; then rest and cancel one
+        1c bid to prove orders are accepted (location attestation, shard cash). False = do not quote."""
+        now = time.time()
+        self.refresh_markets(now)
+        shards = [m.shard for m in self.markets if m.shard is not None]
+        shard = max(set(shards), key=shards.count) if shards else bp.CRYPTO_SHARD
+        cash = bp.shard_cash(api.private(BALANCE_PATH) or {})
+        plan = bp.funding_plan(cash, fund_usd, keep_on_0, shard, funded=bool(self.state.get("funded")))
+        if plan.transfer > 0:
+            body = {"amount": int(round(plan.transfer * 10000)), "source": "event_contract",
+                    "destination": "event_contract", "source_exchange_shard": 0, "destination_exchange_shard": shard,
+                    "client_transfer_id": str(uuid.uuid4())}
+            r = api._post(TRANSFER_PATH, body, credentials=api.creds) or {}
+            self.log("FUNDING: %s (transfer %s)" % (plan.reason, r.get("transfer_id")))
+            self.state["funding_transfer"] = {"amount": plan.transfer, "to_shard": shard,
+                                              "transfer_id": r.get("transfer_id"), "at": time.time()}
+            self.put_state()
+            sleep(5)
+            cash = bp.shard_cash(api.private(BALANCE_PATH) or {})
+            plan = bp.funding_plan(cash, fund_usd, keep_on_0, shard)
+        if not plan.ready:
+            return self.wait(plan.reason)
+        have = cash.get(shard, 0.0)
+        if not self.state.get("funded") or self.state.get("live_start_cash") is None:
+            self.state.update(funded=True, live_start_cash=round(have, 2), live_since=time.time(), shard=shard)
+            self.put_state()
+            self.log("LIVE BASELINE: shard %d cash $%.2f" % (shard, have))
+        start = float(self.state["live_start_cash"])
+        self.account = {"shard": shard, "cash_at_run_start": round(have, 2), "live_start_cash": start,
+                        "pnl_since_live": round(have - start, 2)}
+        if bp.account_stopped(have, start, loss_stop):
+            self.stopped = True
+            self.state["stopped"] = True
+            self.put_state()
+            return self.wait("ACCOUNT LOSS STOP: shard %d cash $%.2f vs $%.2f when live began" % (shard, have, start))
+        return self.probe()
+
+    def probe(self) -> bool:
+        m = next((m for m in self.markets if (m.listed_mid or 0) >= 0.10), None)
+        if m is None:
+            return self.wait("no listed KXBTC contract to probe with")
+        yid = InstrumentId("kalshi", m.ticker, "yes")
+        oid = self.venue.post(yid, Side.BUY, 0.01, 1, "probe")
+        if not oid:
+            return self.wait("probe order refused (location attestation or shard cash?)")
+        self.venue.sync_orders()
+        resting = any(o.order_id == oid for o in self.venue.open_orders())
+        self.venue.cancel(oid)
+        self.venue.sync_orders()
+        if not resting or any(o.order_id == oid for o in self.venue.open_orders()):
+            self.venue.cancel_all()
+            return self.wait("probe order did not rest and cancel cleanly")
+        self.waiting = ""
+        return True
 
     def carried(self) -> float:
         return float(self.state.get("carried_%s" % ("live" if self.live else "dry"), 0.0))
@@ -262,11 +339,12 @@ class Pilot:
                "counts": self.counts, "run_pnl_at_mid": round(pnl_run, 2), "carried": round(self.carried(), 2),
                "peak_collateral": round(self.peak_collateral, 2), "resting": len(self.venue.open_orders()),
                "markets": len(self.markets), "stopped": self.stopped, "spot": self.spot.last(),
-               "started": self.started.isoformat(), "fills": self.fill_log[-200:]}
+               "started": self.started.isoformat(), "account": self.account, "waiting": self.waiting,
+               "fills": self.fill_log[-200:]}
         if self.s3 is not None:
             body = json.dumps(rep, default=str).encode()
             # latest.json is the current run; runs/<start>.json keeps every run's fills for later readouts.
-            for key in ("latest.json", self.run_key()):
+            for key in ("latest.json",) if self.waiting else ("latest.json", self.run_key()):
                 try:
                     self.s3.put_object(Bucket=BUCKET, Key=PREFIX + key, Body=body, ContentType="application/json")
                 except Exception as e:  # noqa: BLE001 - a readout, never a reason to stop
@@ -347,6 +425,11 @@ def main() -> None:  # pragma: no cover - wiring
     if live and held_btc(venue.api):
         pilot.log("Kalshi shows open KXBTC positions from an earlier run; waiting for them to settle")
         time.sleep(300)
+        return
+    if live and not pilot.live_preflight(venue.api, float(os.getenv("TAU_BTC_MAKER_PILOT_LOSS_STOP", "15")),
+                                         float(os.getenv("TAU_BTC_MAKER_PILOT_FUND_USD", "0")),
+                                         float(os.getenv("TAU_BTC_MAKER_PILOT_KEEP_ON_SHARD0", "40"))):
+        time.sleep(120)
         return
     poll_s = float(os.getenv("TAU_BTC_MAKER_PILOT_POLL_S", "1" if live else "2"))
     deadline, errors, last_report = run_deadline(time.time()), 0, 0.0
