@@ -375,3 +375,14 @@ def test_the_api_cancel_routes_by_market_ticker_or_shard():
     assert paths == ["/trade-api/v2/portfolio/events/orders/o1",
                      "/trade-api/v2/portfolio/events/orders/o2?market_ticker=KXBTC-26NOV2422-B59250",
                      "/trade-api/v2/portfolio/events/orders/o3?exchange_index=2"]
+
+
+def test_a_stopped_live_pilot_still_reports_the_account_but_never_trades():
+    api = LiveApi({0: 14.72, 2: 9.80})
+    s3 = FakeS3()
+    p = _live_pilot(api, s3)
+    p.state = {"stopped": True, "live_start_cash": 20.0, "shard": 2, "funded": True}
+    p.stopped = True
+    p.report_stopped_account(api)
+    assert p.account == {"shard": 2, "cash_at_run_start": 9.8, "live_start_cash": 20.0, "pnl_since_live": -10.2}
+    assert "stopped" in p.waiting and api.placed == [] and api.transfers == []
