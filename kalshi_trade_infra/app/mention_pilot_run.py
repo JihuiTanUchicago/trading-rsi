@@ -24,6 +24,7 @@ import signal
 import time
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 from typing import Callable, Dict, List, Optional, Set
 
 from app.adapters.kalshi import mention_pilot_repository as repo
@@ -82,11 +83,20 @@ class Api:
     def place(self, body: Dict) -> Dict:
         return self._post(ORDERS, body, credentials=self.creds)
 
-    def cancel(self, order_id: str) -> bool:
+    def cancel(self, order_id: str, ticker: Optional[str] = None, shard: Optional[int] = None) -> bool:
         """True once the order is gone (cancelled now, or already filled/cancelled). A 404 means the
-        order is no longer resting. (The old /portfolio/orders/{id} fallback answers 410 deprecated.)"""
+        order is no longer resting ON THE SHARD THE CANCEL WENT TO. Without a route the cancel goes to
+        shard 0, and an order resting on another shard (crypto is exchange_index 2) answers 404 while it
+        keeps resting (Kalshi's cancel_order_v2 docs; the BTC maker's first live hour, 2026-11-25). So
+        pass ``ticker`` (Kalshi auto-routes on market_ticker) or ``shard``. (The old
+        /portfolio/orders/{id} fallback answers 410 deprecated.)"""
+        path = ORDERS + "/" + order_id
+        if ticker:
+            path += "?" + urlencode({"market_ticker": ticker})
+        elif shard is not None:
+            path += "?" + urlencode({"exchange_index": int(shard)})
         try:
-            self._delete(ORDERS + "/" + order_id, credentials=self.creds)
+            self._delete(path, credentials=self.creds)
         except RuntimeError as e:
             if " 404" not in str(e):
                 raise

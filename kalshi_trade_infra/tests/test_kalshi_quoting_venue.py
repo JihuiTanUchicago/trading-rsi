@@ -11,18 +11,19 @@ NO = InstrumentId("kalshi", "KXBTC-26NOV2016-B97250", "no")
 class FakeApi:
     def __init__(self):
         self.placed, self.cancelled, self.fills, self.resting = [], [], [], []
-        self.refuse = False
+        self.refuse, self.tickers = False, []
 
     def place(self, body):
         if self.refuse:
             raise RuntimeError("POST failed 400: post only cross")
         self.placed.append(body)
         oid = "o%d" % len(self.placed)
-        self.resting.append({"order_id": oid, "client_order_id": body["client_order_id"]})
+        self.resting.append({"order_id": oid, "client_order_id": body["client_order_id"], "ticker": body["ticker"]})
         return {"order": {"order_id": oid}}
 
-    def cancel(self, oid):
+    def cancel(self, oid, ticker=None):
         self.cancelled.append(oid)
+        self.tickers.append(ticker)
         self.resting = [o for o in self.resting if o["order_id"] != oid]
 
     def private(self, path, params=None):
@@ -81,6 +82,7 @@ def test_a_fill_after_our_cancel_still_books_and_cancel_all_sweeps_strays():
     oid = v.post(YES, Side.BUY, 0.30, 4, "x")
     v.cancel(oid)
     assert v.open_orders() == [] and api.cancelled == [oid]
+    assert api.tickers == [YES.symbol]          # routed: an unrouted cancel misses the crypto shard (11-25)
     api.fills = [{"fill_id": "f1", "order_id": oid, "count_fp": "1.00", "ts": 1001}]
     assert [f.qty for f in v.take_fills()] == [1.0]
     api.resting += [{"order_id": "stray", "client_order_id": "tmk-old"}, {"order_id": "theirs", "client_order_id": "mp-1"}]
