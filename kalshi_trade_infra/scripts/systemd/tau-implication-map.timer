@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the implication rules map daily at 10:15 UTC (before US news hours) and once soon after a deploy.
+[Timer]
+OnCalendar=*-*-* 10:15:00 UTC
+OnActiveSec=5min
+Persistent=true
+Unit=tau-implication-map.service
+[Install]
+WantedBy=timers.target

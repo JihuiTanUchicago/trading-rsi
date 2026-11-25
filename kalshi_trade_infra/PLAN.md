@@ -1,5 +1,23 @@
 # PLAN
 
+## Paper implication-lag catcher on news markets (2026-11-25)
+Todd's pick at 2026-11-24 23:43Z ("Yes, plus fund BTC maker") after the Nvidia next-CEO post-mortem: the
+surge itself was a seconds-scale news race, and Kalshi-wide surge-chasing loses 2-3c (2,041 surges), but
+logically implied markets in OTHER series stayed mispriced for 1-10 minutes after the trigger market
+printed 90c (KXNVDACEODATE Dec-01 at ~23c a minute later). PAPER ONLY: no orders, no keys, no DB tables.
+This lifts BTC-only and the Sports/Weather/Crypto data rule for this watcher only.
+- `app/services/implication.py`: news-series universe, rare-word clusters across series, the LLM reply
+  check (links between different events only, confidence >= 0.9), the trigger (bid >= 90c or ask <= 10c
+  held 30s, from <= 60c / >= 40c in the last 15 min, >= 5,000 contracts traded), paper fills at the
+  visible asks up to 90c, 200 contracts, and the scoreboard.
+- `tau-implication-map` (daily 10:15 UTC): lists open news events, asks the LLM once per changed
+  cluster (TAU_IMPLICATION_MAX_CALLS=120), writes research-watch/implication/map.json, settles paper fills
+  and writes latest.json.
+- `tau-implication-watch` (4h runs, restarted by its timer): polls the linked markets every 5s, records
+  each trigger with paper fills and follow-up books at +60s/+300s under research-watch/implication/triggers/.
+- Pre-registered verdict, ONE look at 15 settled triggers with a fill: kill below +5c net per contract,
+  else pass and bring Todd a live-size card. Expected ~2-6 weeks at a few triggers a week.
+
 ## Autopilot panel overlap — October 31, 2026, Asia/Shanghai
 
 Release authorized / publication in progress (`tau-autopilot-panel-overlap-20261031`), isolated from main `8c15996c`. Both themes now allocate feed space independently of history length, preserving the controls’ usable scrollport and the phone’s existing single-sheet scroll. Ten actual-asset Chromium cases, 2,130 frontend tests (two skipped), and 29 public-changelog checks pass; independent review found no actionable regression. The public roadmap lists the repair as planned. No commit, publication, deployment, or production action occurred; the shared checkout is unchanged. Advisory reservation handed off. [Scope and evidence](results/autopilot_panel_overlap_2026-10-31/HANDOFF.md).

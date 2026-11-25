@@ -1,0 +1,11 @@
+[Unit]
+Description=PAPER implication-lag catcher watcher (app.implication_watch_run): public top-of-book reads of the markets in the daily rules map, paper fills on a trigger, results to S3 research-watch/implication/. Never places an order. Runs on the WEB box; each run lasts at most 4h.
+After=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=/opt/kalshi
+Nice=10
+MemoryMax=512M
+TimeoutStopSec=60
+KillSignal=SIGTERM
+ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.implication_watch_run >> /opt/kalshi/logs/implication_watch.log 2>&1'
