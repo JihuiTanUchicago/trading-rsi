@@ -199,6 +199,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if time.time() - last_map > 1800:
             w.load_map(get_map() or {"watch": w.watch, "edges": [e for v in w.edges.values() for e in v]})
             last_map = time.time()
+            w.log("map reloaded: watching %d markets, %d links" % (len(w.watch), sum(len(v) for v in w.edges.values())))
         time.sleep(max(0.0, POLL_S - (time.time() - t0)))
     # Let open follow-ups finish (at most 5 min) so no trigger is left half measured.
     end = time.time()

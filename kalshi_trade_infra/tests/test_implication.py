@@ -24,22 +24,52 @@ def test_news_series_skips_sports_crypto_weather_mentions_and_parlays():
     assert not imp.news_series("KXMVECROSS", "Politics")
 
 
-def test_clusters_link_events_of_different_series_by_a_rare_word():
+_BACKGROUND = [_ev("BG%d-26" % i, "BG%d" % i, "Background topic %s %s" % (w, w + "x"), [_m("BG%d" % i)])
+               for i, w in enumerate("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima "
+                                     "mike november oscar papa quebec romeo sierra tango".split())]
+
+
+def test_clusters_put_an_event_with_its_most_similar_events_of_other_series():
     evs = [_ev("KXNVDACEO-29JAN", "KXNVDACEO", "Who will be the next CEO of NVIDIA?", [_m("A1"), _m("A2")]),
-           _ev("KXNVDACEODATE-27", "KXNVDACEODATE", "When will NVIDIA announce its next CEO?", [_m("B1")]),
-           _ev("KXPOPE-26", "KXPOPE", "Who will be the next Pope?", [_m("C1")])]
+           _ev("KXNVDACEODATE-27", "KXNVDACEODATE", "When will NVIDIA name its next CEO?", [_m("B1")]),
+           _ev("KXPOPE-26", "KXPOPE", "Who will be the next Pope?", [_m("C1")])] + _BACKGROUND
     cl = imp.clusters(evs)
     assert len(cl) == 1
     assert {m["ticker"] for m in cl[0]} == {"A1", "A2", "B1"}
     assert {m["_event"] for m in cl[0]} == {"KXNVDACEO-29JAN", "KXNVDACEODATE-27"}
 
 
-def test_clusters_need_two_series_and_drop_thin_markets():
+def test_clusters_do_not_chain_through_a_middle_event():
+    # A shares "huang" with B, B shares "powell" with C; A and C have nothing in common.
+    evs = [_ev("A-26", "A", "Jensen Huang returns", [_m("A1", vol=90000)]),
+           _ev("B-26", "B", "Huang and Powell meet", [_m("B1", vol=50000)]),
+           _ev("C-26", "C", "Powell leaves office", [_m("C1", vol=10000)])] + _BACKGROUND
+    events = [{m["_event"] for m in c} for c in imp.clusters(evs, min_sim=0.15)]
+    assert events[0] == {"A-26", "B-26"}                 # A's own neighbourhood leaves C out
+    assert all("B-26" in e for e in events)              # C only joins through B, which links to both
+
+
+def test_clusters_link_a_decision_to_the_same_meeting_by_date_code():
+    evs = [_ev("KXFEDDECISION-26DEC", "KXFEDDECISION", "Fed decision in Dec 2026?", [_m("D1", vol=900000)]),
+           _ev("KXFED-26DEC", "KXFED", "Fed funds rate after Dec 2026 meeting?", [_m("R1")]),
+           _ev("KXFED-27JAN", "KXFED2", "Fed funds rate after Jan 2027 meeting?", [_m("R2")])] + _BACKGROUND
+    first = imp.clusters(evs, k=1)[0]
+    assert {m["_event"] for m in first} == {"KXFEDDECISION-26DEC", "KXFED-26DEC"}
+
+
+def test_clusters_need_another_series_and_drop_thin_markets():
     evs = [_ev("S-1", "S", "Nvidia board vote", [_m("A")]), _ev("S-2", "S", "Nvidia board seat", [_m("B")])]
-    assert imp.clusters(evs) == []                       # one series only
+    assert imp.clusters(evs + _BACKGROUND) == []                       # one series only
     evs = [_ev("S-1", "S", "Nvidia board vote", [_m("A")]),
            _ev("T-1", "T", "Nvidia board seat", [_m("B", vol=10)])]
-    assert imp.clusters(evs) == []                       # B too thin, leaves one event
+    assert imp.clusters(evs + _BACKGROUND) == []                       # B too thin to count
+
+
+def test_clusters_cap_markets_per_event():
+    big = [_m("A%02d" % i, vol=100000 - i) for i in range(30)]
+    evs = [_ev("A-26", "A", "Nvidia chief named", big), _ev("B-26", "B", "Nvidia chief date", [_m("B1")])] + _BACKGROUND
+    c = imp.clusters(evs, per_event=10)[0]
+    assert sum(m["_event"] == "A-26" for m in c) == 10 and "B1" in {m["ticker"] for m in c}
 
 
 def test_cluster_key_changes_with_rules_not_order():
@@ -65,6 +95,20 @@ def test_check_edges_keeps_valid_cross_event_links_only():
     ]}
     out = imp.check_edges(reply, _cluster())
     assert [(e["if"], e["then"], e["then_result"]) for e in out] == [("A", "B", "yes")]
+
+
+def test_verifier_keeps_only_confirmed_links():
+    edges = [{"if": "A", "if_result": "yes", "then": "B", "then_result": "yes", "confidence": 0.97, "why": "x"},
+             {"if": "B", "if_result": "yes", "then": "A", "then_result": "no", "confidence": 0.95, "why": "y"}]
+    p = imp.verify_prompt(edges, _cluster())
+    assert "0. if A settles YES then B settles YES" in p and "1. if B settles YES then A settles NO" in p
+    assert '"ticker": "A2"' not in p                     # only the markets the links use
+    kept = imp.check_verdicts({"verdicts": [{"i": 0, "forced": True}, {"i": 1, "forced": False}]}, edges)
+    assert kept == edges[:1]
+    assert imp.check_verdicts({"verdicts": [{"i": "1", "forced": True}, {"i": 7, "forced": True}]}, edges) == edges[1:]
+    assert imp.check_verdicts({"verdicts": []}, edges) == []      # unanswered is dropped
+    with pytest.raises(ValueError):
+        imp.check_verdicts({"edges": []}, edges)
 
 
 def test_check_edges_rejects_the_wrong_shape():
@@ -220,3 +264,27 @@ def test_watcher_ignores_rows_it_did_not_ask_for():
     w = wr.Watcher({"watch": ["JENS"], "edges": []}, get=get, now=clock, sleep=clock.sleep, log=logs.append)
     w.poll()
     assert "OTHER" not in w.tw.hist and logs == ["poll 1: 0 of 1 watched markets returned"]
+
+
+def test_build_map_trades_only_links_the_auditor_confirms(monkeypatch):
+    from app import implication_map_run as mr
+    from app.adapters.llm import llm
+    evs = [_ev("KXNVDACEO-29JAN", "KXNVDACEO", "Who will be the next CEO of NVIDIA?", [_m("A1")]),
+           _ev("KXNVDACEODATE-27", "KXNVDACEODATE", "When will NVIDIA name its next CEO?", [_m("B1")])] + _BACKGROUND
+    monkeypatch.setattr(mr, "news_events", lambda: evs)
+    monkeypatch.setattr(mr, "s3_get_json", lambda k: {"clusters": {"stale": {"edges": [{"if": "X"}]}}})
+    replies = iter([
+        {"edges": [{"if": "A1", "if_result": "yes", "then": "B1", "then_result": "yes", "confidence": 0.97},
+                   {"if": "B1", "if_result": "no", "then": "A1", "then_result": "no", "confidence": 0.95}]},
+        {"verdicts": [{"i": 0, "forced": True}, {"i": 1, "forced": False}]}])
+    systems = []
+
+    def ask_json(model, system, messages, check, usage):
+        systems.append(system)
+        return check(next(replies))
+
+    monkeypatch.setattr(llm, "ask_json", ask_json)
+    mp = mr.build_map(10, model="m", log=lambda s: None)
+    assert systems == [imp.MAP_SYSTEM, imp.VERIFY_SYSTEM]
+    assert [(e["if"], e["then"]) for e in mp["edges"]] == [("A1", "B1")] and mp["watch"] == ["A1"]
+    assert mp["llm_calls"] == 2 and mp["auditor_rejected"] == 1 and "stale" not in mp["clusters"]
