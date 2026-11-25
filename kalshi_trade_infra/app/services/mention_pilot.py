@@ -41,9 +41,11 @@ LO, HI = mm.LO, mm.HI
 DELAY_S, HOLD_S = mm.DELAY_S, mm.HOLD_S
 CLIENT_PREFIX = "mp-"
 EXIT_PREFIX = "mpx-"
-# Todd 2026-11-16: once an event's window has closed, sell back NO positions on words the market has
-# decided were not said (YES ask at or under EXIT_AT), so unsettled winners stop holding the loss room.
+# Todd 2026-11-16: sell back NO positions on words the market has decided were not said (YES ask at or
+# under EXIT_AT), so unsettled winners stop holding the loss room. Todd 2026-11-25: do it the moment the
+# word is decided (1c/2c), not 1-2h later when the quoting window closes, and sell said words at 97-99c too.
 EXIT_AT = 0.02
+SAID_EXIT_BID = 0.97   # someone pays 97c+ for YES and YES is offered under $1: the word was said
 
 
 _EVENT_DATE = re.compile(r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})")
@@ -134,20 +136,28 @@ class Tape:
         return ref is not None and d[-1][1] - ref < -DROP_BY - 1e-9
 
 
-def should_exit(yes_ask: Optional[float], window_closed: bool) -> bool:
-    """Sell a NO position back now: its event's quoting window is over and YES is offered at EXIT_AT or
-    less (the word was not said; the NO is worth 98c or more and only waits for Kalshi to settle)."""
-    return window_closed and yes_ask is not None and 0.0 < yes_ask <= EXIT_AT + 1e-9
+def should_exit(yes_ask: Optional[float]) -> bool:
+    """Sell a NO position back now: YES is offered at EXIT_AT or less (the market has decided the word is
+    not said; the NO is worth 98c or more and only waits for Kalshi to settle). Any time, window or not:
+    a 1-2c YES costs about what the hold would earn, and selling frees the loss room for the next event."""
+    return yes_ask is not None and 0.0 < yes_ask <= EXIT_AT + 1e-9
+
+
+def should_exit_said(yes_bid: Optional[float], yes_ask: Optional[float]) -> bool:
+    """Close a NO position on a said word: YES bid at SAID_EXIT_BID or more and YES offered under $1, so
+    the NO still sells for 1-3c instead of settling at 0."""
+    return (yes_bid is not None and yes_bid >= SAID_EXIT_BID - 1e-9
+            and yes_ask is not None and yes_ask < 1.0 - 1e-9)
 
 
 DEAD_LAST = 0.05   # last print at or under this, and no YES bid over EXIT_AT: the word looks unsaid
 
 
-def should_bid_exit(yes_bid: Optional[float], last: Optional[float], window_closed: bool) -> bool:
+def should_bid_exit(yes_bid: Optional[float], last: Optional[float]) -> bool:
     """Rest a YES bid at EXIT_AT for a NO position whose word looks unsaid but whose book offers no YES at
     EXIT_AT or less (thin markets: last print 1c, cheapest YES offer 13c+). Holders of dead YES sell into it.
-    Never during the window; a bid that fills on a word that is later said only closed the NO at 2c."""
-    return (window_closed and last is not None and 0.0 < last <= DEAD_LAST + 1e-9
+    Any time: a bid that fills on a word that is later said only closed the NO at 2c."""
+    return (last is not None and 0.0 < last <= DEAD_LAST + 1e-9
             and (yes_bid or 0.0) <= EXIT_AT + 1e-9)
 
 

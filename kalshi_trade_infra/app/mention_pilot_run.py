@@ -94,6 +94,7 @@ class Api:
 
 
 EXIT_GAP_S = 300.0
+EXITS_PER_MINUTE = 3   # a bad exit order costs at most three words a minute
 TRIGGER_MEMORY_S = 4 * 86400.0   # on_event_day spans the day before to the day after the ticker date
 
 
@@ -149,7 +150,7 @@ class Pilot:
             self.shard_cash = None
             self.log("balance unreadable: %s" % str(e)[:160])
 
-    def exit_position(self, p: Dict, yes_ask: float, resting: bool = False) -> bool:
+    def exit_position(self, p: Dict, yes_ask: float, resting: bool = False, why: str = "decided, not said") -> bool:
         """Buy YES for what is left of a decided NO position: immediate-or-cancel at the ask, or (resting)
         a post-only bid at EXIT_AT when the book offers no YES that cheap. Never more than Kalshi says we
         hold (so it can only close NO, never open YES), at most one exit per position every EXIT_GAP_S,
@@ -195,15 +196,14 @@ class Pilot:
             oid = r.get("order_id") or (r.get("order") or {}).get("order_id")
             if oid:
                 repo.add_exit(self.cur, oid, p["id"], p["ticker"], yes_ask, q, now)
-                self.log("EXIT %s x%.2f %s YES @%.2f (decided, not said)"
-                         % (p["ticker"], q, "bid resting" if resting else "buy", yes_ask))
+                self.log("EXIT %s x%.2f %s YES @%.2f (%s)"
+                         % (p["ticker"], q, "bid resting" if resting else "buy", yes_ask, why))
             return True
         self.exit_refused[int(p["id"])] = now
         return True   # counts as this minute's exit: a bad order format fails once, not once per word
 
     def settle(self) -> int:
-        n, risk, exited = 0, 0.0, False
-        now = self.now()
+        n, risk, exits = 0, 0.0, 0
         for p in repo.open_positions(self.cur, self.user_id):
             cost = float(p["cost"]) + float(p["fees"])
             try:
@@ -216,15 +216,17 @@ class Pilot:
                 ask = m.get("yes_ask_dollars")
                 ask = float(ask) if ask not in (None, "") else None
                 risk += mp.position_risk(float(p["qty"]), cost, ask)
-                trig = self.triggers.at.get(p.get("event_ticker") or event_of(p["ticker"]))
-                closed = trig is None or now >= trig + mp.HOLD_S
                 if (m.get("status") or "active") != "active":
                     continue   # trading halted until Kalshi settles (409 market_inactive): nothing to sell into
-                if not exited and mp.should_exit(ask, closed):
-                    exited = self.exit_position(p, ask)   # one exit a minute: a bad one costs one word
-                elif not exited and mp.should_bid_exit(_f(m.get("yes_bid_dollars")), _f(m.get("last_price_dollars")),
-                                                       closed):
-                    exited = self.exit_position(p, mp.EXIT_AT, resting=True)
+                if exits >= EXITS_PER_MINUTE:
+                    continue
+                bid = _f(m.get("yes_bid_dollars"))
+                if mp.should_exit(ask):
+                    exits += self.exit_position(p, ask)
+                elif mp.should_exit_said(bid, ask):
+                    exits += self.exit_position(p, ask, why="said")
+                elif mp.should_bid_exit(bid, _f(m.get("last_price_dollars"))):
+                    exits += self.exit_position(p, mp.EXIT_AT, resting=True)
                 continue
             qty = float(p["qty"])
             _, _, pnl = settlement_terms(result, "no", qty, float(p["cost"]) / qty, float(p["fees"]))
