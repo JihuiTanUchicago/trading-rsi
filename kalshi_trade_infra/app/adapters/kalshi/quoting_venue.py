@@ -91,12 +91,21 @@ class KalshiQuotingVenue:
     def cancel(self, order_id: str) -> None:
         if not order_id:
             return
+        o = self._orders.get(order_id) or self._known.get(order_id)
         try:
-            self.api.cancel(order_id)
+            self._cancel(order_id, o.instrument.symbol if o is not None else None)
         except Exception as e:  # noqa: BLE001 - keep it in view as working; the next step retries
             self.log("cancel %s failed: %s" % (order_id[:12], str(e)[:160]))
             return
         self._orders.pop(order_id, None)
+
+    def _cancel(self, order_id: str, ticker: Optional[str]) -> None:
+        """Cancel on the order's own shard. A cancel without a route goes to shard 0, and an order on the
+        crypto shard answers 404 there while it keeps resting (2026-11-25: every reprice stacked)."""
+        if ticker:
+            self.api.cancel(order_id, ticker=ticker)
+        else:
+            self.api.cancel(order_id)
 
     def open_orders(self) -> Sequence[RestingOrder]:
         return [o for o in self._orders.values() if o.qty > 1e-9]
@@ -151,11 +160,13 @@ class KalshiQuotingVenue:
         """Cancel every resting order with our client prefix, ours in view or strays from an earlier run."""
         n = 0
         page = self.api.private(ORDERS_PATH, {"status": "resting", "limit": 200}) or {}
-        ids = {o["order_id"] for o in page.get("orders") or []
-               if str(o.get("client_order_id") or "").startswith(self.prefix) and o.get("order_id")}
-        for oid in ids | set(self._orders):
+        tickers = {o["order_id"]: o.get("ticker") for o in page.get("orders") or []
+                   if str(o.get("client_order_id") or "").startswith(self.prefix) and o.get("order_id")}
+        for oid, o in self._orders.items():
+            tickers[oid] = o.instrument.symbol
+        for oid, tk in tickers.items():
             try:
-                self.api.cancel(oid)
+                self._cancel(oid, tk)
                 n += 1
             except Exception as e:  # noqa: BLE001
                 self.log("cancel_all %s failed: %s" % (oid[:12], str(e)[:160]))

@@ -203,9 +203,14 @@ class LiveApi:
 
     def __init__(self, cash):
         self.cash, self.creds, self.transfers, self.resting, self.placed, self.cancelled = cash, "creds", [], [], [], []
-        self.refuse = self.hide_listing = self.cancel_fails = False
+        self.refuse = self.hide_listing = self.cancel_fails = self.misroute = False
+        self.routes = []
 
     def private(self, path, params=None):
+        if "/portfolio/orders/" in path:
+            oid = path.rsplit("/", 1)[1]
+            live = any(o["order_id"] == oid for o in self.resting)
+            return {"order": {"order_id": oid, "status": "resting" if live else "canceled"}}
         if path.endswith("/balance"):
             return {"balance_breakdown": [{"exchange_index": k, "balance": v} for k, v in self.cash.items()]}
         if path.endswith("/fills"):
@@ -225,13 +230,16 @@ class LiveApi:
             raise RuntimeError("POST failed 403: location attestation")
         self.placed.append(body)
         oid = "o%d" % len(self.placed)
-        self.resting.append({"order_id": oid, "client_order_id": body["client_order_id"]})
+        self.resting.append({"order_id": oid, "client_order_id": body["client_order_id"], "ticker": body["ticker"]})
         return {"order_id": oid}
 
-    def cancel(self, oid):
+    def cancel(self, oid, ticker=None, shard=None):
         if self.cancel_fails:
             raise RuntimeError("DELETE failed 500")
         self.cancelled.append(oid)
+        self.routes.append((ticker, shard))
+        if self.misroute and not ticker and shard is None:
+            return True                       # 11-25: a 404 on shard 0 while the order rests on shard 2
         self.resting = [o for o in self.resting if o["order_id"] != oid]
 
 
@@ -299,7 +307,71 @@ def test_open_order_ids_are_saved_and_a_later_run_cancels_them():
     p = _live_pilot(api, s3)
     oid = p.venue.post(InstrumentId("kalshi", "KXBTC-X-B1", "yes"), Side.BUY, 0.30, 3, "x")
     p.save_open_ids()
-    assert p.state["open_ids"] == [oid]
+    assert p.state["open_ids"] == [[oid, "KXBTC-X-B1"]]
     q = _live_pilot(api, s3)
     q.state = dict(p.state)                                                  # a new run after a crash
     assert q.cancel_saved() == 1 and oid in api.cancelled and q.state["open_ids"] == []
+
+
+def test_every_cancel_routes_to_the_orders_shard_and_the_probe_needs_kalshi_to_read_it_back_cancelled():
+    """11-25 02:02Z: cancels with no route went to shard 0, answered 404 ("gone") and the orders kept
+    resting on the crypto shard, so every reprice stacked one more order."""
+    api = LiveApi({0: 14.72, 2: 20.0})
+    p = _live_pilot(api, FakeS3())
+    assert p.live_preflight(api, 10, 20, 12, sleep=lambda s: None)
+    assert p.probe_info["status_after_cancel"] == "canceled"
+    assert api.routes and all(tk and tk.startswith("KXBTC") for tk, _ in api.routes)
+    # had the route been lost, the read-back keeps the pilot from quoting
+    api2 = LiveApi({0: 14.72, 2: 20.0})
+    api2.misroute = True
+    q = _live_pilot(api2, FakeS3())
+    q.venue._cancel = lambda oid, tk: api2.cancel(oid)             # the old, unrouted cancel
+    assert not q.live_preflight(api2, 10, 20, 12, sleep=lambda s: None)
+    assert "not confirmed" in q.waiting and "resting" in q.waiting
+
+
+def test_saved_ids_from_before_the_ticker_was_kept_cancel_on_the_crypto_shard():
+    api = LiveApi({0: 14.72, 2: 20.0})
+    p = _live_pilot(api, FakeS3())
+    p.state = {"open_ids": ["old1"]}
+    assert p.cancel_saved() == 1 and api.routes == [(None, bp.CRYPTO_SHARD)]
+
+
+def test_a_contract_net_past_the_approved_size_halts_the_pilot_for_good():
+    from types import SimpleNamespace
+    api = LiveApi({0: 14.72, 2: 20.0})
+    p = _live_pilot(api, FakeS3())                                   # max_inventory 10 here
+    no = InstrumentId("kalshi", "KXBTC-X-B1", "no")
+    yes = InstrumentId("kalshi", "KXBTC-X-B1", "yes")
+    held = {no: SimpleNamespace(qty=20.0, avg_price=0.89), yes: SimpleNamespace(qty=10.0, avg_price=0.09)}
+    p.loop.book = SimpleNamespace(open_positions=lambda: held)
+    assert p.inventory_breach() == ""                                # net -10: at the cap, not past it
+    held[no].qty = 21.0
+    assert p.inventory_breach() == "KXBTC-X-B1 net -11 past the size cap 10"
+    p.halt("INVENTORY BREACH: " + p.inventory_breach())
+    assert p.stopped and p.state["stopped"]
+
+
+def test_an_order_we_cancelled_that_kalshi_still_lists_twice_halts_the_pilot():
+    api = LiveApi({0: 14.72, 2: 20.0})
+    p = _live_pilot(api, FakeS3())
+    api.misroute = True
+    p.venue._cancel = lambda oid, tk: api.cancel(oid)                # the old, unrouted cancel
+    oid = p.venue.post(InstrumentId("kalshi", "KXBTC-X-B1", "yes"), Side.BUY, 0.30, 3, "x")
+    api.resting[-1]["client_order_id"] = run.CLIENT_PREFIX + "abc"
+    p.venue.cancel(oid)
+    assert p.venue.open_orders() == []
+    assert p.stray_check() == ""                                     # one read: may be the listing lag
+    assert "still resting" in p.stray_check()                        # two in a row: it is resting
+
+
+def test_the_api_cancel_routes_by_market_ticker_or_shard():
+    from app.mention_pilot_run import Api
+    paths = []
+    api = Api("creds", delete_auth=lambda path, credentials=None: paths.append(path) or {})
+    api.cancel("o1")
+    api.cancel("o2", ticker="KXBTC-26NOV2422-B59250")
+    api.cancel("o3", shard=2)
+    assert paths == ["/trade-api/v2/portfolio/events/orders/o1",
+                     "/trade-api/v2/portfolio/events/orders/o2?market_ticker=KXBTC-26NOV2422-B59250",
+                     "/trade-api/v2/portfolio/events/orders/o3?exchange_index=2"]

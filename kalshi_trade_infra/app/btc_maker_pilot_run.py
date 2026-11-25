@@ -138,6 +138,7 @@ class Pilot:
         self.cap = float(os.getenv("TAU_BTC_MAKER_PILOT_COLLATERAL_CAP", "20"))
         self.account: Dict = {}       # live: the crypto shard's cash at this run's start vs when the pilot went live
         self.waiting = ""             # live: why this run did not start quoting
+        self.strays: set = set()      # live: cancelled orders Kalshi still listed on the last stray check
 
     # --- state ------------------------------------------------------------------------------
     def load_state(self) -> Dict:
@@ -236,29 +237,55 @@ class Pilot:
             sleep(1.0)
         self.venue.cancel(oid)
         cancelled = all(o.order_id != oid for o in self.venue.open_orders())
+        status = self.order_status(oid, sleep) if cancelled else ""
         self.probe_info = {"ticker": m.ticker, "order_id": oid, "seen_in_listing": seen, "listing_count": listed,
-                           "cancelled": cancelled}
+                           "cancelled": cancelled, "status_after_cancel": status}
         self.log("probe %s" % json.dumps(self.probe_info))
         if not cancelled:
             self.venue.cancel_all()
             return self.wait("probe order accepted but its cancel failed")
+        # The cancel call answering is not enough: on 11-25 every cancel answered 404 ("gone") while the
+        # order kept resting on the crypto shard, and the "cancelled" probe filled 11 minutes later.
+        if status != "canceled":
+            self.venue.cancel_all()
+            return self.wait("probe cancel not confirmed by Kalshi (order status %r)" % (status or "unread"))
         if not seen:
             self.log("the resting-orders listing did not show the probe; stray sweeps rely on saved order ids")
         self.waiting = ""
         return True
 
+    def order_status(self, oid: str, sleep=time.sleep, tries: int = 5) -> str:
+        """The order's status as Kalshi reads it back: 'canceled', 'executed' or 'resting'. Reads lag a
+        write, so a 404 or a stale 'resting' is read again, a second apart."""
+        status = ""
+        for i in range(tries):
+            try:
+                o = (self.venue.api.private(ORDERS_LIST_PATH + "/" + oid) or {}).get("order") or {}
+                status = str(o.get("status") or "")
+            except Exception as e:  # noqa: BLE001 - a 404 just after the write is normal
+                self.log("order %s read failed: %s" % (oid[:12], str(e)[:120]))
+            if status in ("canceled", "executed"):
+                return status
+            if i < tries - 1:
+                sleep(1.0)
+        return status
+
     def save_open_ids(self) -> None:
         """Live order ids in state.json, so a run killed mid-hour leaves nothing the next run cannot cancel."""
-        ids = sorted(o.order_id for o in self.venue.open_orders())
+        ids = sorted([o.order_id, o.instrument.symbol] for o in self.venue.open_orders())
         if ids != self.state.get("open_ids", []):
             self.state["open_ids"] = ids
             self.put_state()
 
     def cancel_saved(self) -> int:
         n = 0
-        for oid in self.state.get("open_ids") or []:
+        for item in self.state.get("open_ids") or []:
+            oid, tk = (item, None) if isinstance(item, str) else (item[0], item[1])
             try:
-                self.venue.api.cancel(oid)
+                if tk:
+                    self.venue.api.cancel(oid, ticker=tk)
+                else:
+                    self.venue.api.cancel(oid, shard=bp.CRYPTO_SHARD)
                 n += 1
             except Exception as e:  # noqa: BLE001
                 self.log("cancel saved %s failed: %s" % (oid[:12], str(e)[:160]))
@@ -339,6 +366,10 @@ class Pilot:
         collateral = self.venue.resting_collateral() + bp.position_collateral(self.loop.book)
         self.peak_collateral = max(self.peak_collateral, collateral)
         v = bp.guard(pnl, collateral, float(os.getenv("TAU_BTC_MAKER_PILOT_LOSS_STOP", "15")), self.cap)
+        breach = self.inventory_breach()
+        if breach:
+            self.halt("INVENTORY BREACH: " + breach)
+            return
         if v.stop:
             self.log("LOSS STOP: %s; cancelling everything and stopping for good" % v.reason)
             self.venue.cancel_all()
@@ -365,6 +396,44 @@ class Pilot:
         # Cancels that rotate a contract out of the universe, as opposed to repricing one still quoted.
         self.counts["rotations"] += sum(1 for oid in out.cancels if working.get(oid) not in in_u)
         self.note_fills(out.fills)
+
+    def inventory_breach(self) -> str:
+        """A contract whose net holding (YES - NO, what settles and what the quoting loop caps) passed
+        max_inventory, Todd's approved size. The loop sizes every quote to the room left under the cap,
+        so this only happens when orders we believe cancelled are still resting (11-25: 60 NO on one
+        contract at max_inventory 3)."""
+        net: Dict[str, float] = {}
+        for iid, pos in self.loop.book.open_positions().items():
+            net[iid.symbol] = net.get(iid.symbol, 0.0) + (pos.qty if iid.outcome == "yes" else -pos.qty)
+        for tk, q in sorted(net.items()):
+            if abs(q) > self.cfg.max_inventory + 1e-9:
+                return "%s net %+.0f past the size cap %.0f" % (tk, q, self.cfg.max_inventory)
+        return ""
+
+    def stray_check(self) -> str:
+        """Our orders Kalshi still lists as resting that we cancelled: seen on two reads in a row (the
+        listing lags a write by a moment, never by a whole check interval). Live only."""
+        try:
+            page = self.venue.api.private(ORDERS_LIST_PATH, {"status": "resting", "limit": 200}) or {}
+        except Exception as e:  # noqa: BLE001 - a missed read just waits for the next one
+            self.log("stray check read failed: %s" % str(e)[:120])
+            return ""
+        mine = {o.order_id for o in self.venue.open_orders()}
+        listed = {o.get("order_id") for o in page.get("orders") or []
+                  if str(o.get("client_order_id") or "").startswith(CLIENT_PREFIX) and o.get("order_id")}
+        stray = listed - mine
+        both = stray & self.strays
+        self.strays = stray
+        if both:
+            return "%d cancelled order(s) still resting on Kalshi, e.g. %s" % (len(both), sorted(both)[0][:12])
+        return ""
+
+    def halt(self, why: str) -> None:
+        self.log("HALT: %s. Cancelling everything and stopping for good (delete state.json's stopped flag "
+                 "to resume)" % why)
+        self.venue.cancel_all()
+        self.stopped = True
+        self.state["stopped"] = True
 
     def book_only(self) -> None:
         self.note_fills(self.loop.book_fills())
@@ -497,6 +566,9 @@ def main() -> None:  # pragma: no cover - wiring
             if live and time.time() - last_ids >= 10:
                 last_ids = time.time()
                 pilot.save_open_ids()
+                stray = pilot.stray_check()
+                if stray:
+                    pilot.halt("STRAY ORDERS: " + stray)
             if time.time() - last_report >= 60:
                 last_report = time.time()
                 pilot.report()
