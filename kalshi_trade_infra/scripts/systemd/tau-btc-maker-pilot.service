@@ -6,16 +6,18 @@ Type=simple
 WorkingDirectory=/opt/kalshi
 MemoryMax=512M
 TimeoutStopSec=90
-# Todd 2026-11-24 23:43Z (card "Yes, plus fund BTC maker"): live at size 10, $50 loss stop, ~$250 on the
-# crypto shard. Until that cash is there (moved once from a deposit on shard 0) each run only waits.
+# Todd 2026-11-24 23:43Z approved live at size 10 with ~$250, but cannot deposit. On 2026-11-25 00:10Z
+# (card "Split the cash now") he chose: $20 moves out of the mention pilot's cash today, and the maker
+# runs live at size 3 with a $10 loss stop; the mention pilot keeps ~$15. The $20 moves once from
+# shard 0 to the crypto shard; until it is there each run only waits.
 # Off switch: TAU_BTC_MAKER_PILOT_ENABLED=0 in /opt/kalshi/.env.app (sourced after these, so it wins).
 Environment=TAU_BTC_MAKER_PILOT_ENABLED=1
 Environment=TAU_BTC_MAKER_PILOT_DRY_RUN=0
-Environment=TAU_BTC_MAKER_PILOT_MAX_INVENTORY=10
-Environment=TAU_BTC_MAKER_PILOT_QUOTE_SIZE=10
-Environment=TAU_BTC_MAKER_PILOT_LOSS_STOP=50
-Environment=TAU_BTC_MAKER_PILOT_COLLATERAL_CAP=240
-Environment=TAU_BTC_MAKER_PILOT_FUND_USD=250
-Environment=TAU_BTC_MAKER_PILOT_KEEP_ON_SHARD0=30
+Environment=TAU_BTC_MAKER_PILOT_MAX_INVENTORY=3
+Environment=TAU_BTC_MAKER_PILOT_QUOTE_SIZE=3
+Environment=TAU_BTC_MAKER_PILOT_LOSS_STOP=10
+Environment=TAU_BTC_MAKER_PILOT_COLLATERAL_CAP=18
+Environment=TAU_BTC_MAKER_PILOT_FUND_USD=20
+Environment=TAU_BTC_MAKER_PILOT_KEEP_ON_SHARD0=12
 KillSignal=SIGTERM
 ExecStart=/bin/bash -c 'set -a; . /opt/kalshi/.env.aws; . /opt/kalshi/.env.app; set +a; unset AWS_PROFILE; exec /opt/kalshi/.venv313/bin/python -u -m app.btc_maker_pilot_run >> /opt/kalshi/logs/btc_maker_pilot.log 2>&1'

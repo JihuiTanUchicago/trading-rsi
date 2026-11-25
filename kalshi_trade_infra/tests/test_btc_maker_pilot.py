@@ -267,3 +267,11 @@ def test_a_refused_probe_means_no_quoting():
     api.refuse = True
     p = _live_pilot(api, FakeS3())
     assert not p.live_preflight(api, 50, 250, 30, sleep=lambda s: None) and "probe order refused" in p.waiting
+
+
+def test_the_split_cash_plan_moves_twenty_and_leaves_the_mention_pilot_its_rest():
+    """Todd 2026-11-25 00:10Z: $20 out of the mention pilot's ~$35, size 3, $10 stop (unit env)."""
+    p = bp.funding_plan({0: 34.72}, 20, 12)
+    assert not p.ready and p.transfer == 20.0
+    assert bp.funding_plan({0: 30.0}, 20, 12).transfer == 0.0                   # positions still out: wait
+    assert bp.funding_plan({0: 14.72, 2: 20.0}, 20, 12).ready
