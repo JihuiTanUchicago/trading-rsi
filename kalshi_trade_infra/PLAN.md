@@ -15,6 +15,11 @@ This lifts BTC-only and the Sports/Weather/Crypto data rule for this watcher onl
   and writes latest.json.
 - `tau-implication-watch` (4h runs, restarted by its timer): polls the linked markets every 5s, records
   each trigger with paper fills and follow-up books at +60s/+300s under research-watch/implication/triggers/.
+- Fix 2026-11-25 (first map, 00:30Z): shared-word union-find chained 3,929 of 12,213 open events into one
+  blob cut to 60 markets, so the map held 36 clusters, 52 links and 32 watched markets, and one link was
+  wrong ("blue tsunami YES forces Dem House <= 249" at 0.95). Clusters are now per-event neighbourhoods
+  (idf cosine over title words, outcome names and the date code; ~1,850 clusters, busiest first), and a
+  second skeptical LLM read must confirm each link before it is traded. Call cap 240/day (both reads).
 - Pre-registered verdict, ONE look at 15 settled triggers with a fill: kill below +5c net per contract,
   else pass and bring Todd a live-size card. Expected ~2-6 weeks at a few triggers a week.
 
