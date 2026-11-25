@@ -294,6 +294,20 @@ class Pilot:
             self.put_state()
         return n
 
+    def report_stopped_account(self, api) -> None:
+        """A stopped live pilot still reads (never trades) the crypto shard's cash each run, so the report
+        keeps showing Todd's account value against the baseline while it waits on his call to resume."""
+        start = self.state.get("live_start_cash")
+        shard = int(self.state.get("shard", bp.CRYPTO_SHARD))
+        try:
+            have = bp.shard_cash(api.private(BALANCE_PATH) or {}).get(shard, 0.0)
+        except Exception as e:  # noqa: BLE001
+            self.log("stopped: balance read failed: %s" % str(e)[:120])
+            return
+        self.account = {"shard": shard, "cash_at_run_start": round(have, 2), "live_start_cash": start,
+                        "pnl_since_live": round(have - float(start), 2) if start is not None else None}
+        self.wait("stopped for good by the loss stop; resuming needs Todd's call")
+
     def carried(self) -> float:
         return float(self.state.get("carried_%s" % ("live" if self.live else "dry"), 0.0))
 
@@ -539,6 +553,8 @@ def main() -> None:  # pragma: no cover - wiring
         pilot.cancel_saved()
     if pilot.stopped:
         pilot.log("stopped for good by the loss stop; delete state.json's stopped flag to resume")
+        if live:
+            pilot.report_stopped_account(venue.api)
         time.sleep(600)
         return
     if live and held_btc(venue.api):
