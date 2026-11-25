@@ -460,11 +460,18 @@ def _held(store, ex, tk, qty=3.0, cost=2.40, status="active", ask=0.01, pid=1):
     ex.held[tk] = -qty
 
 
-def test_should_exit_only_after_the_window_on_a_decided_no():
-    assert mp.should_exit(0.01, True) and mp.should_exit(0.02, True)
-    assert not mp.should_exit(0.03, True)
-    assert not mp.should_exit(0.01, False)      # event still live: the word may yet be said
-    assert not mp.should_exit(None, True)
+def test_should_exit_takes_the_book_only_at_1c():
+    assert mp.should_exit(0.01)
+    assert not mp.should_exit(0.02)               # 2c: rest a 1c bid instead (NO at 99c, no fee)
+    assert not mp.should_exit(None)
+    assert not mp.should_exit(0.0)
+
+
+def test_should_exit_said_only_while_the_no_still_has_a_bid():
+    assert mp.should_exit_said(0.98, 0.99) and mp.should_exit_said(0.97, 0.98)
+    assert not mp.should_exit_said(0.98, 1.00)      # nobody bids NO: nothing to sell into
+    assert not mp.should_exit_said(0.55, 0.99)      # disputed (AICO 11-23 fell 99c -> 55c): hold
+    assert not mp.should_exit_said(None, 0.99)
 
 
 def test_a_decided_winner_is_sold_back_once_and_frees_the_loss_room(world):
@@ -488,6 +495,14 @@ def test_a_decided_winner_is_sold_back_once_and_frees_the_loss_room(world):
     assert pilot.realized == pytest.approx(3 * 0.99 - 2.40 - 0.01)
     assert pilot.open_cost == pytest.approx(2.46)
     assert len([b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]) == 1
+
+
+def test_a_2c_ask_gets_a_resting_1c_bid_not_a_taker_buy(world):
+    pilot, store, ex, clock = world
+    _held(store, ex, H + "-EPST", ask=0.02)
+    pilot.step()
+    b = ex.placed[0]
+    assert b["price"] == "0.0100" and b["post_only"] is True and b["time_in_force"] == "good_till_canceled"
 
 
 def test_an_exit_never_sells_more_than_kalshi_holds_or_twice_inside_the_gap(world):
@@ -516,24 +531,37 @@ def test_a_partial_exit_fill_leaves_the_rest_open_at_its_share_of_cost(world):
     assert pilot.realized == pytest.approx(0.99 - 0.80)
 
 
-def test_no_exit_while_the_event_is_live(world):
+def test_a_decided_winner_exits_while_the_event_is_still_live(world):
     pilot, store, ex, clock = world
     store.events[H] = clock["t"] - 60
     pilot = run.Pilot(None, pilot.api, 1, {"KXHILLARYMENTION"}, now=lambda: clock["t"], log=lambda m: None)
     _held(store, ex, H + "-EPST", ask=0.01)
     pilot.step()
-    assert not [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    exits = [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    assert [(b["ticker"], b["price"]) for b in exits] == [(H + "-EPST", "0.0100")]
 
 
-def test_one_exit_a_minute(world):
+def test_a_said_word_is_closed_at_the_yes_ask(world):
     pilot, store, ex, clock = world
-    _held(store, ex, H + "-EPST", ask=0.01)
-    _held(store, ex, H + "-BIDE", ask=0.01, pid=2)
+    _held(store, ex, H + "-IMPE", ask=0.99, cost=2.46)
+    ex.results[H + "-IMPE"]["yes_bid_dollars"] = "0.9800"
     pilot.step()
-    assert len(ex.placed) == 1
+    exits = [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    assert len(exits) == 1
+    b = exits[0]
+    assert b["side"] == "bid" and b["price"] == "0.9900" and b["count"] == "3.00"
+    assert b["time_in_force"] == "immediate_or_cancel"
+
+
+def test_at_most_three_exits_a_minute(world):
+    pilot, store, ex, clock = world
+    for i, w in enumerate(["EPST", "BIDE", "OBAM", "TRUM"]):
+        _held(store, ex, H + "-" + w, ask=0.01, pid=i + 1)
+    pilot.step()
+    assert len(ex.placed) == 3
     clock["t"] += 61
     pilot.step()
-    assert len(ex.placed) == 2 and {b["ticker"] for b in ex.placed} == {H + "-EPST", H + "-BIDE"}
+    assert len(ex.placed) == 4 and len({b["ticker"] for b in ex.placed}) == 4
 
 
 def test_an_exit_sells_a_fractional_holding_in_full(world):
@@ -564,16 +592,17 @@ def _thin(ex, tk, bid=0.0, ask=0.13, last=0.01):
                       "last_price_dollars": "%.4f" % last}
 
 
-def test_should_bid_exit_only_on_a_dead_looking_word_after_the_window():
-    assert mp.should_bid_exit(0.0, 0.01, True)
-    assert mp.should_bid_exit(0.02, 0.05, True)
-    assert not mp.should_bid_exit(0.0, 0.01, False)     # still live: the word may yet be said
-    assert not mp.should_bid_exit(0.0, 0.25, True)      # last print 25c: not decided
-    assert not mp.should_bid_exit(0.09, 0.01, True)     # someone pays 9c for YES: not decided
-    assert not mp.should_bid_exit(0.0, None, True)
+def test_should_bid_exit_only_on_a_dead_looking_word():
+    assert mp.should_bid_exit(0.01, 0.30, 0.02)   # YES offered at 2c: decided, rest at 1c
+    assert not mp.should_bid_exit(0.01, 0.30, 0.03)
+    assert mp.should_bid_exit(0.0, 0.01)
+    assert mp.should_bid_exit(0.02, 0.05)
+    assert not mp.should_bid_exit(0.0, 0.25)      # last print 25c: not decided
+    assert not mp.should_bid_exit(0.09, 0.01)     # someone pays 9c for YES: not decided
+    assert not mp.should_bid_exit(0.0, None)
 
 
-def test_a_thin_dead_word_gets_a_resting_2c_bid_that_books_as_an_exit(world):
+def test_a_thin_dead_word_gets_a_resting_1c_bid_that_books_as_an_exit(world):
     pilot, store, ex, clock = world
     _held(store, ex, H + "-PROF", qty=2.97, cost=1.52)
     _thin(ex, H + "-PROF")                        # last 1c, but the cheapest YES offer is 13c
@@ -581,15 +610,15 @@ def test_a_thin_dead_word_gets_a_resting_2c_bid_that_books_as_an_exit(world):
     exits = [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
     assert len(exits) == 1
     b = exits[0]
-    assert b["side"] == "bid" and b["price"] == "0.0200" and b["count"] == "2.97"
+    assert b["side"] == "bid" and b["price"] == "0.0100" and b["count"] == "2.97"
     assert b["post_only"] is True and b["time_in_force"] == "good_till_canceled"
-    ex.fills = [{"fill_id": "x1", "order_id": "o1", "count_fp": "2.97", "yes_price_dollars": "0.0200",
+    ex.fills = [{"fill_id": "x1", "order_id": "o1", "count_fp": "2.97", "yes_price_dollars": "0.0100",
                  "fee_cost": "0.0000", "ts": clock["t"]}]
     clock["t"] += 61
     pilot.step()
     p = store.pos[H + "-PROF"]
     assert p["status"] == "closed" and p["result"] == "sold"
-    assert pilot.realized == pytest.approx(2.97 * 0.98 - 1.52)
+    assert pilot.realized == pytest.approx(2.97 * 0.99 - 1.52)
 
 
 def test_a_resting_exit_bid_is_cancelled_before_the_next_so_bids_never_stack(world):
@@ -606,14 +635,15 @@ def test_a_resting_exit_bid_is_cancelled_before_the_next_so_bids_never_stack(wor
     assert ex.cancelled == ["o1"] and len(ex.placed) == 2
 
 
-def test_no_resting_exit_bid_while_the_word_can_still_be_said(world):
+def test_a_resting_exit_bid_goes_up_while_the_event_is_still_live(world):
     pilot, store, ex, clock = world
     store.events[H] = clock["t"] - 60
     pilot = run.Pilot(None, pilot.api, 1, {"KXHILLARYMENTION"}, now=lambda: clock["t"], log=lambda m: None)
     _held(store, ex, H + "-PROF", qty=3.0, cost=1.52)
     _thin(ex, H + "-PROF")
     pilot.step()
-    assert not [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    exits = [b for b in ex.placed if b["client_order_id"].startswith(mp.EXIT_PREFIX)]
+    assert len(exits) == 1 and exits[0]["post_only"] and exits[0]["price"] == "0.0100"
 
 
 def test_no_exit_once_kalshi_stops_trading_the_market(world):
