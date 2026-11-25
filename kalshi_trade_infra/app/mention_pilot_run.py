@@ -152,7 +152,7 @@ class Pilot:
 
     def exit_position(self, p: Dict, yes_ask: float, resting: bool = False, why: str = "decided, not said") -> bool:
         """Buy YES for what is left of a decided NO position: immediate-or-cancel at the ask, or (resting)
-        a post-only bid at EXIT_AT when the book offers no YES that cheap. Never more than Kalshi says we
+        a post-only bid at EXIT_BID when the book offers no YES that cheap. Never more than Kalshi says we
         hold (so it can only close NO, never open YES), at most one exit per position every EXIT_GAP_S,
         and any earlier exit order for the position is cancelled first, so resting bids never stack."""
         now = self.now()
@@ -225,8 +225,8 @@ class Pilot:
                     exits += self.exit_position(p, ask)
                 elif mp.should_exit_said(bid, ask):
                     exits += self.exit_position(p, ask, why="said")
-                elif mp.should_bid_exit(bid, _f(m.get("last_price_dollars"))):
-                    exits += self.exit_position(p, mp.EXIT_AT, resting=True)
+                elif mp.should_bid_exit(bid, _f(m.get("last_price_dollars")), ask):
+                    exits += self.exit_position(p, mp.EXIT_BID, resting=True)
                 continue
             qty = float(p["qty"])
             _, _, pnl = settlement_terms(result, "no", qty, float(p["cost"]) / qty, float(p["fees"]))
