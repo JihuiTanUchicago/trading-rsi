@@ -337,16 +337,32 @@ def test_saved_ids_from_before_the_ticker_was_kept_cancel_on_the_crypto_shard():
     assert p.cancel_saved() == 1 and api.routes == [(None, bp.CRYPTO_SHARD)]
 
 
-def test_a_contract_held_past_twice_the_cap_stops_the_pilot_for_good():
+def test_a_contract_net_past_the_approved_size_halts_the_pilot_for_good():
     from types import SimpleNamespace
     api = LiveApi({0: 14.72, 2: 20.0})
-    p = _live_pilot(api, FakeS3())                                   # max_inventory and quote_size 10 here
-    yid = InstrumentId("kalshi", "KXBTC-X-B1", "no")
-    held = {yid: SimpleNamespace(qty=20.0, avg_price=0.89)}
+    p = _live_pilot(api, FakeS3())                                   # max_inventory 10 here
+    no = InstrumentId("kalshi", "KXBTC-X-B1", "no")
+    yes = InstrumentId("kalshi", "KXBTC-X-B1", "yes")
+    held = {no: SimpleNamespace(qty=20.0, avg_price=0.89), yes: SimpleNamespace(qty=10.0, avg_price=0.09)}
     p.loop.book = SimpleNamespace(open_positions=lambda: held)
-    assert p.inventory_breach() == ""
-    held[yid].qty = 21.0
-    assert "KXBTC-X-B1 no x21 over 20" == p.inventory_breach()
+    assert p.inventory_breach() == ""                                # net -10: at the cap, not past it
+    held[no].qty = 21.0
+    assert p.inventory_breach() == "KXBTC-X-B1 net -11 past the size cap 10"
+    p.halt("INVENTORY BREACH: " + p.inventory_breach())
+    assert p.stopped and p.state["stopped"]
+
+
+def test_an_order_we_cancelled_that_kalshi_still_lists_twice_halts_the_pilot():
+    api = LiveApi({0: 14.72, 2: 20.0})
+    p = _live_pilot(api, FakeS3())
+    api.misroute = True
+    p.venue._cancel = lambda oid, tk: api.cancel(oid)                # the old, unrouted cancel
+    oid = p.venue.post(InstrumentId("kalshi", "KXBTC-X-B1", "yes"), Side.BUY, 0.30, 3, "x")
+    api.resting[-1]["client_order_id"] = run.CLIENT_PREFIX + "abc"
+    p.venue.cancel(oid)
+    assert p.venue.open_orders() == []
+    assert p.stray_check() == ""                                     # one read: may be the listing lag
+    assert "still resting" in p.stray_check()                        # two in a row: it is resting
 
 
 def test_the_api_cancel_routes_by_market_ticker_or_shard():

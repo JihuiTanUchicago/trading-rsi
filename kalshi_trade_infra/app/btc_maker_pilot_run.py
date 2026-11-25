@@ -138,6 +138,7 @@ class Pilot:
         self.cap = float(os.getenv("TAU_BTC_MAKER_PILOT_COLLATERAL_CAP", "20"))
         self.account: Dict = {}       # live: the crypto shard's cash at this run's start vs when the pilot went live
         self.waiting = ""             # live: why this run did not start quoting
+        self.strays: set = set()      # live: cancelled orders Kalshi still listed on the last stray check
 
     # --- state ------------------------------------------------------------------------------
     def load_state(self) -> Dict:
@@ -367,10 +368,7 @@ class Pilot:
         v = bp.guard(pnl, collateral, float(os.getenv("TAU_BTC_MAKER_PILOT_LOSS_STOP", "15")), self.cap)
         breach = self.inventory_breach()
         if breach:
-            self.log("INVENTORY BREACH: %s; orders are stacking past the size cap. Cancelling everything and "
-                     "stopping for good" % breach)
-            self.venue.cancel_all()
-            self.stopped = True
+            self.halt("INVENTORY BREACH: " + breach)
             return
         if v.stop:
             self.log("LOSS STOP: %s; cancelling everything and stopping for good" % v.reason)
@@ -400,14 +398,42 @@ class Pilot:
         self.note_fills(out.fills)
 
     def inventory_breach(self) -> str:
-        """A contract held past 2x max_inventory. The quoting loop stops adding at max_inventory and one
-        resting quote can overshoot it by a quote, so anything beyond twice the cap means orders we
-        believe cancelled are still resting (11-25: 60 NO on one contract at max_inventory 3)."""
-        limit = 2 * max(self.cfg.max_inventory, self.cfg.quote_size) + 1e-9
+        """A contract whose net holding (YES - NO, what settles and what the quoting loop caps) passed
+        max_inventory, Todd's approved size. The loop sizes every quote to the room left under the cap,
+        so this only happens when orders we believe cancelled are still resting (11-25: 60 NO on one
+        contract at max_inventory 3)."""
+        net: Dict[str, float] = {}
         for iid, pos in self.loop.book.open_positions().items():
-            if abs(pos.qty) > limit:
-                return "%s %s x%.0f over %.0f" % (iid.symbol, iid.outcome, abs(pos.qty), limit)
+            net[iid.symbol] = net.get(iid.symbol, 0.0) + (pos.qty if iid.outcome == "yes" else -pos.qty)
+        for tk, q in sorted(net.items()):
+            if abs(q) > self.cfg.max_inventory + 1e-9:
+                return "%s net %+.0f past the size cap %.0f" % (tk, q, self.cfg.max_inventory)
         return ""
+
+    def stray_check(self) -> str:
+        """Our orders Kalshi still lists as resting that we cancelled: seen on two reads in a row (the
+        listing lags a write by a moment, never by a whole check interval). Live only."""
+        try:
+            page = self.venue.api.private(ORDERS_LIST_PATH, {"status": "resting", "limit": 200}) or {}
+        except Exception as e:  # noqa: BLE001 - a missed read just waits for the next one
+            self.log("stray check read failed: %s" % str(e)[:120])
+            return ""
+        mine = {o.order_id for o in self.venue.open_orders()}
+        listed = {o.get("order_id") for o in page.get("orders") or []
+                  if str(o.get("client_order_id") or "").startswith(CLIENT_PREFIX) and o.get("order_id")}
+        stray = listed - mine
+        both = stray & self.strays
+        self.strays = stray
+        if both:
+            return "%d cancelled order(s) still resting on Kalshi, e.g. %s" % (len(both), sorted(both)[0][:12])
+        return ""
+
+    def halt(self, why: str) -> None:
+        self.log("HALT: %s. Cancelling everything and stopping for good (delete state.json's stopped flag "
+                 "to resume)" % why)
+        self.venue.cancel_all()
+        self.stopped = True
+        self.state["stopped"] = True
 
     def book_only(self) -> None:
         self.note_fills(self.loop.book_fills())
@@ -540,6 +566,9 @@ def main() -> None:  # pragma: no cover - wiring
             if live and time.time() - last_ids >= 10:
                 last_ids = time.time()
                 pilot.save_open_ids()
+                stray = pilot.stray_check()
+                if stray:
+                    pilot.halt("STRAY ORDERS: " + stray)
             if time.time() - last_report >= 60:
                 last_report = time.time()
                 pilot.report()
