@@ -31,7 +31,8 @@ import signal
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence
+from collections import deque
+from typing import Deque, Dict, List, Optional, Sequence
 
 from app.services import btc_maker_pilot as bp
 from trading_core.domain import InstrumentId
@@ -48,6 +49,7 @@ COINBASE_TICKER = "https://api.exchange.coinbase.com/products/BTC-USD/ticker"
 MAX_ERRORS = 5
 BALANCE_PATH = "/trade-api/v2/portfolio/balance"
 TRANSFER_PATH = "/trade-api/v2/portfolio/intra_exchange_instance_transfer"
+ORDERS_LIST_PATH = "/trade-api/v2/portfolio/orders"
 
 
 class ShadowVenue:
@@ -108,7 +110,14 @@ class Pilot:
     def __init__(self, public_get, venue, policy: Dict, cfg, s3=None, spot_get=None, log=None) -> None:
         self.get, self.venue, self.policy, self.cfg = public_get, venue, policy, cfg
         self.s3, self.spot_get = s3, spot_get
-        self.log = log or (lambda m: print("[btc-maker-pilot] %s" % m, flush=True))
+        base = log or (lambda m: print("[btc-maker-pilot] %s" % m, flush=True))
+        self.log_lines: Deque[str] = deque(maxlen=60)    # the box log is unreadable from outside: the report carries a tail
+
+        def _log(m: str) -> None:
+            self.log_lines.append("%s %s" % (datetime.now(timezone.utc).strftime("%H:%M:%S"), str(m)[:300]))
+            base(m)
+        self.log = _log
+        self.probe_info: Dict = {}
         self.live = venue.capabilities.sends_real_orders
         self.instruments: Dict = {}
         self.loop = QuotingLoop(venue, self.instruments, cfg, strategy_id="btc-maker-pilot")
@@ -201,9 +210,12 @@ class Pilot:
             self.state["stopped"] = True
             self.put_state()
             return self.wait("ACCOUNT LOSS STOP: shard %d cash $%.2f vs $%.2f when live began" % (shard, have, start))
-        return self.probe()
+        return self.probe(sleep)
 
-    def probe(self) -> bool:
+    def probe(self, sleep=time.sleep) -> bool:
+        """Rest one 1c YES bid for 1 contract and cancel it by id. Passing means Kalshi accepted the
+        post and the cancel (a 404 on cancel = already gone). Whether the resting-orders listing showed
+        it is recorded but not required: the first live run (11-25 01:02Z) never saw its probe there."""
         m = next((m for m in self.markets if (m.listed_mid or 0) >= 0.10), None)
         if m is None:
             return self.wait("no listed KXBTC contract to probe with")
@@ -211,15 +223,49 @@ class Pilot:
         oid = self.venue.post(yid, Side.BUY, 0.01, 1, "probe")
         if not oid:
             return self.wait("probe order refused (location attestation or shard cash?)")
-        self.venue.sync_orders()
-        resting = any(o.order_id == oid for o in self.venue.open_orders())
+        seen, listed = False, None
+        for _ in range(3):
+            try:
+                page = self.venue.api.private(ORDERS_LIST_PATH, {"status": "resting", "limit": 200}) or {}
+                ids = [o.get("order_id") for o in page.get("orders") or []]
+                listed, seen = len(ids), oid in ids
+            except Exception as e:  # noqa: BLE001 - a diagnostic only
+                self.log("probe listing read failed: %s" % str(e)[:160])
+            if seen:
+                break
+            sleep(1.0)
         self.venue.cancel(oid)
-        self.venue.sync_orders()
-        if not resting or any(o.order_id == oid for o in self.venue.open_orders()):
+        cancelled = all(o.order_id != oid for o in self.venue.open_orders())
+        self.probe_info = {"ticker": m.ticker, "order_id": oid, "seen_in_listing": seen, "listing_count": listed,
+                           "cancelled": cancelled}
+        self.log("probe %s" % json.dumps(self.probe_info))
+        if not cancelled:
             self.venue.cancel_all()
-            return self.wait("probe order did not rest and cancel cleanly")
+            return self.wait("probe order accepted but its cancel failed")
+        if not seen:
+            self.log("the resting-orders listing did not show the probe; stray sweeps rely on saved order ids")
         self.waiting = ""
         return True
+
+    def save_open_ids(self) -> None:
+        """Live order ids in state.json, so a run killed mid-hour leaves nothing the next run cannot cancel."""
+        ids = sorted(o.order_id for o in self.venue.open_orders())
+        if ids != self.state.get("open_ids", []):
+            self.state["open_ids"] = ids
+            self.put_state()
+
+    def cancel_saved(self) -> int:
+        n = 0
+        for oid in self.state.get("open_ids") or []:
+            try:
+                self.venue.api.cancel(oid)
+                n += 1
+            except Exception as e:  # noqa: BLE001
+                self.log("cancel saved %s failed: %s" % (oid[:12], str(e)[:160]))
+        if self.state.get("open_ids"):
+            self.state["open_ids"] = []
+            self.put_state()
+        return n
 
     def carried(self) -> float:
         return float(self.state.get("carried_%s" % ("live" if self.live else "dry"), 0.0))
@@ -340,6 +386,7 @@ class Pilot:
                "peak_collateral": round(self.peak_collateral, 2), "resting": len(self.venue.open_orders()),
                "markets": len(self.markets), "stopped": self.stopped, "spot": self.spot.last(),
                "started": self.started.isoformat(), "account": self.account, "waiting": self.waiting,
+               "probe": self.probe_info, "log": list(self.log_lines)[-40:],
                "fills": self.fill_log[-200:]}
         if self.s3 is not None:
             body = json.dumps(rep, default=str).encode()
@@ -409,6 +456,7 @@ def main() -> None:  # pragma: no cover - wiring
         return requests.get(url, timeout=3).json()
 
     pilot = Pilot(common.api_get, venue, policy, cfg, s3=s3, spot_get=spot_get)
+    venue.log = pilot.log                                   # refusals and cancel failures reach the report too
     stop = {"now": False}
 
     def _term(_sig, _frm):
@@ -418,6 +466,8 @@ def main() -> None:  # pragma: no cover - wiring
     pilot.log("start: %s mode, max_inventory %.0f, quote_size %.0f, carried $%.2f"
               % ("LIVE" if live else "dry-run", cfg.max_inventory, cfg.quote_size, pilot.carried()))
     pilot.venue.cancel_all()
+    if live:
+        pilot.cancel_saved()
     if pilot.stopped:
         pilot.log("stopped for good by the loss stop; delete state.json's stopped flag to resume")
         time.sleep(600)
@@ -432,7 +482,7 @@ def main() -> None:  # pragma: no cover - wiring
         time.sleep(120)
         return
     poll_s = float(os.getenv("TAU_BTC_MAKER_PILOT_POLL_S", "1" if live else "2"))
-    deadline, errors, last_report = run_deadline(time.time()), 0, 0.0
+    deadline, errors, last_report, last_ids = run_deadline(time.time()), 0, 0.0, 0.0
     try:
         while not stop["now"] and not pilot.stopped and time.time() < deadline:
             t0 = time.time()
@@ -444,12 +494,17 @@ def main() -> None:  # pragma: no cover - wiring
                 pilot.log("step error %d/%d: %r" % (errors, MAX_ERRORS, e))
                 if errors >= MAX_ERRORS:
                     break
+            if live and time.time() - last_ids >= 10:
+                last_ids = time.time()
+                pilot.save_open_ids()
             if time.time() - last_report >= 60:
                 last_report = time.time()
                 pilot.report()
             time.sleep(max(0.0, poll_s - (time.time() - t0)))
     finally:
         pilot.venue.cancel_all()
+        if not pilot.venue.open_orders():
+            pilot.state["open_ids"] = []
         pilot.book_only()
         pilot.save_state(bp.pilot_pnl(pilot.loop.book, pilot.mids, 0.0))
         pilot.report()

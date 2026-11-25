@@ -203,14 +203,14 @@ class LiveApi:
 
     def __init__(self, cash):
         self.cash, self.creds, self.transfers, self.resting, self.placed, self.cancelled = cash, "creds", [], [], [], []
-        self.refuse = False
+        self.refuse = self.hide_listing = self.cancel_fails = False
 
     def private(self, path, params=None):
         if path.endswith("/balance"):
             return {"balance_breakdown": [{"exchange_index": k, "balance": v} for k, v in self.cash.items()]}
         if path.endswith("/fills"):
             return {"fills": []}
-        return {"orders": list(self.resting)}
+        return {"orders": [] if self.hide_listing else list(self.resting)}
 
     def _post(self, path, body, credentials=None):
         assert path == run.TRANSFER_PATH and credentials == "creds"
@@ -229,6 +229,8 @@ class LiveApi:
         return {"order_id": oid}
 
     def cancel(self, oid):
+        if self.cancel_fails:
+            raise RuntimeError("DELETE failed 500")
         self.cancelled.append(oid)
         self.resting = [o for o in self.resting if o["order_id"] != oid]
 
@@ -275,3 +277,29 @@ def test_the_split_cash_plan_moves_twenty_and_leaves_the_mention_pilot_its_rest(
     assert not p.ready and p.transfer == 20.0
     assert bp.funding_plan({0: 30.0}, 20, 12).transfer == 0.0                   # positions still out: wait
     assert bp.funding_plan({0: 14.72, 2: 20.0}, 20, 12).ready
+
+
+def test_the_probe_passes_on_an_accepted_post_and_cancel_even_if_the_listing_misses_it():
+    """11-25 01:02Z: the first live probe never showed in /portfolio/orders, so the listing is a diagnostic."""
+    api = LiveApi({0: 14.72, 2: 20.0})
+    api.hide_listing = True
+    p = _live_pilot(api, FakeS3())
+    assert p.live_preflight(api, 10, 20, 12, sleep=lambda s: None)
+    assert p.probe_info["seen_in_listing"] is False and p.probe_info["cancelled"] and api.cancelled == ["o1"]
+    rep = p.report()
+    assert rep["probe"]["order_id"] == "o1" and any("probe" in line for line in rep["log"])
+    api.cancel_fails = True
+    p = _live_pilot(api, FakeS3())
+    assert not p.live_preflight(api, 10, 20, 12, sleep=lambda s: None) and "cancel failed" in p.waiting
+
+
+def test_open_order_ids_are_saved_and_a_later_run_cancels_them():
+    api = LiveApi({0: 14.72, 2: 20.0})
+    s3 = FakeS3()
+    p = _live_pilot(api, s3)
+    oid = p.venue.post(InstrumentId("kalshi", "KXBTC-X-B1", "yes"), Side.BUY, 0.30, 3, "x")
+    p.save_open_ids()
+    assert p.state["open_ids"] == [oid]
+    q = _live_pilot(api, s3)
+    q.state = dict(p.state)                                                  # a new run after a crash
+    assert q.cancel_saved() == 1 and oid in api.cancelled and q.state["open_ids"] == []
