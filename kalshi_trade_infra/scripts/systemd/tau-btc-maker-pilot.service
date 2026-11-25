@@ -10,9 +10,13 @@ TimeoutStopSec=90
 # (card "Split the cash now") he chose: $20 moves out of the mention pilot's cash today, and the maker
 # runs live at size 3 with a $10 loss stop; the mention pilot keeps ~$15. The $20 moves once from
 # shard 0 to the crypto shard; until it is there each run only waits.
+# 2026-11-25 02:25Z: back to DRY RUN. Live cancels on the crypto shard did not take (the DELETE answered 404,
+# read as "already gone"), so repriced orders kept resting and stacked: the 1c probe "cancelled" at 02:02Z
+# filled at 02:13Z, and one contract reached 60 NO / 39 YES against max_inventory 3. Live returns only
+# with a cancel that is verified gone on the exchange.
 # Off switch: TAU_BTC_MAKER_PILOT_ENABLED=0 in /opt/kalshi/.env.app (sourced after these, so it wins).
 Environment=TAU_BTC_MAKER_PILOT_ENABLED=1
-Environment=TAU_BTC_MAKER_PILOT_DRY_RUN=0
+Environment=TAU_BTC_MAKER_PILOT_DRY_RUN=1
 Environment=TAU_BTC_MAKER_PILOT_MAX_INVENTORY=3
 Environment=TAU_BTC_MAKER_PILOT_QUOTE_SIZE=3
 Environment=TAU_BTC_MAKER_PILOT_LOSS_STOP=10
